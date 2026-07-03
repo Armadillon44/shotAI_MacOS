@@ -1,0 +1,253 @@
+{
+  "version": 1,
+  "id": "b7e2c4d1-9f3a-4e8b-a2c5-6d1f8e9a0b3c",
+  "title": "Export the monthly orders report from Acme ERP",
+  "createdWith": "shotAI",
+  "createdAt": "2026-06-30T18:22:05.311Z",
+  "updatedAt": "2026-07-01T09:14:47.902Z",
+  "captureSettings": {
+    "mode": "auto"
+  },
+  "steps": [
+    {
+      "id": "3f8e2b6a-1c4d-4a7e-8b2f-5d9c0e1a3b7f",
+      "order": 1,
+      "screenshot": "shots/step-0001.png",
+      "trigger": "click",
+      "click": {
+        "global": {
+          "x": 1650,
+          "y": 480
+        },
+        "image": {
+          "x": 1403,
+          "y": 408
+        },
+        "button": "left",
+        "imageScale": 0.85
+      },
+      "monitor": {
+        "id": 1,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 2560,
+          "height": 1440
+        },
+        "scaleFactor": 1.25
+      },
+      "window": {
+        "app": "chrome.exe",
+        "title": "Orders · Acme ERP — Google Chrome",
+        "pid": 10432,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 2560,
+          "height": 1400
+        }
+      },
+      "element": {
+        "available": true,
+        "name": "Export",
+        "controlType": "Button",
+        "bounds": {
+          "x": 1560,
+          "y": 450,
+          "width": 180,
+          "height": 56
+        }
+      },
+      "caption": "Click 'Export' button in chrome.exe",
+      "note": "Use the blue Export button in the toolbar, not File > Save.",
+      "crop": null,
+      "annotations": []
+    },
+    {
+      "id": "9a1b3c5d-7e2f-4b8a-9c1d-2e4f6a8b0c3e",
+      "order": 2,
+      "screenshot": "shots/step-0002.png",
+      "trigger": "click",
+      "click": {
+        "global": {
+          "x": 900,
+          "y": 600
+        },
+        "image": {
+          "x": 765,
+          "y": 510
+        },
+        "button": "right",
+        "imageScale": 0.85
+      },
+      "monitor": {
+        "id": 1,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 2560,
+          "height": 1440
+        },
+        "scaleFactor": 1.25
+      },
+      "window": {
+        "app": "chrome.exe",
+        "title": "Orders · Acme ERP — Google Chrome",
+        "pid": 10432,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 2560,
+          "height": 1400
+        }
+      },
+      "element": {
+        "available": true,
+        "name": "Orders table",
+        "controlType": "Table",
+        "bounds": {
+          "x": 340,
+          "y": 320,
+          "width": 1800,
+          "height": 900
+        }
+      },
+      "caption": "Right-click 'Orders table' in chrome.exe",
+      "note": "",
+      "crop": {
+        "x": 200,
+        "y": 120,
+        "width": 1200,
+        "height": 700
+      },
+      "annotations": [
+        {
+          "id": "a-rect-4d2f8b1c",
+          "type": "rect",
+          "x": 320,
+          "y": 260,
+          "width": 520,
+          "height": 180,
+          "cornerRadius": 10,
+          "stroke": "#e11d48",
+          "strokeWidth": 4,
+          "fill": null
+        },
+        {
+          "id": "a-blur-7e9a3c5d",
+          "type": "blur",
+          "x": 900,
+          "y": 500,
+          "width": 360,
+          "height": 130,
+          "mode": "pixelate",
+          "blockSize": 14
+        },
+        {
+          "id": "a-stamp-2b6e0f4a",
+          "type": "stamp",
+          "x": 360,
+          "y": 300,
+          "n": 1,
+          "radius": 26,
+          "fill": "#e11d48",
+          "textColor": "#ffffff"
+        }
+      ],
+      "markerBaked": true,
+      "flattened": "export/.render/9a1b3c5d-7e2f-4b8a-9c1d-2e4f6a8b0c3e.png",
+      "renderRev": 3,
+      "reportZoom": 1.5,
+      "reportPanX": 0.5,
+      "reportPanY": 0.4
+    },
+    {
+      "id": "5c7d9e1f-3a5b-4c8d-a0b2-4d6e8f0a2c5b",
+      "order": 3,
+      "kind": "text",
+      "screenshot": "",
+      "trigger": "hotkey",
+      "click": null,
+      "monitor": null,
+      "window": null,
+      "element": {
+        "available": false,
+        "name": null,
+        "controlType": null,
+        "bounds": null
+      },
+      "caption": "",
+      "note": "",
+      "heading": "Before you begin",
+      "body": "Sign in to Acme ERP with an account that has the Reports role. The export needs pop-ups enabled for acme.example.com.",
+      "crop": null,
+      "annotations": []
+    },
+    {
+      "id": "1e3f5a7b-9c1d-4e6f-8a0b-3c5d7e9f1a4c",
+      "order": 4,
+      "kind": "text",
+      "screenshot": "",
+      "trigger": "hotkey",
+      "click": null,
+      "monitor": null,
+      "window": null,
+      "element": {
+        "available": false,
+        "name": null,
+        "controlType": null,
+        "bounds": null
+      },
+      "caption": "",
+      "note": "",
+      "heading": "",
+      "body": "All amounts are shown in USD.",
+      "callout": "note",
+      "crop": null,
+      "annotations": []
+    },
+    {
+      "id": "6b8c0d2e-4f6a-4b9c-8d0e-5f7a9b1c3d6f",
+      "order": 5,
+      "screenshot": "shots/step-0003.png",
+      "trigger": "hotkey",
+      "click": null,
+      "monitor": {
+        "id": 1,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 2560,
+          "height": 1440
+        },
+        "scaleFactor": 1.25
+      },
+      "window": {
+        "app": "chrome.exe",
+        "title": "Orders · Acme ERP — Google Chrome",
+        "pid": 10432,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 2560,
+          "height": 1400
+        }
+      },
+      "element": {
+        "available": false,
+        "name": null,
+        "controlType": null,
+        "bounds": null
+      },
+      "caption": "Capture: Orders · Acme ERP — Google Chrome",
+      "note": "",
+      "crop": null,
+      "annotations": []
+    }
+  ],
+  "intro": {
+    "heading": "Overview",
+    "body": "This SOP shows how to export the monthly orders report from Acme ERP in Google Chrome. It takes about two minutes."
+  },
+  "sopBackup": null
+}

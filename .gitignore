@@ -1,0 +1,14 @@
+# Xcode / SwiftPM
+DerivedData/
+build/
+.build/
+.swiftpm/
+xcuserdata/
+*.xcuserstate
+
+# macOS
+.DS_Store
+
+# Read-only reference clone of the Windows app (its own git repo — re-clone
+# from github.com/Armadillon44/shotAI; see CLAUDE.md).
+shotAI-original/
