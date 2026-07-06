@@ -42,6 +42,7 @@ An adversarial multi-dimension review ran on the Phase B code; the confirmed cor
 
 - Model tests: `swift test --package-path Packages/ShotModel`
 - Capture tests (headless pipeline + geometry + captions): `swift test --package-path Packages/CaptureKit`
+- **Live capture smoke test** (drives real SCK/AX/store; needs Screen Recording): `swift run --package-path Packages/CaptureKit CaptureSelfTest` — the macOS analog of the Windows `capture-selftest.ts`; prints `[capture-test] PASS/FAIL`.
 - Build app: `xcodebuild -project shotAI.xcodeproj -scheme shotAI -configuration Debug build`
 - The app's projects dir defaults to `~/shotAI Projects` (same as Windows).
 - TCC reset for wizard testing: `tccutil reset ScreenCapture|Accessibility|ListenEvent com.armadillon44.shotai` (grants are keyed to bundle id + signature; re-signs orphan them — symptom: nil tap / SCK userDeclined with the toggle apparently ON).
