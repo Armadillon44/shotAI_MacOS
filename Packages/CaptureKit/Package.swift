@@ -17,5 +17,10 @@ let package = Package(
     targets: [
         .target(name: "CaptureKit", dependencies: ["ShotModel"]),
         .testTarget(name: "CaptureKitTests", dependencies: ["CaptureKit"]),
+        // Live end-to-end smoke test that drives the REAL system services
+        // (needs Screen Recording; run: `swift run CaptureSelfTest`). The
+        // analog of the Windows capture-selftest.ts — the headless suite can't
+        // exercise SCK/AX.
+        .executableTarget(name: "CaptureSelfTest", dependencies: ["CaptureKit", "ShotModel"]),
     ]
 )
