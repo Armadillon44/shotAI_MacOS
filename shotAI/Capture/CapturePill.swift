@@ -13,6 +13,7 @@ final class CapturePillController {
     private var docked = false
     private let onAction: (PillAction) -> Void
     private var state = CaptureState.idle
+    private var error: String?
 
     static let pillSize = NSSize(width: 380, height: 52)
 
@@ -22,6 +23,7 @@ final class CapturePillController {
 
     func show(state: CaptureState, near mainWindow: NSWindow?) {
         self.state = state
+        self.error = nil // a fresh session starts with a clean pill
         let panel = ensurePanel()
         if !docked {
             dock(panel, near: mainWindow)
@@ -33,6 +35,12 @@ final class CapturePillController {
 
     func update(state: CaptureState) {
         self.state = state
+        render()
+    }
+
+    /// Reflect the latest capture error on the pill (nil clears it).
+    func update(error: String?) {
+        self.error = error
         render()
     }
 
@@ -80,7 +88,7 @@ final class CapturePillController {
 
     private func render() {
         guard let panel else { return }
-        let view = PillView(state: state, onAction: onAction)
+        let view = PillView(state: state, error: error, onAction: onAction)
         if let hosting = panel.contentView as? FirstMouseHostingView<PillView> {
             hosting.rootView = view
         } else {
@@ -99,17 +107,25 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 }
 
 enum PillAction {
-    case pause, resume, stop, discard
+    case pause, resume, stop, discard, dismissError
 }
 
 /// Pixel-faithful port of the Windows pill (toolbar/App.tsx + toolbar.css).
 struct PillView: View {
     let state: CaptureState
+    /// The latest capture error during this session, or nil. The main-window
+    /// alert is invisible while recording (the window is ordered out), so the
+    /// pill is the only place an in-session error can surface — the "a long
+    /// recording can never fail silently" invariant lives here.
+    let error: String?
     let onAction: (PillAction) -> Void
     @State private var pulsing = false
 
     private var active: Bool { state.status != .idle }
     private var paused: Bool { state.status == .paused }
+    /// Only surface the error badge while a session exists — a stale error can
+    /// never linger on the idle "shotAI" pill.
+    private var showError: Bool { active && error != nil }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -120,7 +136,13 @@ struct PillView: View {
                 label
             }
             .padding(.leading, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
+
+            if showError, let error {
+                errorBadge(error)
+            }
+
+            Spacer(minLength: 4)
 
             if active {
                 controls
@@ -132,11 +154,42 @@ struct PillView: View {
         .background(Color(hex: "#1f2330"))
         .overlay(alignment: .top) {
             if active {
-                Rectangle().fill(Color(hex: "#4f46e5")).frame(height: 2)
+                // Accent bar tints red while an error is unacknowledged.
+                Rectangle().fill(Color(hex: showError ? "#ef4444" : "#4f46e5")).frame(height: 2)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .onAppear { pulsing = true }
+    }
+
+    /// A compact, dismissible error chip. The pill's fixed 380×52 has no room
+    /// for the full message beside the controls, so the chip shows a loud red
+    /// glyph + "Error" and carries the full text in its tooltip; clicking it
+    /// (like the alert's OK) clears the error. Uses .plain like the other pill
+    /// buttons so FirstMouseHostingView forwards the first click while inactive.
+    private func errorBadge(_ message: String) -> some View {
+        Button {
+            onAction(.dismissError)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10, weight: .bold))
+                Text("Error")
+                    .font(.system(size: 11, weight: .semibold))
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .opacity(0.75)
+            }
+            .fixedSize()
+            .foregroundStyle(Color(hex: "#fecaca"))
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(Color(hex: "#7f1d1d"))
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Color(hex: "#f87171"), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help("\(message)\n\nClick to dismiss.")
     }
 
     private var gripView: some View {

@@ -35,8 +35,11 @@ An adversarial multi-dimension review ran on the Phase B code; the confirmed cor
 
 - **Symlinked `shots/` residual** — `confinePath` is lexical only (documented Windows-parity gap); a hostile foreign project with `shots` symlinked out isn't blocked. Fix belongs in `PathConfine.swift` (lstat/realpath) when symlink hardening lands, and would cover the Windows app too.
 - **Two `SCShareableContent` enumerations per capture** (`SCKScreenshotter.displays()` then `captureDisplay()`), and 2/tick during menu polling — latency, not correctness. Fold display resolution into one enumeration in a perf pass.
-- **Capture errors during recording show an alert on the ordered-out main window** — invisible until the session ends. Needs the error surfaced on the pill (plumb `lastError` into `PillView`); a UX follow-up.
 - **`.rounded()` vs JS `Math.round` for negative half-point crop offsets** — sub-pixel formula-parity nit; macOS already stores point-space coords, not Windows physical px, so exact byte-parity of the pixel math isn't a goal.
+
+Since fixed:
+
+- **Capture errors during recording were invisible** — the `.alert` in `ContentView` is attached to the main window, which `recordingChanged(true)` orders out, so an in-session `.error` (step-PNG write collision, mid-session Screen Recording revocation) stayed hidden until the session ended. `CaptureCoordinator` now mirrors `lastError` onto the always-visible pill: `PillView` gains a dismissible red error badge + accent-bar tint (full message in its tooltip), cleared on the next successful step, on user dismiss (`PillAction.dismissError`), or at the next session start. The alert is kept as a backstop for pre-recording failures (a `record()` that never starts a session) and for a final unacknowledged error once the window returns.
 
 ## Commands
 
