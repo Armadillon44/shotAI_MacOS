@@ -102,13 +102,19 @@ final class FakeActiveWindows: ActiveWindowProviding, @unchecked Sendable {
 final class FakeElements: ElementLocating, @unchecked Sendable {
     private let lock = NSLock()
     var element: StepElement?
+    private(set) var callCount = 0
+    private(set) var queriedPoints: [CGPoint] = []
 
     init(element: StepElement? = nil) {
         self.element = element
     }
 
     func elementAt(_ point: CGPoint) async -> StepElement? {
-        lock.withLock { element }
+        lock.withLock {
+            callCount += 1
+            queriedPoints.append(point)
+            return element
+        }
     }
 }
 

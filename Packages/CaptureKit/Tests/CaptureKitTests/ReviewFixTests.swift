@@ -35,6 +35,25 @@ import ShotModel
         h.cleanup()
     }
 
+    // Crash regression: an own-window click must NOT run the element query.
+    // AXUIElementCopyElementAtPosition over our own window recurses into
+    // in-process SwiftUI accessibility off the main thread and traps (SIGTRAP),
+    // which killed the app when the pill (Stop button) was clicked. The
+    // own-window gate must run BEFORE the element query is started.
+    @Test func ownWindowClickDoesNotRunElementQuery() async throws {
+        let h = try EngineHarness()
+        h.ownWindows.ownFrames = [CGRect(x: 310, y: 8, width: 380, height: 52)] // the pill
+        try await h.engine.start(projectPath: h.projectDir)
+        await h.tap(CGPoint(x: 400, y: 20), .left) // on the pill (Stop-button area)
+        #expect(h.elements.callCount == 0, "element query must not run over our own window")
+        #expect(try h.readSteps().isEmpty)
+        // A normal click DOES query.
+        await h.tap(CGPoint(x: 400, y: 300), .left)
+        #expect(h.elements.callCount == 1)
+        _ = await h.engine.stop()
+        h.cleanup()
+    }
+
     // #14: a hostile orphan filename (Int.max) must clamp, not overflow-trap on
     // the first `stepCount += 1`.
     @Test func hostileOrphanFilenameClampsInsteadOfCrashing() async throws {
@@ -94,10 +113,11 @@ import ShotModel
         h.cleanup()
     }
 
-    // #29: an auto-mode click OUTSIDE the frontmost app's window (the desktop
-    // case, where Finder is frontmost with an unrelated window) must fullscreen,
-    // not crop to a window the user never clicked.
-    @Test func autoClickOutsideActiveWindowFullscreens() async throws {
+    // An auto-mode click OUTSIDE the frontmost app's window (menu bar, an open
+    // menu, or the desktop) must crop a REGION around the click, not fullscreen
+    // and not the window the user never clicked. (User-chosen behavior; the
+    // menu-bar click was the reported "auto captured the entire screen" bug.)
+    @Test func autoClickOutsideActiveWindowRegionCrops() async throws {
         let h = try EngineHarness()
         h.activeWindows.snapshot = WindowSnapshot(
             app: "Finder", title: "Documents", pid: 9, bundleID: "com.apple.finder",
@@ -106,8 +126,11 @@ import ShotModel
         // Click far outside the Finder window bounds (on the "desktop").
         let step = try await h.engine.captureStep(trigger: .click, point: CGPoint(x: 900, y: 550))
         let dims = pngSize(try h.shotData(step!))
-        #expect(dims.width == fullW) // fullscreen, not the 400x300 Finder window
-        #expect(dims.height == fullH)
+        // 820x640pt region box, clamped to the 1000x600 display → 820x600pt,
+        // ×2 pixelScale ×0.85 → 1394x1020 (same as the shell-region case).
+        #expect(dims.width == 1394)
+        #expect(dims.height == 1020)
+        #expect(dims.width < fullW) // NOT fullscreen
         _ = await h.engine.stop()
         h.cleanup()
     }

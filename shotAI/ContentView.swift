@@ -90,8 +90,21 @@ struct ContentView: View {
                 coordinator: capture
             )
         }
-        .sheet(isPresented: Bindable(capture).showWizard) {
-            PermissionsWizardView()
+        // Overlay, NOT a `.sheet`: a presented sheet vetoes app termination
+        // (⌘Q returns -128), and this wizard shows on every launch until Screen
+        // Recording is granted — which made the app unquittable except by Force
+        // Quit. An overlay never blocks terminate.
+        .overlay {
+            if capture.showWizard {
+                ZStack {
+                    Color.black.opacity(0.35).ignoresSafeArea()
+                    PermissionsWizardView(onClose: { capture.showWizard = false })
+                        .background(.background)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(radius: 30)
+                }
+                .transition(.opacity)
+            }
         }
         .alert(
             "Capture error",
