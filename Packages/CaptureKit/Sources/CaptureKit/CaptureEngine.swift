@@ -1,0 +1,879 @@
+import CoreGraphics
+import Foundation
+import ShotModel
+
+/// The recording engine — a behavioral port of the Windows CaptureController.
+/// On each trigger (global mousedown or hotkey) it gathers the active window,
+/// a screenshot, the click coordinates, and the UI element under the cursor
+/// (resolved AT mousedown, before the click mutates the UI), skips the app's
+/// own windows, writes a PNG into <project>/shots/, and appends a step.
+///
+/// Two serialization layers, exactly as the original:
+/// - EVENT decisions (double-click collapse, menu arming, own-window checks)
+///   run serially and promptly off an AsyncStream — the analog of the
+///   synchronous uiohook handler.
+/// - CAPTURE work chains on a FIFO task queue (`queueTail`) — the analog of
+///   the promise queue — so rapid clicks can't race the counter, the file
+///   writes, or the manifest appends. A failed capture emits `.error` and the
+///   chain continues; a long recording can never fail silently.
+public actor CaptureEngine {
+    public enum EngineError: Error, LocalizedError, Equatable {
+        case recordingInProgressOtherProject
+        case recordingInProgress
+
+        public var errorDescription: String? {
+            switch self {
+            case .recordingInProgressOtherProject:
+                "A recording is already in progress for another project"
+            case .recordingInProgress:
+                "A recording is already in progress"
+            }
+        }
+    }
+
+    /// Options threaded into a capture, mirroring the Windows `opts`.
+    public struct CaptureOptions: Sendable {
+        public var menuPopup = false
+        public var menuOwnerBounds: CGRect?
+        public var preGrab: Task<CapturedFrame?, Never>?
+        public var insertAt: Int?
+        public var elementTask: Task<StepElement?, Never>?
+
+        public init() {}
+    }
+
+    private struct Session {
+        var projectPath: String
+        var projectTitle: String
+        var paused = false
+        var stepCount: Int
+        var target: CaptureTarget
+        var stepCountAtStart: Int
+        var createdThisSession: Bool
+        var addedStepIds: [String] = []
+        var single: Single?
+
+        struct Single {
+            var insertAt: Int
+            var fired = false
+        }
+    }
+
+    /// Reference type so stale async results can be identity-checked against
+    /// the current arm (the Windows `menuFollowUp === cur` guards).
+    private final class MenuArm {
+        var until: TimeInterval
+        var ownerBounds: CGRect?
+        var lastPoint: CGPoint
+        var menuFrame: CapturedFrame?
+        var chain: Int
+        /// In-flight poll-capture guard, PER ARM. Engine-global state would
+        /// leak a stranded `true` across a re-arm (a poll capture that resolves
+        /// after the arm was replaced), permanently suppressing the next arm's
+        /// polling; a fresh arm always starts with its own clear flag.
+        var polling = false
+
+        init(until: TimeInterval, ownerBounds: CGRect?, lastPoint: CGPoint, chain: Int) {
+            self.until = until
+            self.ownerBounds = ownerBounds
+            self.lastPoint = lastPoint
+            self.chain = chain
+        }
+    }
+
+    private let store: ProjectStore
+    private let screenshotter: any Screenshotter
+    private let activeWindows: any ActiveWindowProviding
+    private let elements: any ElementLocating
+    private let ownWindows: any OwnWindowChecking
+    private let triggers: any TriggerSource
+    private let now: @Sendable () -> TimeInterval
+
+    /// UI-facing event stream (single consumer: the app's coordinator).
+    public nonisolated let events: AsyncStream<CaptureEvent>
+    private let eventsCont: AsyncStream<CaptureEvent>.Continuation
+
+    private enum EngineInput: Sendable {
+        case mouse(TapEvent)
+        case hotkey
+    }
+
+    private let inputs: AsyncStream<EngineInput>
+    private let inputsCont: AsyncStream<EngineInput>.Continuation
+
+    private var session: Session?
+    /// Monotonic session identity, bumped when a session is installed. A
+    /// capture/decision captures the generation at entry and re-checks it after
+    /// every suspension: `session != nil` alone is insufficient because a
+    /// DIFFERENT session may have been installed during the await (start B
+    /// after stop A), so a stale operation must compare the token, not just
+    /// nil-ness, before mutating session state or committing a step.
+    private var generation = 0
+    /// Set at the top of stop()/discard() before draining, so buffered inputs
+    /// still in the AsyncStream can't enqueue a new capture during the drain
+    /// (which drainQueue's captured tail would not cover) — closes the
+    /// resurrected-step-after-discard race.
+    private var tearingDown = false
+    /// Dedupe for grab-failure error events: emit once per failure run (on the
+    /// success→failure transition), so a mid-session Screen Recording
+    /// revocation surfaces instead of failing silently, without spamming an
+    /// error on every click.
+    private var lastGrabFailed = false
+    private var queueTail: Task<Void, Never>?
+    private var triggersAttached = false
+    private var lastLeftClick: (at: TimeInterval, point: CGPoint)?
+    private var menuArm: MenuArm?
+    private var pollTask: Task<Void, Never>?
+
+    public init(
+        store: ProjectStore,
+        screenshotter: any Screenshotter,
+        activeWindows: any ActiveWindowProviding,
+        elements: any ElementLocating,
+        ownWindows: any OwnWindowChecking,
+        triggers: any TriggerSource,
+        now: @escaping @Sendable () -> TimeInterval = { Date().timeIntervalSince1970 }
+    ) {
+        self.store = store
+        self.screenshotter = screenshotter
+        self.activeWindows = activeWindows
+        self.elements = elements
+        self.ownWindows = ownWindows
+        self.triggers = triggers
+        self.now = now
+        (events, eventsCont) = AsyncStream.makeStream()
+        (inputs, inputsCont) = AsyncStream.makeStream()
+        // [weak self] so the consumer task doesn't itself keep the engine
+        // alive forever; teardown() finishes the input stream, which ends the
+        // loop and releases the strong ref the running method holds, so the
+        // engine can deinit.
+        Task { [weak self] in await self?.consumeInputs() }
+    }
+
+    // MARK: - Lifecycle
+
+    public func state() -> CaptureState {
+        guard let s = session else { return .idle }
+        return CaptureState(
+            status: s.paused ? .paused : .recording,
+            projectPath: s.projectPath,
+            projectTitle: s.projectTitle,
+            stepCount: s.stepCount
+        )
+    }
+
+    @discardableResult
+    public func start(
+        projectPath: String,
+        attachHook: Bool = true,
+        target: CaptureTarget = CaptureTarget(mode: .auto),
+        createdThisSession: Bool = false
+    ) async throws -> CaptureState {
+        if let s = session {
+            if s.projectPath == projectPath { return state() } // idempotent re-start
+            throw EngineError.recordingInProgressOtherProject
+        }
+        let opened = try await store.openProject(at: projectPath)
+        // Re-check after the await: a concurrent start()/captureSingle() may
+        // have installed a session while we suspended (TOCTOU).
+        if let s = session {
+            if s.projectPath == opened.dir { return state() }
+            throw EngineError.recordingInProgressOtherProject
+        }
+        try FileManager.default.createDirectory(
+            atPath: opened.dir + "/shots", withIntermediateDirectories: true)
+        let existing = opened.manifest.steps.count
+        generation += 1
+        session = Session(
+            projectPath: opened.dir,
+            projectTitle: opened.manifest.title,
+            stepCount: seedStepCounter(projectDir: opened.dir, manifestCount: existing),
+            target: target,
+            stepCountAtStart: existing,
+            createdThisSession: createdThisSession,
+            single: nil
+        )
+        if attachHook {
+            // A trigger-attach failure (e.g. the event tap can't be created)
+            // must fail the start, not leave a phantom 'recording' session that
+            // can never produce a step.
+            do {
+                try attachTriggers(hotkey: true)
+            } catch {
+                session = nil
+                throw error
+            }
+        }
+        eventsCont.yield(.recordingChanged(true))
+        emitState()
+        return state()
+    }
+
+    /// Arm a one-shot capture that inserts at a manifest index and auto-stops.
+    /// The hotkey is deliberately NOT registered (it can't carry an insert
+    /// index and wouldn't auto-stop).
+    @discardableResult
+    public func captureSingle(projectPath: String, insertAt: Int) async throws -> CaptureState {
+        guard session == nil else { throw EngineError.recordingInProgress }
+        let opened = try await store.openProject(at: projectPath)
+        // Re-check after the await (TOCTOU): another start could have raced in.
+        guard session == nil else { throw EngineError.recordingInProgress }
+        try FileManager.default.createDirectory(
+            atPath: opened.dir + "/shots", withIntermediateDirectories: true)
+        let existing = opened.manifest.steps.count
+        let at = max(0, min(insertAt, existing))
+        generation += 1
+        session = Session(
+            projectPath: opened.dir,
+            projectTitle: opened.manifest.title,
+            stepCount: seedStepCounter(projectDir: opened.dir, manifestCount: existing),
+            target: CaptureTarget(mode: .auto),
+            stepCountAtStart: existing,
+            createdThisSession: false,
+            single: .init(insertAt: at)
+        )
+        do {
+            try attachTriggers(hotkey: false)
+        } catch {
+            session = nil
+            throw error
+        }
+        eventsCont.yield(.recordingChanged(true))
+        emitState()
+        return state()
+    }
+
+    @discardableResult
+    public func pause() -> CaptureState {
+        session?.paused = true
+        disarmMenu() // a pre-pause arm must not leak into resumed recording
+        emitState()
+        return state()
+    }
+
+    @discardableResult
+    public func resume() -> CaptureState {
+        session?.paused = false
+        disarmMenu()
+        emitState()
+        return state()
+    }
+
+    @discardableResult
+    public func stop() async -> CaptureState {
+        let wasRecording = session != nil
+        tearingDown = true // block buffered inputs from enqueuing during the drain
+        detachTriggers() // BEFORE draining, so no new captures can enqueue
+        await drainQueue()
+        session = nil
+        tearingDown = false
+        if wasRecording { eventsCont.yield(.recordingChanged(false)) }
+        emitState()
+        return state()
+    }
+
+    /// Discard the session's captures. Deletes the WHOLE project only when it
+    /// was created this session, had zero steps at start, and isn't a
+    /// single-shot; otherwise deletes exactly the steps added this session.
+    public func discard() async -> (state: CaptureState, projectDeleted: Bool) {
+        tearingDown = true // block buffered inputs from enqueuing during the drain
+        detachTriggers()
+        // Drain while the session is STILL SET so in-flight steps record
+        // their ids into addedStepIds and get cleaned up below.
+        await drainQueue()
+        let s = session
+        session = nil
+        tearingDown = false
+        var projectDeleted = false
+        if let s {
+            let whole = s.createdThisSession && s.stepCountAtStart == 0 && s.single == nil
+            do {
+                if whole {
+                    try await store.deleteProject(at: s.projectPath)
+                    projectDeleted = true
+                } else if !s.addedStepIds.isEmpty {
+                    try await store.deleteSteps(at: s.projectPath, ids: s.addedStepIds)
+                }
+            } catch {
+                // Soft: discard cleanup failure never throws.
+            }
+            eventsCont.yield(.recordingChanged(false))
+        }
+        emitState()
+        return (state(), projectDeleted)
+    }
+
+    /// Release triggers and end the input/event streams (applicationWill
+    /// Terminate — the tap must not outlive the app). Finishing the input
+    /// stream ends the consumer loop so the engine can be released.
+    public func teardown() {
+        detachTriggers()
+        inputsCont.finish()
+        eventsCont.finish()
+    }
+
+    public func listTargets() async -> CaptureTargets {
+        let windows = await activeWindows.listWindows()
+        let displays = (try? await screenshotter.displays()) ?? []
+        let monitors = displays.map { d in
+            MonitorInfo(
+                id: Int(d.id),
+                name: d.name.isEmpty ? "Display \(d.id)" : d.name,
+                width: Int(d.frame.width),
+                height: Int(d.frame.height),
+                isPrimary: d.isPrimary
+            )
+        }
+        return CaptureTargets(windows: windows, monitors: monitors)
+    }
+
+    private func attachTriggers(hotkey: Bool) throws {
+        guard !triggersAttached else { return }
+        let cont = inputsCont
+        var hotkeyHandler: (@Sendable () -> Void)?
+        if hotkey {
+            hotkeyHandler = { cont.yield(.hotkey) }
+        }
+        try triggers.attach(
+            mouse: { cont.yield(.mouse($0)) },
+            hotkey: hotkeyHandler
+        )
+        triggersAttached = true
+    }
+
+    private func detachTriggers() {
+        disarmMenu() // never carry an armed menu across sessions
+        guard triggersAttached else { return }
+        triggers.detach()
+        triggersAttached = false
+    }
+
+    private func drainQueue() async {
+        await queueTail?.value
+    }
+
+    private func emitState() {
+        eventsCont.yield(.stateChanged(state()))
+    }
+
+    /// Seed the filename counter past any orphan step-NNNN.png on disk so a
+    /// prior shot is NEVER overwritten (deletes leave orphans).
+    private func seedStepCounter(projectDir: String, manifestCount: Int) -> Int {
+        var count = manifestCount
+        let shots = projectDir + "/shots"
+        if let files = try? FileManager.default.contentsOfDirectory(atPath: shots) {
+            for f in files {
+                if let n = CaptureConstants.shotFilenameNumber(f) {
+                    count = max(count, n)
+                }
+            }
+        }
+        return count
+    }
+
+    // MARK: - Event pipeline
+
+    /// Count of fully-processed trigger events — lets tests await pipeline
+    /// quiescence deterministically (poll count, then drain the queue).
+    private var processedInputs = 0
+
+    public func processedInputCount() -> Int {
+        processedInputs
+    }
+
+    /// Await completion of every capture enqueued so far.
+    public func drainCaptures() async {
+        await queueTail?.value
+    }
+
+    private func consumeInputs() async {
+        for await input in inputs {
+            switch input {
+            case .mouse(let event): await handleMouseDown(event)
+            case .hotkey: handleHotkey()
+            }
+            processedInputs += 1
+        }
+    }
+
+    /// Exact branch order of the Windows onMouseDown.
+    private func handleMouseDown(_ event: TapEvent) async {
+        guard let s = session, !s.paused, !tearingDown else { return }
+        let gen = generation
+        let point = event.location
+        let button = event.button
+        // Element resolution starts NOW, at mousedown, before the click's
+        // effect mutates the UI (dialog closes, menu dismisses).
+        let elements = self.elements
+        let elementTask = Task { await elements.elementAt(point) }
+
+        // 1. Single-shot
+        if s.single != nil {
+            if session?.single?.fired == true { return }
+            if await ownWindows.pointHitsOwnWindow(point) { return } // arm NOT consumed
+            // Re-validate after the own-window await: stop()/a new session
+            // must not receive this stale one-shot's fire + auto-stop.
+            guard sessionAlive(gen), session?.single != nil else { return }
+            session?.single?.fired = true
+            var opts = CaptureOptions()
+            opts.insertAt = session?.single?.insertAt
+            opts.elementTask = elementTask
+            enqueueCapture(trigger: .click, point: point, button: button, opts: opts, thenStop: true)
+            return
+        }
+
+        // 2. Double-click collapse (left only): the second mousedown within
+        // 400 ms and 6 pt produces NO step; the timestamp/point ALWAYS update
+        // so longer bursts collapse pairwise.
+        if button == .left {
+            let t = now()
+            let isDouble = lastLeftClick.map { last in
+                t - last.at <= CaptureConstants.doubleClickWindow
+                    && GrabMath.withinDistance(
+                        point, last.point,
+                        dx: CaptureConstants.doubleClickDistance,
+                        dy: CaptureConstants.doubleClickDistance)
+            } ?? false
+            lastLeftClick = (t, point)
+            if isDouble { return }
+        }
+
+        // 3. Right-click: arm the menu follow-up and capture the target
+        // plainly (grabbing the just-opened menu would race its render).
+        if button == .right {
+            let owner = await activeWindows.activeWindow()?.bounds
+            // Re-validate after the activeWindow await: a stop() during the
+            // suspension must not leave a stale arm polling into idle / the
+            // next session.
+            guard sessionAlive(gen) else { return }
+            let arm = MenuArm(
+                until: now() + CaptureConstants.menuFollowUpWindow,
+                ownerBounds: owner, lastPoint: point, chain: 0)
+            menuArm = arm
+            startMenuPolling(arm: arm)
+            var opts = CaptureOptions()
+            opts.elementTask = elementTask
+            enqueueCapture(trigger: .click, point: point, button: .right, opts: opts)
+            return
+        }
+
+        // 4. Menu selection (left click while armed, within proximity)
+        if let arm = menuArm, button == .left, now() < arm.until,
+           GrabMath.withinDistance(
+               point, arm.lastPoint,
+               dx: CaptureConstants.menuProximityX,
+               dy: CaptureConstants.menuProximityY) {
+            let owner = arm.ownerBounds
+            // Prefer the polled frame (captured while the menu was painted);
+            // else kick a capture NOW — the menu dismisses on mouse-up, so a
+            // post-click grab would likely miss it.
+            let preGrab: Task<CapturedFrame?, Never>
+            if let frame = arm.menuFrame {
+                preGrab = Task { frame }
+            } else {
+                let screenshotter = self.screenshotter
+                preGrab = Task {
+                    guard let displays = try? await screenshotter.displays(),
+                          let mon = GrabMath.display(for: point, in: displays)
+                    else { return nil }
+                    return try? await screenshotter.captureDisplay(mon.id)
+                }
+            }
+            let chain = arm.chain + 1
+            if chain < CaptureConstants.maxMenuChain {
+                // Re-arm for submenu/flyout chains; menuFrame resets so the
+                // next selection captures the possibly-changed submenu.
+                let next = MenuArm(
+                    until: now() + CaptureConstants.submenuFollowUpWindow,
+                    ownerBounds: owner, lastPoint: point, chain: chain)
+                menuArm = next
+                startMenuPolling(arm: next)
+            } else {
+                disarmMenu()
+            }
+            var opts = CaptureOptions()
+            opts.menuPopup = true
+            opts.menuOwnerBounds = owner
+            opts.preGrab = preGrab
+            opts.elementTask = elementTask
+            enqueueCapture(trigger: .click, point: point, button: .left, opts: opts)
+            return
+        }
+
+        // 5. Ordinary click: any non-menu click disarms.
+        disarmMenu()
+        var opts = CaptureOptions()
+        opts.elementTask = elementTask
+        enqueueCapture(trigger: .click, point: point, button: button, opts: opts)
+    }
+
+    private func handleHotkey() {
+        guard let s = session, !s.paused, !tearingDown else { return }
+        enqueueCapture(trigger: .hotkey, point: nil, button: .left, opts: CaptureOptions())
+    }
+
+    /// True iff the SAME session that owned `gen` is still live and recording.
+    /// `session != nil` is not enough — a different session may have replaced
+    /// it during a suspension.
+    private func sessionAlive(_ gen: Int) -> Bool {
+        session != nil && generation == gen && !tearingDown
+    }
+
+    private func enqueueCapture(
+        trigger: ProjectStep.Trigger,
+        point: CGPoint?,
+        button: MouseButton,
+        opts: CaptureOptions,
+        thenStop: Bool = false
+    ) {
+        let prev = queueTail
+        queueTail = Task { [weak self] in
+            await prev?.value
+            guard let self else { return }
+            do {
+                _ = try await self.captureStep(trigger: trigger, point: point, button: button, opts: opts)
+            } catch {
+                await self.reportCaptureError(error)
+            }
+            if thenStop {
+                // Fire-and-forget, exactly as Windows: stop() drains the queue
+                // that CONTAINS this task — awaiting it here would deadlock.
+                Task { await self.stop() }
+            }
+        }
+    }
+
+    private func reportCaptureError(_ error: Error) {
+        eventsCont.yield(.error("Capture failed: \(error.localizedDescription)"))
+    }
+
+    // MARK: - Menu poll cache
+
+    /// Timer-driven (NOT mouse-move-driven) refresh of the latest full-monitor
+    /// frame while a menu is armed — the menu is captured even when the user
+    /// clicks an item without moving the cursor.
+    private func startMenuPolling(arm: MenuArm) {
+        pollTask?.cancel()
+        pollTask = Task { await self.menuPollLoop(arm: arm) }
+    }
+
+    private func menuPollLoop(arm: MenuArm) async {
+        var frames = 0
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: UInt64(CaptureConstants.menuPollInterval * 1_000_000_000))
+            guard menuArm === arm else { return } // disarmed or re-armed since
+            // session == nil stops a leaked arm from screenshotting into idle
+            // after stop() (a right-click racing Stop could install an arm
+            // just after the session ended).
+            guard session != nil, now() < arm.until, session?.paused != true else {
+                stopMenuPolling()
+                return
+            }
+            guard frames < CaptureConstants.maxPollFrames else {
+                // Keep the last frame — the menu is static while open.
+                stopMenuPolling()
+                return
+            }
+            if arm.polling { continue } // no pile-up (per-arm)
+            guard let displays = try? await screenshotter.displays(),
+                  let mon = GrabMath.display(for: arm.lastPoint, in: displays)
+            else { continue } // skip tick WITHOUT counting a frame
+            arm.polling = true
+            frames += 1
+            if let frame = try? await screenshotter.captureDisplay(mon.id) {
+                // A late frame must not land on a newer arm.
+                if menuArm === arm { arm.menuFrame = frame }
+            }
+            // Per-arm flag: safe to clear unconditionally (it's THIS arm's).
+            arm.polling = false
+        }
+    }
+
+    private func stopMenuPolling() {
+        pollTask?.cancel()
+        pollTask = nil
+    }
+
+    private func disarmMenu() {
+        menuArm = nil
+        stopMenuPolling()
+    }
+
+    // MARK: - captureStep
+
+    /// The single capture routine, ported step-for-step. Returns nil on soft
+    /// failures (no step, no error broadcast); throws on loud ones (file
+    /// write collision, store failures). Public so tests/self-test drive it.
+    @discardableResult
+    public func captureStep(
+        trigger: ProjectStep.Trigger,
+        point: CGPoint?,
+        button: MouseButton = .left,
+        opts: CaptureOptions = CaptureOptions()
+    ) async throws -> ProjectStep? {
+        // Re-check inside the queue: a pause/stop landing while tasks were
+        // queued suppresses the whole backlog.
+        guard let s = session, !s.paused else { return nil }
+        let gen = generation
+
+        let active = await activeWindows.activeWindow()
+
+        // OWN-WINDOW EXCLUSION — any signal suppresses the step silently. The
+        // geometric test is load-bearing: the non-activating pill never
+        // reports as frontmost.
+        if await ownWindows.frontmostIsOwnApp() { return nil }
+        if let point, await ownWindows.pointHitsOwnWindow(point) { return nil }
+
+        // Right-click late owner fill (the focused window at right-click time
+        // is the menu owner; it won't be once the menu takes focus).
+        if button == .right, let arm = menuArm, arm.ownerBounds == nil {
+            arm.ownerBounds = active?.bounds
+        }
+
+        let elements = self.elements
+        let elementTask = opts.elementTask ?? Task {
+            if let point { await elements.elementAt(point) } else { nil }
+        }
+
+        guard let grabbed = await grab(point: point, button: button, opts: opts, active: active) else {
+            _ = await elementTask.value // don't leak the query
+            // Surface the failure ONCE per failure run so a mid-session Screen
+            // Recording revocation doesn't fail silently (the invariant), but a
+            // single transient hiccup doesn't spam an error every click. A nil
+            // grab because the session was torn down mid-capture is NOT a
+            // failure — stay silent (sessionAlive gate).
+            if sessionAlive(gen), !lastGrabFailed {
+                lastGrabFailed = true
+                eventsCont.yield(.error("A screenshot could not be captured. If this keeps happening, re-check Screen Recording permission in System Settings."))
+            }
+            return nil // soft fail: no step
+        }
+        lastGrabFailed = false
+
+        // Re-validate before COMMITTING: all the awaits above (activeWindow,
+        // own-window checks, element query, grab) are suspension points during
+        // which stop()/discard() may have cleared the session or a new session
+        // replaced it. Committing now would burn a bogus order (0), write
+        // step-0000.png, and re-insert a step into a just-discarded manifest.
+        guard sessionAlive(gen) else { return nil }
+
+        // Counter increments BEFORE the write — a failed write burns the
+        // number; numbering may skip, never reuses.
+        session?.stepCount += 1
+        let order = session?.stepCount ?? 0
+        let filename = CaptureConstants.shotFilename(order: order)
+        let projectDir = s.projectPath
+        // Exclusive create: a collision fails loudly rather than silently
+        // overwriting a prior shot.
+        try grabbed.prepared.png.write(
+            to: URL(fileURLWithPath: projectDir + "/shots/" + filename),
+            options: .withoutOverwriting
+        )
+
+        let window = active.map {
+            CapturedWindow(app: $0.app, title: $0.title, pid: $0.pid, bounds: $0.bounds.map(rect(from:)))
+        }
+        let element = await elementTask.value ?? .unavailable
+        let appName = window?.app ?? "screen"
+        let imageScale = grabbed.prepared.imageScale
+
+        let step = ProjectStep(
+            id: UUID().uuidString.lowercased(),
+            order: order,
+            screenshot: "shots/\(filename)",
+            trigger: trigger,
+            click: point.map { p in
+                StepClick(
+                    global: Point(x: p.x, y: p.y),
+                    image: Point(
+                        x: ((p.x - grabbed.originX) * imageScale).rounded(),
+                        y: ((p.y - grabbed.originY) * imageScale).rounded()
+                    ),
+                    button: button,
+                    imageScale: imageScale == 1 ? nil : imageScale
+                )
+            },
+            monitor: CapturedMonitor(
+                id: Int(grabbed.display.id),
+                bounds: rect(from: grabbed.display.frame),
+                scaleFactor: grabbed.display.pixelScale
+            ),
+            window: window,
+            element: element,
+            caption: trigger == .click
+                ? buildClickCaption(button: button, isMenuSelect: opts.menuPopup, appName: appName, element: element)
+                : buildHotkeyCaption(windowTitle: window?.title),
+            note: ""
+        )
+
+        if let insertAt = opts.insertAt {
+            try await store.insertStep(at: projectDir, step, atIndex: insertAt)
+        } else {
+            try await store.addStep(at: projectDir, step)
+        }
+        // Only record the id against the session it belongs to (defensive: the
+        // addStep await is another suspension point).
+        if sessionAlive(gen) { session?.addedStepIds.append(step.id) }
+        eventsCont.yield(.stepAdded(step))
+        emitState()
+        return step
+    }
+
+    // MARK: - grab() strategy cascade
+
+    private struct Grabbed {
+        var prepared: ImageOutput.Prepared
+        var originX: CGFloat
+        var originY: CGFloat
+        var display: DisplayInfo
+    }
+
+    private func grab(
+        point: CGPoint?,
+        button: MouseButton,
+        opts: CaptureOptions,
+        active: WindowSnapshot?
+    ) async -> Grabbed? {
+        guard let s = session else { return nil }
+        let mode = s.target.mode
+        guard let displays = try? await screenshotter.displays(), !displays.isEmpty else { return nil }
+        let clickDisplay = GrabMath.display(for: point, in: displays)
+        let autoMode: AutoMode? = mode == .auto ? captureModeFor(active: active) : nil
+
+        // A. Context-menu selection: crop a frame captured while the menu was
+        // painted to owner ∪ click box ('screen' keeps the whole monitor).
+        if opts.menuPopup {
+            var winRect: CGRect?
+            if mode == .window, let ref = s.target.window {
+                winRect = await activeWindows.resolveWindow(ref)
+            }
+            var frame: CapturedFrame?
+            if let pre = await opts.preGrab?.value {
+                frame = pre
+            } else {
+                var mon = clickDisplay
+                if mode == .screen, let id = s.target.monitorId {
+                    mon = displays.first { Int($0.id) == id } ?? clickDisplay
+                } else if let winRect {
+                    mon = GrabMath.display(containing: winRect.origin, in: displays) ?? clickDisplay
+                }
+                guard let mon else { return nil }
+                frame = try? await screenshotter.captureDisplay(mon.id)
+            }
+            guard let frame else { return nil }
+            var region: CGRect?
+            if mode != .screen {
+                var base: CGRect? = switch mode {
+                case .window: winRect
+                case .area: s.target.area.map(cgRect(from:))
+                default: opts.menuOwnerBounds
+                }
+                if let point {
+                    let box = GrabMath.clickBox(point: point)
+                    base = base.map { GrabMath.unionRect($0, box) } ?? box
+                }
+                region = base
+            }
+            return prepare(frame: frame, region: region)
+        }
+
+        // B. Window: tight crop of the MONITOR image to the window bounds —
+        // deliberately not per-window capture, so popups/dropdowns painted as
+        // separate windows inside the rect stay visible.
+        if mode == .window || autoMode == .window {
+            var winRect: CGRect?
+            if mode == .window {
+                // A nil window ref → nil winRect → monitor fallback (Windows
+                // parity); it must NOT silently substitute the active window.
+                if let ref = s.target.window {
+                    winRect = await activeWindows.resolveWindow(ref)
+                }
+            } else {
+                // auto-window: frame the active window only if the click is
+                // actually inside it. A desktop click makes Finder frontmost
+                // with an unrelated window elsewhere; that must fall through to
+                // fullscreen (Windows classifies the desktop as fullscreen),
+                // not crop to a window the user never touched. A hotkey (no
+                // point) keeps the active window, matching the focused-window
+                // hotkey behavior.
+                if let bounds = active?.bounds, point.map({ bounds.contains($0) }) ?? true {
+                    winRect = bounds
+                }
+            }
+            if let winRect {
+                let mon = GrabMath.display(containing: winRect.origin, in: displays) ?? clickDisplay
+                if let mon, let frame = try? await screenshotter.captureDisplay(mon.id) {
+                    if let result = prepare(frame: frame, region: winRect) { return result }
+                }
+                // capture/crop failed → fall through to monitor capture
+            }
+            // (mode == .window with an unresolvable window also falls through)
+        }
+
+        // C. Area (fixed rect in global points)
+        if mode == .area, let area = s.target.area.map(cgRect(from:)) {
+            let mon = GrabMath.display(containing: CGPoint(x: area.minX, y: area.minY), in: displays) ?? clickDisplay
+            if let mon, let frame = try? await screenshotter.captureDisplay(mon.id) {
+                let crop = GrabMath.areaCrop(monitor: mon.frame, area: area)
+                if let prepared = ImageOutput.prepare(
+                    frame: frame.image, cropLocal: crop.local, pixelScale: frame.display.pixelScale) {
+                    return Grabbed(
+                        prepared: prepared, originX: crop.originX, originY: crop.originY,
+                        display: frame.display)
+                }
+            }
+            // fall through to monitor capture
+        }
+
+        // D/E. Monitor resolution + auto-region + fullscreen
+        var mon = clickDisplay
+        if mode == .screen, let id = s.target.monitorId {
+            mon = displays.first { Int($0.id) == id } ?? clickDisplay
+        }
+        guard let mon, let frame = try? await screenshotter.captureDisplay(mon.id) else { return nil }
+
+        if autoMode == .region, let point {
+            let crop = GrabMath.regionCrop(monitor: frame.display.frame, point: point)
+            if let prepared = ImageOutput.prepare(
+                frame: frame.image, cropLocal: crop.local, pixelScale: frame.display.pixelScale) {
+                return Grabbed(
+                    prepared: prepared, originX: crop.originX, originY: crop.originY,
+                    display: frame.display)
+            }
+            // fall through to fullscreen
+        }
+
+        return prepare(frame: frame, region: nil)
+    }
+
+    /// Full-frame or cropToRegion output for a captured frame.
+    private func prepare(frame: CapturedFrame, region: CGRect?) -> Grabbed? {
+        if let region {
+            let crop = GrabMath.cropToRegion(monitor: frame.display.frame, region: region)
+            guard let prepared = ImageOutput.prepare(
+                frame: frame.image, cropLocal: crop.local, pixelScale: frame.display.pixelScale)
+            else { return nil }
+            return Grabbed(
+                prepared: prepared, originX: crop.originX, originY: crop.originY,
+                display: frame.display)
+        }
+        guard let prepared = ImageOutput.prepare(
+            frame: frame.image, cropLocal: nil, pixelScale: frame.display.pixelScale)
+        else { return nil }
+        return Grabbed(
+            prepared: prepared,
+            originX: frame.display.frame.minX,
+            originY: frame.display.frame.minY,
+            display: frame.display)
+    }
+
+    // MARK: - Geometry bridging
+
+    private func rect(from r: CGRect) -> ShotModel.Rect {
+        ShotModel.Rect(x: r.minX, y: r.minY, width: r.width, height: r.height)
+    }
+
+    private func cgRect(from r: ShotModel.Rect) -> CGRect {
+        CGRect(x: r.x, y: r.y, width: r.width, height: r.height)
+    }
+}

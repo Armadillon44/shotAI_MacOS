@@ -45,6 +45,27 @@ final class AppModel {
         }
     }
 
+    /// Re-read the opened project from disk (after captured steps landed).
+    func reloadOpened() async {
+        guard let selectedPath else { return }
+        opened = try? await store.openProject(at: selectedPath)
+    }
+
+    /// Create a project and select it (the "record into a new project" flow).
+    /// Returns its path, or nil on failure.
+    func createAndSelectProject() async -> String? {
+        do {
+            let summary = try await store.createProject()
+            await refresh()
+            selectedPath = summary.path
+            opened = try await store.openProject(at: summary.path)
+            return summary.path
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     /// The "Open Project…" panel flow: a user-picked folder becomes a known
     /// project (validated, recorded in recents), then selected.
     func openUserPicked(_ url: URL) async {

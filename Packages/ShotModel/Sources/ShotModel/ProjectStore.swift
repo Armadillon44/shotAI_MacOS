@@ -204,6 +204,82 @@ public actor ProjectStore {
         return summarize(manifest, at: try resolveKnownProject(projectPath))
     }
 
+    // MARK: - Step mutations (Phase B capture surface)
+
+    /// Reassign step.order to 1..N in array order. step.order tracks array
+    /// position, not the capture filename counter (which climbs past orphaned
+    /// step-NNNN.png files left by deletes).
+    public static func renumber(_ steps: inout [ProjectStep]) {
+        for i in steps.indices {
+            steps[i].order = i + 1
+        }
+    }
+
+    /// Append a captured step to a project's manifest (serialized, atomic).
+    public func addStep(at projectPath: String, _ step: ProjectStep) throws {
+        try mutate(at: projectPath) { m in
+            m.steps.append(step)
+            Self.renumber(&m.steps)
+        }
+    }
+
+    /// Insert an already-built step at `atIndex` (clamped; nil → append), then
+    /// renumber. Used by the single-shot capture path to drop a recorded
+    /// screenshot at a chosen position.
+    public func insertStep(at projectPath: String, _ step: ProjectStep, atIndex: Int?) throws {
+        try mutate(at: projectPath) { m in
+            let i = atIndex.map { max(0, min($0, m.steps.count)) } ?? m.steps.count
+            m.steps.insert(step, at: i)
+            Self.renumber(&m.steps)
+        }
+    }
+
+    /// Delete multiple steps by id (e.g. discarding a capture session's
+    /// additions): removes them from the manifest, renumbers, and best-effort
+    /// deletes each one's screenshot + flattened render from disk. Every
+    /// manifest-sourced path is CONFINED to the project folder before the rm
+    /// (defends against a hand-edited traversal path).
+    @discardableResult
+    public func deleteSteps(at projectPath: String, ids: [String]) throws -> ProjectManifest {
+        // Read-modify-write inline (not via mutate) because we need the removed
+        // steps afterwards; actor isolation provides the same serialization.
+        let resolved = try resolveKnownProject(projectPath)
+        var manifest = try readManifest(at: resolved)
+        let idSet = Set(ids)
+        let removed = manifest.steps.filter { idSet.contains($0.id) }
+        manifest.steps.removeAll { idSet.contains($0.id) }
+        Self.renumber(&manifest.steps)
+        manifest.updatedAt = ProjectJSON.isoNow()
+        try writeManifest(manifest, at: resolved)
+        for step in removed {
+            for rel in [step.screenshot, step.flattened ?? ""] where !rel.isEmpty {
+                guard let abs = confinePath(dir: resolved, rel: rel) else { continue }
+                try? fm.removeItem(atPath: abs)
+            }
+        }
+        return manifest
+    }
+
+    /// Persist the project's capture target (chosen before recording).
+    public func setCaptureSettings(at projectPath: String, _ target: CaptureTarget?) throws {
+        try mutate(at: projectPath) { m in
+            m.captureSettings = target
+        }
+    }
+
+    /// Delete a project: remove its folder (originals included) and drop it
+    /// from recents. Confined to a known project. A folder already gone from
+    /// disk (moved/cloud-synced away) is tolerated so recents is still pruned
+    /// — mirrors the Windows `fs.rm(..., { force: true })`.
+    public func deleteProject(at projectPath: String) throws {
+        let resolved = try resolveKnownProject(projectPath)
+        if fm.fileExists(atPath: resolved) {
+            try fm.removeItem(atPath: resolved)
+        }
+        let pruned = settings.recents().filter { lexicallyResolve(absolutize($0)) != resolved }
+        settings.setRecents(pruned)
+    }
+
     /// "Project yyyy/MM/dd HH:mm:ss" (local time) — same default as Windows.
     private static func defaultTitle() -> String {
         let f = DateFormatter()
