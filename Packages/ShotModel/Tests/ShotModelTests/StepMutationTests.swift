@@ -76,6 +76,26 @@ import Testing
         cleanup()
     }
 
+    @Test func deleteStepsWontDeleteThroughASymlinkedShots() async throws {
+        // Stronger than the lexical case above: a hostile project whose `shots`
+        // is a SYMLINK out of the folder must not let the confined delete escape
+        // — the path is lexically "inside" but resolves elsewhere.
+        let fm = FileManager.default
+        let symProj = root + "/symproj"
+        try fm.createDirectory(atPath: symProj, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: symProj + "/shots", withDestinationPath: root + "/elsewhere")
+        try fm.createDirectory(atPath: root + "/elsewhere", withIntermediateDirectories: true)
+        let victim = root + "/elsewhere/victim.png"
+        fm.createFile(atPath: victim, contents: Data([0x89]))
+        try ProjectJSON.encodeManifest(ProjectManifest(id: "s", title: "S", createdAt: "", updatedAt: ""))
+            .write(to: URL(fileURLWithPath: symProj + "/project.json"))
+
+        try await store.addStep(at: symProj, step("evil", screenshot: "shots/victim.png"))
+        _ = try await store.deleteSteps(at: symProj, ids: ["evil"])
+        #expect(fm.fileExists(atPath: victim), "symlinked-shots delete must not escape the project")
+        cleanup()
+    }
+
     @Test func setCaptureSettingsPersistsTheTarget() async throws {
         try await store.setCaptureSettings(
             at: projectDir,
