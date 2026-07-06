@@ -48,8 +48,14 @@ Since fixed:
 - **Live capture smoke test** (drives real SCK/AX/store; needs Screen Recording): `swift run --package-path Packages/CaptureKit CaptureSelfTest` — the macOS analog of the Windows `capture-selftest.ts`; prints `[capture-test] PASS/FAIL`.
 - Build app: `xcodebuild -project shotAI.xcodeproj -scheme shotAI -configuration Debug build`
 - The app's projects dir defaults to `~/shotAI Projects` (same as Windows).
-- TCC reset for wizard testing: `tccutil reset ScreenCapture|Accessibility|ListenEvent com.armadillon44.shotai` (grants are keyed to bundle id + signature; re-signs orphan them — symptom: nil tap / SCK userDeclined with the toggle apparently ON).
+- TCC reset (only needed if grants get orphaned): `tccutil reset ScreenCapture|Accessibility|ListenEvent com.armadillon44.shotai`.
+
+## Signing (dev)
+
+The app target is **manually signed** with the **Apple Development** cert, `DEVELOPMENT_TEAM = JX6BU857VX` (bundle id `com.armadillon44.shotai`), no provisioning profile (a locally-run non-sandboxed macOS app doesn't need one). This gives a **stable designated requirement** (bundle id + team/cert), so TCC grants (Screen Recording / Accessibility / Input Monitoring) **persist across rebuilds** — unlike ad-hoc signing (`"-"`), where every rebuild's new cdhash orphaned the grants and forced a re-grant + `tccutil reset`.
+
+Gotcha for a fresh cert/machine: Apple Development certs are issued by the **WWDR CA G3** intermediate. If `security find-identity -v -p codesigning` shows the cert but codesign fails with *"unable to build chain to self-signed root"*, the G3 intermediate is missing (a newer machine may only have the post-2020 WWDR CA). Fix: `curl -fsSLO https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer && security import AppleWWDRCAG3.cer -k ~/Library/Keychains/login.keychain-db`. (Phase E still needs Developer ID + notarization for distribution — this is dev signing only.)
 
 ## Environment
 
-Apple Silicon, macOS 26.5, Xcode 26.6 / Swift 6.3. `gh` CLI authenticated as **Armadillon44**.
+Apple Silicon, macOS 26.5, Xcode 26.6 / Swift 6.3. `gh` CLI authenticated as **Armadillon44**; Apple Development signing cert for team JX6BU857VX (dylan.dreier@icloud.com).
