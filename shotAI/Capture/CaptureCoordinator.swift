@@ -109,6 +109,12 @@ final class CaptureCoordinator {
             // rootView update while that same button action is still on the
             // stack (AttributeGraph re-entrancy).
             Task { @MainActor in self.confirmDiscard() }
+        case .dismissError:
+            // Defer for the same reason as .discard: clearError() re-renders the
+            // pill's hosting view, and doing that synchronously inside the pill
+            // button's own SwiftUI action re-enters the rootView update that is
+            // still on the stack (AttributeGraph re-entrancy).
+            Task { @MainActor in self.clearError() }
         }
     }
 
@@ -137,18 +143,33 @@ final class CaptureCoordinator {
                 state = newState
                 pill?.update(state: newState)
             case .stepAdded(let step):
+                // A successful step means capture recovered — clear any error
+                // the pill was showing so a transient hiccup doesn't linger.
+                if lastError != nil { clearError() }
                 onStepAdded?(step)
             case .error(let message):
                 lastError = message
+                // The main-window alert is invisible while recording (window
+                // ordered out); mirror the error onto the always-visible pill.
+                pill?.update(error: message)
             case .recordingChanged(let recording):
                 recordingChanged(recording)
             }
         }
     }
 
+    /// Clear the current error from both the alert binding and the pill badge.
+    private func clearError() {
+        lastError = nil
+        pill?.update(error: nil)
+    }
+
     private func recordingChanged(_ recording: Bool) {
         let noHide = ProcessInfo.processInfo.environment["SHOTAI_CAPTURE_NO_HIDE"] == "1"
         if recording {
+            // A new session is a clean slate — drop any error left unacknowledged
+            // by the previous one (show() also resets the pill's own copy).
+            lastError = nil
             let main = mainWindow
             if !noHide { main?.orderOut(nil) }
             pill?.show(state: state, near: main)
