@@ -33,12 +33,12 @@ A) Codable model + read-only viewer (exit: opens a Windows-created project) → 
 
 An adversarial multi-dimension review ran on the Phase B code; the confirmed correctness/security/concurrency findings were fixed (session-generation guards for actor re-entrancy, per-arm menu-poll flag, `SystemTriggers` locking + main-thread Carbon calls, strict `display(containing:)` resolution, orphan-filename clamp, pid-based SCK exclusion, real 600 ms element-query timeout, popup-value privacy). These were consciously deferred:
 
-- **Symlinked `shots/` residual** — `confinePath` is lexical only (documented Windows-parity gap); a hostile foreign project with `shots` symlinked out isn't blocked. Fix belongs in `PathConfine.swift` (lstat/realpath) when symlink hardening lands, and would cover the Windows app too.
 - **Two `SCShareableContent` enumerations per capture** (`SCKScreenshotter.displays()` then `captureDisplay()`), and 2/tick during menu polling — latency, not correctness. Fold display resolution into one enumeration in a perf pass.
 - **`.rounded()` vs JS `Math.round` for negative half-point crop offsets** — sub-pixel formula-parity nit; macOS already stores point-space coords, not Windows physical px, so exact byte-parity of the pixel math isn't a goal.
 
 Since fixed:
 
+- **Symlinked `shots/` residual** (2026-07-06) — `PathConfine.swift` now has `confinePathNoSymlinks` (lexical confine + `lstat`-reject of any symlinked component, Foundation-only); wired into `CaptureEngine` (the `shots/` mkdir in `start`/`captureSingle`, re-checked at every PNG write via a new `EngineError.shotsPathNotConfined`) and `ProjectStore.deleteSteps`. Reads still use lexical `confinePath`. **Windows-parity TODO:** mirror `confinePathNoSymlinks` in `shotAI-original/src/main/path-confine.ts` (`fs.lstat`) so the shared contract stays in sync.
 - **Capture errors during recording were invisible** — the `.alert` in `ContentView` is attached to the main window, which `recordingChanged(true)` orders out, so an in-session `.error` (step-PNG write collision, mid-session Screen Recording revocation) stayed hidden until the session ended. `CaptureCoordinator` now mirrors `lastError` onto the always-visible pill: `PillView` gains a dismissible red error badge + accent-bar tint (full message in its tooltip), cleared on the next successful step, on user dismiss (`PillAction.dismissError`), or at the next session start. The alert is kept as a backstop for pre-recording failures (a `record()` that never starts a session) and for a final unacknowledged error once the window returns.
 
 ## Commands

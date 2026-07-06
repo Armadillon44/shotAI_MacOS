@@ -253,7 +253,10 @@ public actor ProjectStore {
         try writeManifest(manifest, at: resolved)
         for step in removed {
             for rel in [step.screenshot, step.flattened ?? ""] where !rel.isEmpty {
-                guard let abs = confinePath(dir: resolved, rel: rel) else { continue }
+                // Symlink-hardened: a manifest path through a symlinked `shots`
+                // (or any component) would let removeItem delete OUTSIDE the
+                // project — skip it, same as any other confinement failure.
+                guard let abs = confinePathNoSymlinks(dir: resolved, rel: rel) else { continue }
                 try? fm.removeItem(atPath: abs)
             }
         }

@@ -112,6 +112,47 @@ import ShotModel
         h.cleanup()
     }
 
+    // Deferred finding: symlinked `shots/` residual. A hostile/shared project
+    // whose `shots` is a symlink out of the folder must not redirect writes.
+    // start()'s mkdir refuses it up front, before any session is installed.
+    @Test func startRefusesASymlinkedShotsFolder() async throws {
+        let h = try EngineHarness()
+        let fm = FileManager.default
+        let hostile = h.root + "/hostile"
+        let outside = h.root + "/outside"
+        try fm.createDirectory(atPath: outside, withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: hostile, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(atPath: hostile + "/shots", withDestinationPath: outside)
+        try ProjectJSON.encodeManifest(ProjectManifest(id: "h", title: "H", createdAt: "", updatedAt: ""))
+            .write(to: URL(fileURLWithPath: hostile + "/project.json"))
+
+        await #expect(throws: CaptureEngine.EngineError.shotsPathNotConfined) {
+            try await h.engine.start(projectPath: hostile, attachHook: false)
+        }
+        #expect(await h.engine.state().status == .idle) // refused before recording
+        h.cleanup()
+    }
+
+    // The write path re-checks, so a symlink swapped in AFTER start() (past the
+    // mkdir) still can't redirect the PNG out of the project.
+    @Test func captureWriteRefusesASymlinkSwappedInMidSession() async throws {
+        let h = try EngineHarness() // projectDir starts with a real shots/ dir
+        let fm = FileManager.default
+        let outside = h.root + "/outside"
+        try fm.createDirectory(atPath: outside, withIntermediateDirectories: true)
+        try await h.engine.start(projectPath: h.projectDir, attachHook: false)
+        try fm.removeItem(atPath: h.projectDir + "/shots")
+        try fm.createSymbolicLink(atPath: h.projectDir + "/shots", withDestinationPath: outside)
+
+        await #expect(throws: CaptureEngine.EngineError.shotsPathNotConfined) {
+            try await h.engine.captureStep(trigger: .hotkey, point: nil)
+        }
+        let leaked = (try? fm.contentsOfDirectory(atPath: outside)) ?? []
+        #expect(leaked.isEmpty, "no PNG leaked through the symlink: \(leaked)")
+        _ = await h.engine.stop()
+        h.cleanup()
+    }
+
     // #29 counterpart: a click INSIDE the active window still crops to it.
     @Test func autoClickInsideActiveWindowCropsToIt() async throws {
         let h = try EngineHarness()

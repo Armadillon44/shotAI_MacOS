@@ -20,6 +20,7 @@ public actor CaptureEngine {
     public enum EngineError: Error, LocalizedError, Equatable {
         case recordingInProgressOtherProject
         case recordingInProgress
+        case shotsPathNotConfined
 
         public var errorDescription: String? {
             switch self {
@@ -27,6 +28,8 @@ public actor CaptureEngine {
                 "A recording is already in progress for another project"
             case .recordingInProgress:
                 "A recording is already in progress"
+            case .shotsPathNotConfined:
+                "This project's shots folder resolves outside the project (it may be a symlink). Recording was refused so screenshots aren't written elsewhere."
             }
         }
     }
@@ -180,8 +183,9 @@ public actor CaptureEngine {
             if s.projectPath == opened.dir { return state() }
             throw EngineError.recordingInProgressOtherProject
         }
+        let shotsDir = try confinedShotsPath(projectDir: opened.dir, rel: "shots")
         try FileManager.default.createDirectory(
-            atPath: opened.dir + "/shots", withIntermediateDirectories: true)
+            atPath: shotsDir, withIntermediateDirectories: true)
         let existing = opened.manifest.steps.count
         generation += 1
         session = Session(
@@ -218,8 +222,9 @@ public actor CaptureEngine {
         let opened = try await store.openProject(at: projectPath)
         // Re-check after the await (TOCTOU): another start could have raced in.
         guard session == nil else { throw EngineError.recordingInProgress }
+        let shotsDir = try confinedShotsPath(projectDir: opened.dir, rel: "shots")
         try FileManager.default.createDirectory(
-            atPath: opened.dir + "/shots", withIntermediateDirectories: true)
+            atPath: shotsDir, withIntermediateDirectories: true)
         let existing = opened.manifest.steps.count
         let at = max(0, min(insertAt, existing))
         generation += 1
@@ -547,6 +552,18 @@ public actor CaptureEngine {
         eventsCont.yield(.error("Capture failed: \(error.localizedDescription)"))
     }
 
+    /// Resolve a `shots/…`-relative path under the project, refusing it if a
+    /// symlinked component would redirect the write outside the folder (a
+    /// hostile/shared project could point `shots` elsewhere). Every mkdir and
+    /// PNG write goes through here — the invariant is "every project write is
+    /// path-confined" (see ShotModel.confinePathNoSymlinks).
+    private func confinedShotsPath(projectDir: String, rel: String) throws -> String {
+        guard let abs = confinePathNoSymlinks(dir: projectDir, rel: rel) else {
+            throw EngineError.shotsPathNotConfined
+        }
+        return abs
+    }
+
     // MARK: - Menu poll cache
 
     /// Timer-driven (NOT mouse-move-driven) refresh of the latest full-monitor
@@ -663,10 +680,13 @@ public actor CaptureEngine {
         let order = session?.stepCount ?? 0
         let filename = CaptureConstants.shotFilename(order: order)
         let projectDir = s.projectPath
-        // Exclusive create: a collision fails loudly rather than silently
-        // overwriting a prior shot.
+        // Re-confine at the write itself (not just at the shots/ mkdir): a
+        // symlinked component swapped in mid-session must not redirect the PNG
+        // outside the project. Exclusive create: a collision fails loudly
+        // rather than silently overwriting a prior shot.
+        let dest = try confinedShotsPath(projectDir: projectDir, rel: "shots/\(filename)")
         try grabbed.prepared.png.write(
-            to: URL(fileURLWithPath: projectDir + "/shots/" + filename),
+            to: URL(fileURLWithPath: dest),
             options: .withoutOverwriting
         )
 
