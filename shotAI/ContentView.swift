@@ -1,9 +1,20 @@
+import CaptureKit
 import ShotModel
 import SwiftUI
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
+    @Environment(CaptureCoordinator.self) private var capture
     @State private var showOpenPanel = false
+    @State private var recordSheetTarget: RecordTarget?
+
+    private struct RecordTarget: Identifiable {
+        let path: String
+        /// True when the project was created just for this recording — a
+        /// discard then deletes the whole project folder.
+        var createdThisSession = false
+        var id: String { path }
+    }
 
     var body: some View {
         @Bindable var model = model
@@ -43,6 +54,20 @@ struct ContentView: View {
         .navigationTitle(model.opened?.manifest.title ?? "shotAI")
         .toolbar {
             ToolbarItem {
+                Button("Record", systemImage: "record.circle") {
+                    startRecordFlow()
+                }
+                .disabled(capture.state.status != .idle)
+                .help(model.opened == nil
+                    ? "Create a new project and record steps"
+                    : "Record steps into this project")
+            }
+            ToolbarItem {
+                Button("Permissions", systemImage: "lock.shield") {
+                    capture.showWizard = true
+                }
+            }
+            ToolbarItem {
                 Button("Open Project…", systemImage: "folder.badge.plus") {
                     showOpenPanel = true
                 }
@@ -58,9 +83,62 @@ struct ContentView: View {
                 Task { await model.openUserPicked(url) }
             }
         }
-        .task { await model.refresh() }
+        .sheet(item: $recordSheetTarget) { target in
+            RecordSheet(
+                projectPath: target.path,
+                createdThisSession: target.createdThisSession,
+                coordinator: capture
+            )
+        }
+        .sheet(isPresented: Bindable(capture).showWizard) {
+            PermissionsWizardView()
+        }
+        .alert(
+            "Capture error",
+            isPresented: Binding(
+                get: { capture.lastError != nil },
+                set: { if !$0 { capture.lastError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(capture.lastError ?? "")
+        }
+        .task {
+            await model.refresh()
+            // Live-refresh the report as steps land; refresh everything when
+            // a session ends (stop or discard may even delete the project).
+            capture.onStepAdded = { _ in
+                Task { await model.reloadOpened() }
+            }
+            capture.onRecordingEnded = {
+                Task {
+                    await model.refresh()
+                    await model.reloadOpened()
+                }
+            }
+            // First run: surface the wizard when the required permission is
+            // missing, before the user hits Record and wonders.
+            if !CapturePermission.screenRecording.isGranted() {
+                capture.showWizard = true
+            }
+        }
         .onChange(of: model.selectedPath) {
             Task { await model.openSelected() }
+        }
+    }
+
+    /// Record into the opened project, or create a fresh one (which discard
+    /// then deletes entirely — the createdThisSession contract).
+    private func startRecordFlow() {
+        if let opened = model.opened {
+            recordSheetTarget = RecordTarget(path: opened.dir)
+        } else {
+            Task {
+                if let path = await model.createAndSelectProject() {
+                    recordSheetTarget = RecordTarget(path: path, createdThisSession: true)
+                }
+            }
         }
     }
 

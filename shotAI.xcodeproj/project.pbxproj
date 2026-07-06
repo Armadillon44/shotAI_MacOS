@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		D0D00000000000000000E003 /* ShotModel in Frameworks */ = {isa = PBXBuildFile; productRef = D0D00000000000000000E002 /* ShotModel */; };
+		D0D00000000000000000E013 /* CaptureKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D00000000000000000E012 /* CaptureKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +25,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D0D00000000000000000E003 /* ShotModel in Frameworks */,
+				D0D00000000000000000E013 /* CaptureKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -67,6 +69,7 @@
 			name = shotAI;
 			packageProductDependencies = (
 				D0D00000000000000000E002 /* ShotModel */,
+				D0D00000000000000000E012 /* CaptureKit */,
 			);
 			productName = shotAI;
 			productReference = D0D00000000000000000A003 /* shotAI.app */;
@@ -97,6 +100,7 @@
 			mainGroup = D0D00000000000000000A002;
 			packageReferences = (
 				D0D00000000000000000E001 /* XCLocalSwiftPackageReference "Packages/ShotModel" */,
+				D0D00000000000000000E011 /* XCLocalSwiftPackageReference "Packages/CaptureKit" */,
 			);
 			productRefGroup = D0D00000000000000000A004 /* Products */;
 			projectDirPath = "";
@@ -251,12 +255,20 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/ShotModel;
 		};
+		D0D00000000000000000E011 /* XCLocalSwiftPackageReference "Packages/CaptureKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CaptureKit;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		D0D00000000000000000E002 /* ShotModel */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ShotModel;
+		};
+		D0D00000000000000000E012 /* CaptureKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CaptureKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
