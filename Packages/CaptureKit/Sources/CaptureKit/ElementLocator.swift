@@ -88,6 +88,14 @@ public final class AXElementLocator: ElementLocating, @unchecked Sendable {
     // MARK: - The hit + climb algorithm (mirrors lib.rs)
 
     private static func query(point: CGPoint) -> StepElement? {
+        // DEFENSE-IN-DEPTH: never hit-test a point over our OWN window.
+        // AXUIElementCopyElementAtPosition recurses into the target window's
+        // accessibility IN-PROCESS when that window is ours; our SwiftUI AX is
+        // main-thread-only and traps (SIGTRAP) off this background queue. The
+        // engine already gates own-window clicks, but a crash here kills the
+        // whole app + the in-progress recording, so guard the AX call directly.
+        if pointOverOwnProcessWindow(point) { return nil }
+
         let systemWide = AXUIElementCreateSystemWide()
         var hitRef: AXUIElement?
         // AXUIElementCopyElementAtPosition takes global TOP-LEFT points — the
@@ -119,6 +127,29 @@ public final class AXElementLocator: ElementLocating, @unchecked Sendable {
             controlType: type,
             bounds: bounds(of: el)
         )
+    }
+
+    /// True iff the topmost on-screen window at `point` belongs to our process.
+    /// Uses CGWindowList (bounds + owner pid + z-order — no AX, no Screen
+    /// Recording needed), so it can't itself trigger the recursion it guards
+    /// against. Fails safe: on any doubt it returns false (query proceeds).
+    private static func pointOverOwnProcessWindow(_ point: CGPoint) -> Bool {
+        let ownPID = getpid()
+        guard let infos = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
+        else { return false }
+        // Front-to-back order; the first window whose bounds contain the point
+        // is the topmost there — the one the AX hit test would descend into.
+        for info in infos {
+            guard let bounds = info[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
+            let rect = CGRect(
+                x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0,
+                width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0)
+            guard rect.contains(point) else { continue }
+            let pid = (info[kCGWindowOwnerPID as String] as? pid_t) ?? -1
+            return pid == ownPID
+        }
+        return false
     }
 
     // MARK: - Attribute helpers

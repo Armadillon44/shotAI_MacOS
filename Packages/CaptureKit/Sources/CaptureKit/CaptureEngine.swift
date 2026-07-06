@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import os
 import ShotModel
 
 /// The recording engine — a behavioral port of the Windows CaptureController.
@@ -91,6 +92,9 @@ public actor CaptureEngine {
     private let ownWindows: any OwnWindowChecking
     private let triggers: any TriggerSource
     private let now: @Sendable () -> TimeInterval
+    /// Diagnostics — read with:
+    /// `log show --debug --last 5m --predicate 'subsystem == "com.armadillon44.shotai"'`
+    private let log = Logger(subsystem: "com.armadillon44.shotai", category: "capture")
 
     /// UI-facing event stream (single consumer: the app's coordinator).
     public nonisolated let events: AsyncStream<CaptureEvent>
@@ -407,18 +411,25 @@ public actor CaptureEngine {
         let gen = generation
         let point = event.location
         let button = event.button
-        // Element resolution starts NOW, at mousedown, before the click's
-        // effect mutates the UI (dialog closes, menu dismisses).
+
+        // OWN-WINDOW GATE — must run BEFORE the element query. A click on one of
+        // our own windows (e.g. the capture pill) never produces a step, AND
+        // querying the element at that point is FATAL: AXUIElementCopyElement-
+        // AtPosition hit-tests the window under the point, and when that window
+        // is ours the call recurses into our in-process SwiftUI accessibility on
+        // this background thread, which is main-thread-only → SIGTRAP. So bail
+        // here (single-shot arm is not consumed — matching prior behavior).
+        if await ownWindows.pointHitsOwnWindow(point) { return }
+        guard sessionAlive(gen) else { return }
+
+        // Element resolution starts NOW (after the own-window gate), before the
+        // click's effect mutates the UI (dialog closes, menu dismisses).
         let elements = self.elements
         let elementTask = Task { await elements.elementAt(point) }
 
         // 1. Single-shot
-        if s.single != nil {
+        if session?.single != nil {
             if session?.single?.fired == true { return }
-            if await ownWindows.pointHitsOwnWindow(point) { return } // arm NOT consumed
-            // Re-validate after the own-window await: stop()/a new session
-            // must not receive this stale one-shot's fire + auto-stop.
-            guard sessionAlive(gen), session?.single != nil else { return }
             session?.single?.fired = true
             var opts = CaptureOptions()
             opts.insertAt = session?.single?.insertAt
@@ -759,6 +770,15 @@ public actor CaptureEngine {
         guard let displays = try? await screenshotter.displays(), !displays.isEmpty else { return nil }
         let clickDisplay = GrabMath.display(for: point, in: displays)
         let autoMode: AutoMode? = mode == .auto ? captureModeFor(active: active) : nil
+        log.debug("""
+            grab mode=\(String(describing: mode), privacy: .public) \
+            auto=\(String(describing: autoMode), privacy: .public) \
+            active=\(active?.app ?? "nil", privacy: .public)/'\(active?.title ?? "", privacy: .public)' \
+            bundle=\(active?.bundleID ?? "nil", privacy: .public) \
+            bounds=\(String(describing: active?.bounds), privacy: .public) \
+            click=\(String(describing: point), privacy: .public) \
+            displays=\(displays.count, privacy: .public)
+            """)
 
         // A. Context-menu selection: crop a frame captured while the menu was
         // painted to owner ∪ click box ('screen' keeps the whole monitor).
@@ -819,11 +839,21 @@ public actor CaptureEngine {
                 if let bounds = active?.bounds, point.map({ bounds.contains($0) }) ?? true {
                     winRect = bounds
                 }
+                if winRect == nil {
+                    log.debug("""
+                        grab auto-window → NO winRect (bounds=\(String(describing: active?.bounds), privacy: .public) \
+                        contains-click=\(String(describing: active?.bounds.map { b in point.map { b.contains($0) } }), privacy: .public)) \
+                        → falling through to fullscreen
+                        """)
+                }
             }
             if let winRect {
                 let mon = GrabMath.display(containing: winRect.origin, in: displays) ?? clickDisplay
                 if let mon, let frame = try? await screenshotter.captureDisplay(mon.id) {
-                    if let result = prepare(frame: frame, region: winRect) { return result }
+                    if let result = prepare(frame: frame, region: winRect) {
+                        log.debug("grab → WINDOW crop \(String(describing: result.prepared.png.count), privacy: .public)B origin=(\(result.originX, privacy: .public),\(result.originY, privacy: .public))")
+                        return result
+                    }
                 }
                 // capture/crop failed → fall through to monitor capture
             }
@@ -852,7 +882,13 @@ public actor CaptureEngine {
         }
         guard let mon, let frame = try? await screenshotter.captureDisplay(mon.id) else { return nil }
 
-        if autoMode == .region, let point {
+        // Region crop for auto shell/region clicks AND for auto-window clicks
+        // that landed OUTSIDE the active window (menu bar, open menus, window
+        // edges): reaching here in .window mode means branch B didn't crop to
+        // the window, so a focused region around the click beats a fullscreen
+        // grab. Explicit modes (autoMode == nil) still fall through to a full
+        // monitor grab, matching the Windows fallback.
+        if autoMode == .region || autoMode == .window, let point {
             let crop = GrabMath.regionCrop(monitor: frame.display.frame, point: point)
             if let prepared = ImageOutput.prepare(
                 frame: frame.image, cropLocal: crop.local, pixelScale: frame.display.pixelScale) {
@@ -863,6 +899,7 @@ public actor CaptureEngine {
             // fall through to fullscreen
         }
 
+        log.debug("grab → FULLSCREEN monitor #\(mon.id, privacy: .public) frame=\(String(describing: mon.frame), privacy: .public)")
         return prepare(frame: frame, region: nil)
     }
 

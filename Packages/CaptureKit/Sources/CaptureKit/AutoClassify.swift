@@ -15,10 +15,13 @@ public enum AutoMode: Sendable {
 
 public func captureModeFor(active: WindowSnapshot?) -> AutoMode {
     guard let active else { return .fullscreen }
-    // Finder with no real front window = the desktop (the analog of
-    // Explorer + "Program Manager").
+    // Finder with no real front window = the desktop — a region around the
+    // click is more useful for an SOP than the whole screen (the click point
+    // is what matters). The grab path also falls back from .window to a region
+    // crop when a click lands OUTSIDE the active window (menu bar, open menus,
+    // window edges), so out-of-window clicks are framed, not fullscreened.
     if active.bundleID == "com.apple.finder", active.title.trimmingCharacters(in: .whitespaces).isEmpty {
-        return .fullscreen
+        return .region
     }
     if let bundleID = active.bundleID, CaptureConstants.shellHostBundleIDs.contains(bundleID) {
         return .region
