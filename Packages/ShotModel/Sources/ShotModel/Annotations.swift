@@ -20,6 +20,19 @@ public struct RectAnnotation: Codable, Equatable, Sendable {
         case id, x, y, width, height, cornerRadius, stroke, strokeWidth, fill
     }
 
+    public init(id: String, x: Double, y: Double, width: Double, height: Double,
+                cornerRadius: Double, stroke: String, strokeWidth: Double, fill: String?) {
+        self.id = id
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.cornerRadius = cornerRadius
+        self.stroke = stroke
+        self.strokeWidth = strokeWidth
+        self.fill = fill
+    }
+
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
@@ -40,6 +53,13 @@ public struct ArrowAnnotation: Codable, Equatable, Sendable {
     public var points: [Double]
     public var stroke: String
     public var strokeWidth: Double
+
+    public init(id: String, points: [Double], stroke: String, strokeWidth: Double) {
+        self.id = id
+        self.points = points
+        self.stroke = stroke
+        self.strokeWidth = strokeWidth
+    }
 }
 
 /// Blur/redact region — baked destructively into the flattened output.
@@ -56,6 +76,17 @@ public struct BlurAnnotation: Codable, Equatable, Sendable {
     public var mode: Mode
     /// Mosaic block size in image px (pixelate); ignored for solid.
     public var blockSize: Double
+
+    public init(id: String, x: Double, y: Double, width: Double, height: Double,
+                mode: Mode, blockSize: Double) {
+        self.id = id
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.mode = mode
+        self.blockSize = blockSize
+    }
 }
 
 /// Numbered step stamp (a circle with a number). x/y are the center.
@@ -67,6 +98,17 @@ public struct StampAnnotation: Codable, Equatable, Sendable {
     public var radius: Double
     public var fill: String
     public var textColor: String
+
+    public init(id: String, x: Double, y: Double, n: Int, radius: Double,
+                fill: String, textColor: String) {
+        self.id = id
+        self.x = x
+        self.y = y
+        self.n = n
+        self.radius = radius
+        self.fill = fill
+        self.textColor = textColor
+    }
 }
 
 /// Free text label.
@@ -77,6 +119,15 @@ public struct TextAnnotation: Codable, Equatable, Sendable {
     public var text: String
     public var fontSize: Double
     public var fill: String
+
+    public init(id: String, x: Double, y: Double, text: String, fontSize: Double, fill: String) {
+        self.id = id
+        self.x = x
+        self.y = y
+        self.text = text
+        self.fontSize = fontSize
+        self.fill = fill
+    }
 }
 
 /// A click-register ring, movable in the editor. x/y are the center (image px);
@@ -87,6 +138,14 @@ public struct MarkerAnnotation: Codable, Equatable, Sendable {
     public var y: Double
     public var color: String
     public var radius: Double?
+
+    public init(id: String, x: Double, y: Double, color: String, radius: Double? = nil) {
+        self.id = id
+        self.x = x
+        self.y = y
+        self.color = color
+        self.radius = radius
+    }
 }
 
 /// Tagged union over the `type` discriminator, exactly as the TS union. An
