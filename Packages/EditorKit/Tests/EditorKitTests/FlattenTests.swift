@@ -79,6 +79,33 @@ import ShotModel
         #expect(lum(p) > 40 && lum(p) < 215, "mosaiced pixel should be mid-tone, not pure b/w: \(p)")
     }
 
+    /// ABSOLUTE orientation: a plain flatten must return the image the same way
+    /// up as the source. Both sides are read with pixel()/cropping (unambiguous
+    /// top-left), so this can't be fooled by any context convention.
+    @Test func plainFlattenDoesNotFlip() throws {
+        func isRed(_ p: (r: Int, g: Int, b: Int, a: Int)) -> Bool { p.r > 150 && p.b < 110 }
+        let built = makeImage(80, 80) { c in
+            c.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)); c.fill(CGRect(x: 0, y: 0, width: 80, height: 40))
+            c.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)); c.fill(CGRect(x: 0, y: 40, width: 80, height: 40))
+        }
+        let out = decodePNG(try Flatten.toPNG(image: built, annotations: [], crop: nil))
+        // Whatever the source's top pixel is, the output's top pixel must match.
+        #expect(isRed(pixel(out, 40, 10)) == isRed(pixel(built, 40, 10)), "top pixel must survive plain flatten")
+        #expect(isRed(pixel(out, 40, 70)) == isRed(pixel(built, 40, 70)), "bottom pixel must survive plain flatten")
+    }
+
+    /// A redaction placed at the image TOP must land at the top of the output
+    /// (annotation position is absolute, not vertically mirrored).
+    @Test func solidRedactionLandsAtTopNotBottom() throws {
+        let src = makeImage(80, 80) { c in
+            c.setFillColor(CGColor(gray: 1, alpha: 1)); c.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
+        }
+        let out = decodePNG(try Flatten.toPNG(
+            image: src, annotations: [blur(0, 0, 80, 16, mode: .solid)], crop: nil))
+        #expect(lum(pixel(out, 40, 8)) < 10, "top strip should be redacted black")
+        #expect(lum(pixel(out, 40, 72)) > 240, "bottom should be untouched white")
+    }
+
     /// Ground-truth orientation check: the mosaic region must have the SAME
     /// vertical orientation as the plain-flatten output of the same source (the
     /// plain path is the one the app renders correctly). Comparing the two paths

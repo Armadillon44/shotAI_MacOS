@@ -80,7 +80,7 @@ public enum Flatten {
         guard let cropped = image.cropping(to: CGRect(x: cx, y: cy, width: cw, height: ch)) else {
             throw FlattenError.contextUnavailable
         }
-        ctx.draw(cropped, in: CGRect(x: 0, y: 0, width: cw, height: ch))
+        drawImageUpright(ctx, cropped, in: CGRect(x: 0, y: 0, width: cw, height: ch))
 
         // 2) BAKE redaction destructively, before any overlay. Fail closed.
         for case .blur(let a) in annotations {
@@ -182,9 +182,22 @@ public enum Flatten {
         ctx.saveGState()
         ctx.clip(to: dest) // keep the upscale bleed off un-redacted pixels
         ctx.interpolationQuality = .high
-        ctx.draw(tile, in: dest)
+        drawImageUpright(ctx, tile, in: dest)
         ctx.restoreGState()
         return true
+    }
+
+    /// Draw a CGImage upright into `rect` (top-left image coords) within the
+    /// top-left-flipped context. In a flipped context, PATH/text drawing encodes
+    /// upright but CGImage drawing encodes UPSIDE DOWN — so images need a local
+    /// un-flip about the destination rect. (This is why solid fills looked fine
+    /// but the source and mosaic tile came out flipped.)
+    private static func drawImageUpright(_ ctx: CGContext, _ image: CGImage, in rect: CGRect) {
+        ctx.saveGState()
+        ctx.translateBy(x: rect.minX, y: rect.maxY)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: rect.width, height: rect.height))
+        ctx.restoreGState()
     }
 
     // MARK: - Vector overlay
