@@ -55,6 +55,9 @@ struct ContentView: View {
             }
         }
         .navigationTitle(model.opened?.manifest.title ?? "shotAI")
+        // Hide the window's Record/Permissions/… toolbar while the editor
+        // overlay is up, so its controls can't sit behind the editor's own bar.
+        .toolbar(editor == nil ? .automatic : .hidden, for: .windowToolbar)
         .toolbar {
             ToolbarItem {
                 Button("Record", systemImage: "record.circle") {

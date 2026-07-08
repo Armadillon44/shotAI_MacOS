@@ -29,8 +29,11 @@ struct EditorOverlay: View {
             Divider()
             canvas
         }
+        // Fill the window's CONTENT area (below the title bar). Extending under
+        // the title bar collided the editor toolbar with the window's native
+        // toolbar; only bleed to the sides/bottom.
         .background(.ultraThickMaterial)
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
     }
 
     // MARK: - Toolbar
