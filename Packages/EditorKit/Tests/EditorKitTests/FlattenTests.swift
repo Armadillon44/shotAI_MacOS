@@ -79,6 +79,22 @@ import ShotModel
         #expect(lum(p) > 40 && lum(p) < 215, "mosaiced pixel should be mid-tone, not pure b/w: \(p)")
     }
 
+    /// The mosaic must not flip the region vertically. A dark-top / light-bottom
+    /// split stays dark-top after pixelation; the flip bug reversed it (only
+    /// pixelate was affected — solid fill is orientation-free).
+    @Test func mosaicPreservesVerticalOrientation() throws {
+        let src = makeImage(120, 120) { c in
+            c.setFillColor(CGColor(gray: 1, alpha: 1)); c.fill(CGRect(x: 0, y: 0, width: 120, height: 120))
+            c.setFillColor(CGColor(gray: 0.15, alpha: 1)); c.fill(CGRect(x: 20, y: 20, width: 60, height: 30)) // top band dark
+            c.setFillColor(CGColor(gray: 0.85, alpha: 1)); c.fill(CGRect(x: 20, y: 50, width: 60, height: 30)) // bottom band light
+        }
+        let out = decodePNG(try Flatten.toPNG(
+            image: src, annotations: [blur(20, 20, 60, 60, mode: .pixelate, block: 8)], crop: nil))
+        let top = lum(pixel(out, 50, 30))
+        let bottom = lum(pixel(out, 50, 70))
+        #expect(top < bottom - 60, "mosaic must keep dark-top/light-bottom (not flipped): top=\(top) bottom=\(bottom)")
+    }
+
     /// Fail CLOSED: a redaction that overlaps the export but rounds to <1px must
     /// throw, never emit a PNG with an unprotected area.
     @Test func subPixelRedactionFailsClosed() throws {
