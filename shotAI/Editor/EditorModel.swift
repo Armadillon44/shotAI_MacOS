@@ -65,21 +65,47 @@ final class EditorModel {
         return false
     }
 
-    /// Add a redaction over `rect` (image px) with the current style; select it.
+    /// Clamp a rect (image px) to the image bounds. A redaction or crop drawn
+    /// starting in the letterbox margin has negative/oversized coords; without
+    /// this the crop far edge shifts outward and RE-INCLUDES pixels the user
+    /// cropped out, and off-image redactions get silently dropped at flatten.
+    func clampedToImage(_ r: CGRect) -> CGRect {
+        let x0 = max(0, min(r.minX, imageSize.width))
+        let y0 = max(0, min(r.minY, imageSize.height))
+        let x1 = max(0, min(r.maxX, imageSize.width))
+        let y1 = max(0, min(r.maxY, imageSize.height))
+        return CGRect(x: x0, y: y0, width: max(0, x1 - x0), height: max(0, y1 - y0))
+    }
+
+    /// Add a redaction over `rect` (image px, clamped to the image) with the
+    /// current style; select it. Ignores a degenerate rect.
     func addRedaction(_ rect: CGRect) {
+        let r = clampedToImage(rect)
+        guard r.width >= 1, r.height >= 1 else { return }
         let id = newAnnotationID()
         annotations.append(.blur(BlurAnnotation(
-            id: id, x: rect.minX, y: rect.minY, width: rect.width, height: rect.height,
+            id: id, x: r.minX, y: r.minY, width: r.width, height: r.height,
             mode: redactMode, blockSize: redactBlock)))
         selectedID = id
     }
 
-    /// Topmost blur containing `point` (image px) — selection hit-test.
+    /// Set (or clear) the crop, clamped to the image bounds.
+    func setCrop(_ rect: CGRect?) {
+        guard let rect else { crop = nil; return }
+        let r = clampedToImage(rect)
+        crop = (r.width >= 1 && r.height >= 1) ? Rect(x: r.minX, y: r.minY, width: r.width, height: r.height) : nil
+    }
+
+    /// Topmost blur containing `point` (image px) — selection hit-test. Syncs
+    /// the style controls to the selected blur so the picker reflects it and
+    /// toggling mode doesn't clobber its block size.
     func selectBlur(at point: CGPoint) {
         for a in annotations.reversed() {
             if case .blur(let b) = a,
                CGRect(x: b.x, y: b.y, width: b.width, height: b.height).contains(point) {
                 selectedID = b.id
+                redactMode = b.mode
+                redactBlock = b.blockSize
                 return
             }
         }
@@ -91,13 +117,16 @@ final class EditorModel {
         return CGRect(x: b.x, y: b.y, width: b.width, height: b.height)
     }
 
-    /// Replace the selected blur's rect (image px), clamped to sane minimums.
+    /// Replace the selected blur's rect (image px), clamped to the image so a
+    /// move/resize can't push it off-image (where it would be dropped at bake).
     func setSelectedRect(_ rect: CGRect) {
         guard let i = selectedBlurIndex, case .blur(var b) = annotations[i] else { return }
-        b.x = rect.minX
-        b.y = rect.minY
-        b.width = max(1, rect.width)
-        b.height = max(1, rect.height)
+        let r = clampedToImage(rect)
+        guard r.width >= 1, r.height >= 1 else { return }
+        b.x = r.minX
+        b.y = r.minY
+        b.width = r.width
+        b.height = r.height
         annotations[i] = .blur(b)
     }
 
@@ -123,9 +152,12 @@ final class EditorModel {
         defer { scanning = false }
         let rects = await scanner.scanForSensitiveRects(rawImage)
         for r in rects {
+            // SOLID for auto-detected secrets — definitive, matching the Windows
+            // app (a mosaic of a short token can be brute-legible; a hard fill
+            // can't). The user can switch any region to pixelate afterward.
             annotations.append(.blur(BlurAnnotation(
                 id: newAnnotationID(), x: r.x, y: r.y, width: r.width, height: r.height,
-                mode: .pixelate, blockSize: AnnotationStyle.defaultBlockSize)))
+                mode: .solid, blockSize: AnnotationStyle.defaultBlockSize)))
         }
     }
 
@@ -142,7 +174,15 @@ final class EditorModel {
                            radius: click.radius.map { CGFloat($0) })
         }
         do {
-            let png = try Flatten.toPNG(image: rawImage, annotations: annotations, crop: crop, marker: marker)
+            // Flatten off the main actor — crop + mosaic + PNG encode of a
+            // Retina screenshot is CPU-heavy and would hitch the UI. CGImage is
+            // immutable/thread-safe (boxed to cross the isolation boundary).
+            let image = UncheckedSendable(rawImage)
+            let anns = annotations
+            let cropRect = crop
+            let png = try await Task.detached(priority: .userInitiated) {
+                try Flatten.toPNG(image: image.value, annotations: anns, crop: cropRect, marker: marker)
+            }.value
             var patch = StepPatch()
             patch.annotations = annotations
             patch.crop = .set(crop)
@@ -154,4 +194,12 @@ final class EditorModel {
             return false
         }
     }
+}
+
+/// Carry an immutable, thread-safe value (a CGImage) across an isolation
+/// boundary into a detached task. CGImage isn't formally Sendable but is safe
+/// to read concurrently.
+private struct UncheckedSendable<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
 }

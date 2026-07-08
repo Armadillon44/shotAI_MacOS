@@ -10,6 +10,8 @@ struct ContentView: View {
     @State private var recordSheetTarget: RecordTarget?
     /// The editor model for the step currently being annotated (Phase C), or nil.
     @State private var editor: EditorModel?
+    /// Message shown when a step can't be opened for editing.
+    @State private var editorError: String?
 
     private struct RecordTarget: Identifiable {
         let path: String
@@ -121,7 +123,10 @@ struct ContentView: View {
                     onCancel: { self.editor = nil },
                     onSaved: {
                         self.editor = nil
-                        Task { await model.reloadOpened() } // show the flattened render
+                        Task {
+                            await model.reloadOpened() // show the flattened render
+                            await model.refresh() // updatedAt changed → resort the list
+                        }
                     }
                 )
                 .transition(.opacity)
@@ -137,6 +142,14 @@ struct ContentView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(capture.lastError ?? "")
+        }
+        .alert(
+            "Can't edit this step",
+            isPresented: Binding(get: { editorError != nil }, set: { if !$0 { editorError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(editorError ?? "")
         }
         .task {
             await model.refresh()
@@ -162,9 +175,14 @@ struct ContentView: View {
         }
     }
 
-    /// Open the annotation editor for a step (loads its raw screenshot).
+    /// Open the annotation editor for a step (loads its raw screenshot). If the
+    /// screenshot can't be loaded, tell the user instead of silently no-op'ing.
     private func openEditor(_ step: ProjectStep, in projectDir: String) {
-        editor = EditorModel(step: step, projectDir: projectDir, store: model.store, scanner: VisionOCR())
+        if let m = EditorModel(step: step, projectDir: projectDir, store: model.store, scanner: VisionOCR()) {
+            editor = m
+        } else {
+            editorError = "This step's screenshot (\(step.screenshot)) couldn't be opened for editing — it may be missing or corrupt."
+        }
     }
 
     /// Record into the opened project, or create a fresh one (which discard

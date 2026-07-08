@@ -34,6 +34,14 @@ struct EditorOverlay: View {
         // toolbar; only bleed to the sides/bottom.
         .background(.ultraThickMaterial)
         .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .alert("Couldn't save this step", isPresented: Binding(
+            get: { model.errorMessage != nil },
+            set: { if !$0 { model.errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.errorMessage ?? "")
+        }
     }
 
     // MARK: - Toolbar
@@ -67,7 +75,7 @@ struct EditorOverlay: View {
                 if model.scanning { ProgressView().controlSize(.small) }
                 else { Label("Auto-redact", systemImage: "sparkles") }
             }
-            .disabled(model.scanning)
+            .disabled(model.scanning || model.saving)
             .help("Scan for SSNs, card numbers, and API keys and redact them")
 
             if isBlurSelected {
@@ -83,6 +91,7 @@ struct EditorOverlay: View {
 
             Button("Cancel", role: .cancel) { onCancel() }
                 .keyboardShortcut(.cancelAction)
+                .disabled(model.saving) // don't cancel out from under an in-flight save
             Button {
                 Task { if await model.save() { onSaved() } }
             } label: {
@@ -90,7 +99,9 @@ struct EditorOverlay: View {
             }
             .keyboardShortcut(.defaultAction)
             .buttonStyle(.borderedProminent)
-            .disabled(model.saving)
+            // Block save mid-scan — it would bake without the OCR redactions and
+            // then lose them when the scan appends after the flatten.
+            .disabled(model.saving || model.scanning)
         }
         .padding(12)
     }
@@ -104,6 +115,7 @@ struct EditorOverlay: View {
             let f = fit(geo.size)
             Canvas { ctx, _ in draw(ctx, f) }
                 .contentShape(Rectangle())
+                .focusable() // so the canvas can receive the Delete key
                 .gesture(dragGesture(f))
                 .onKeyPress(.delete) {
                     if isBlurSelected { model.deleteSelected(); return .handled }
@@ -150,6 +162,19 @@ struct EditorOverlay: View {
                 ctx.fill(Path(roundedRect: h, cornerRadius: 2), with: .color(accent))
                 ctx.stroke(Path(roundedRect: h, cornerRadius: 2), with: .color(.white), lineWidth: 1)
             }
+        }
+
+        // Click-register marker preview — baked on save, so show it here too
+        // (WYSIWYG). Drawn before the crop dim so a crop that excludes it dims
+        // it, matching the flattened output.
+        if let click = model.step.click {
+            let radius = (click.radius ?? Double(AnnotationStyle.clickMarkerRadius(
+                width: model.imageSize.width, height: model.imageSize.height))) * f.s
+            let c = toDisplay(CGRect(x: click.image.x, y: click.image.y, width: 0, height: 0), f).origin
+            let box = CGRect(x: c.x - radius, y: c.y - radius, width: radius * 2, height: radius * 2)
+            let color = Color(hex: AnnotationStyle.markerColor(for: model.step))
+            ctx.fill(Path(ellipseIn: box), with: .color(color.opacity(0.18)))
+            ctx.stroke(Path(ellipseIn: box), with: .color(color), lineWidth: max(2, radius * 0.22))
         }
 
         // Crop: dim everything outside the crop rect.
@@ -224,9 +249,9 @@ struct EditorOverlay: View {
             .onEnded { _ in
                 if let d = drag {
                     if d.mode == .create, let r = draftRect, r.width >= 5, r.height >= 5 {
-                        model.addRedaction(r)
+                        model.addRedaction(r) // clamps to image bounds
                     } else if d.mode == .createCrop, let r = draftRect, r.width >= 5, r.height >= 5 {
-                        model.crop = Rect(x: r.minX, y: r.minY, width: r.width, height: r.height)
+                        model.setCrop(r) // clamps to image bounds (no re-included pixels)
                     }
                 }
                 drag = nil
@@ -241,9 +266,11 @@ struct EditorOverlay: View {
         case .crop:
             return Drag(mode: .createCrop, startImg: startImg, origRect: .zero)
         case .select:
-            // Resize if the drag started on the selected blur's handle.
+            // Resize if the drag started on the selected blur's handle. Match
+            // the visible 12-pt handle (±~8 pt tolerance) so it doesn't hijack
+            // clicks in empty space near the corner.
             if let sel = model.rectOfSelected() {
-                let handleImg = 12 / f.s
+                let handleImg = 8 / f.s
                 let corner = CGPoint(x: sel.maxX, y: sel.maxY)
                 if abs(startImg.x - corner.x) <= handleImg, abs(startImg.y - corner.y) <= handleImg {
                     return Drag(mode: .resize, startImg: startImg, origRect: sel)
