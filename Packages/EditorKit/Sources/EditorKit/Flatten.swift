@@ -165,6 +165,12 @@ public enum Flatten {
             ctx.restoreGState()
             return true
         }
+        // Flip the downsample context to top-left too, so the tile comes out in
+        // the same orientation the (flipped) main context expects — otherwise
+        // the mosaic tile is drawn upside down (solid fill is orientation-free,
+        // which is why only pixelate flipped).
+        small.translateBy(x: 0, y: CGFloat(sh))
+        small.scaleBy(x: 1, y: -1)
         small.interpolationQuality = .high // averaging downsample
         small.draw(region, in: CGRect(x: 0, y: 0, width: sw, height: sh))
         guard let tile = small.makeImage() else {
