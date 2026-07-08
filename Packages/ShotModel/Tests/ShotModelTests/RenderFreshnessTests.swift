@@ -1,0 +1,133 @@
+import Foundation
+import Testing
+@testable import ShotModel
+
+// C2: render-freshness invalidation (step-render.ts) + the fail-closed egress
+// gate (render-gate.ts) + updateStep/mergeSteps.
+@Suite struct RenderFreshnessTests {
+    let root: String
+    let projectDir: String
+    let store: ProjectStore
+
+    init() throws {
+        root = NSTemporaryDirectory() + "shotai-render-\(UUID().uuidString)"
+        projectDir = root + "/proj"
+        try FileManager.default.createDirectory(atPath: projectDir + "/shots", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: projectDir + "/export", withIntermediateDirectories: true)
+        var m = ProjectManifest(id: "p", title: "T", createdAt: "", updatedAt: "")
+        m.steps = [ProjectStep(id: "s1", order: 1, screenshot: "shots/step-0001.png", trigger: .click)]
+        try ProjectJSON.encodeManifest(m).write(to: URL(fileURLWithPath: projectDir + "/project.json"))
+        store = ProjectStore(settings: InMemorySettings(projectsDir: root))
+    }
+    private func cleanup() { try? FileManager.default.removeItem(atPath: root) }
+    private func read() throws -> ProjectStep {
+        try ProjectJSON.decodeManifest(Data(contentsOf: URL(fileURLWithPath: projectDir + "/project.json"))).steps[0]
+    }
+    private func blur() -> Annotation {
+        .blur(BlurAnnotation(id: "b", x: 0, y: 0, width: 10, height: 10, mode: .solid, blockSize: 12))
+    }
+
+    // A fresh render co-written with the patch is kept + renderRev bumped.
+    @Test func freshRenderIsWrittenAndPointedAt() async throws {
+        var p = StepPatch(); p.annotations = [blur()]
+        _ = try await store.updateStep(at: projectDir, stepId: "s1", patch: p, flattenedPng: Data([0x89, 0x50]))
+        let s = try read()
+        #expect(s.flattened == "export/.render/s1.png")
+        #expect(s.renderRev == 1)
+        #expect(FileManager.default.fileExists(atPath: projectDir + "/export/.render/s1.png"))
+        cleanup()
+    }
+
+    // Changing annotations/crop WITHOUT a fresh PNG must drop the stale render
+    // (the freshness invariant) so egress is forced to re-flatten.
+    @Test func changingAnnotationsWithoutRenderInvalidatesStale() async throws {
+        // Seed a flattened render first.
+        var p1 = StepPatch(); p1.annotations = [blur()]
+        _ = try await store.updateStep(at: projectDir, stepId: "s1", patch: p1, flattenedPng: Data([0x89]))
+        #expect(try read().flattened != nil)
+        // Now change annotations with NO co-written PNG → stale render dropped.
+        var p2 = StepPatch(); p2.annotations = [blur(), blur()]
+        _ = try await store.updateStep(at: projectDir, stepId: "s1", patch: p2, flattenedPng: nil)
+        let s = try read()
+        #expect(s.flattened == nil, "stale render must be invalidated")
+        #expect(s.markerBaked != true)
+        cleanup()
+    }
+
+    // A non-geometry patch (caption) must NOT drop the render.
+    @Test func captionOnlyPatchKeepsRender() async throws {
+        var p1 = StepPatch(); p1.annotations = [blur()]
+        _ = try await store.updateStep(at: projectDir, stepId: "s1", patch: p1, flattenedPng: Data([0x89]))
+        var p2 = StepPatch(); p2.caption = "New caption"
+        _ = try await store.updateStep(at: projectDir, stepId: "s1", patch: p2, flattenedPng: nil)
+        let s = try read()
+        #expect(s.flattened == "export/.render/s1.png")
+        #expect(s.caption == "New caption")
+        cleanup()
+    }
+
+    // Clearing the crop (PatchField .set(nil)) counts as a geometry change.
+    @Test func clearingCropInvalidatesStale() async throws {
+        var p1 = StepPatch(); p1.crop = .set(Rect(x: 0, y: 0, width: 5, height: 5))
+        _ = try await store.updateStep(at: projectDir, stepId: "s1", patch: p1, flattenedPng: Data([0x89]))
+        var p2 = StepPatch(); p2.crop = .set(nil)
+        _ = try await store.updateStep(at: projectDir, stepId: "s1", patch: p2, flattenedPng: nil)
+        #expect(try read().flattened == nil)
+        cleanup()
+    }
+
+    // MARK: - render gate (fail-closed egress)
+
+    @Test func gateRefusesRawShotForUnbakedBlur() throws {
+        var step = ProjectStep(id: "s", order: 1, screenshot: "shots/s.png", trigger: .click)
+        step.annotations = [blur()] // blur but no flattened
+        #expect(throws: RenderGateError.self) {
+            _ = try resolveSendableRender(dir: projectDir, step: step, stepLabel: "Step 1", verb: "send")
+        }
+        cleanup()
+    }
+
+    @Test func gateRefusesRawShotForUnbakedCrop() throws {
+        var step = ProjectStep(id: "s", order: 1, screenshot: "shots/s.png", trigger: .click)
+        step.crop = Rect(x: 0, y: 0, width: 5, height: 5)
+        #expect(throws: RenderGateError.self) {
+            _ = try resolveSendableRender(dir: projectDir, step: step, stepLabel: "Step 1", verb: "export")
+        }
+        cleanup()
+    }
+
+    @Test func gateAllowsFlattenedRenderAndPlainShot() throws {
+        // Baked render → read the flattened.
+        var baked = ProjectStep(id: "s", order: 1, screenshot: "shots/s.png", trigger: .click)
+        baked.annotations = [blur()]
+        baked.flattened = "export/.render/s.png"
+        let r1 = try resolveSendableRender(dir: projectDir, step: baked, stepLabel: "1", verb: "send")
+        #expect(r1.abs.hasSuffix("export/.render/s.png"))
+        // No blur/crop → the raw shot is fine.
+        let plain = ProjectStep(id: "s2", order: 2, screenshot: "shots/s2.png", trigger: .click)
+        let r2 = try resolveSendableRender(dir: projectDir, step: plain, stepLabel: "2", verb: "export")
+        #expect(r2.abs.hasSuffix("shots/s2.png"))
+        #expect(r2.mediaType == .png)
+        cleanup()
+    }
+
+    // MARK: - mergeSteps
+
+    @Test func mergeStepsKeepsOneAndRenumbers() async throws {
+        // Add a second step so we can merge.
+        try await store.addStep(at: projectDir, ProjectStep(id: "s2", order: 2, screenshot: "shots/step-0002.png", trigger: .click))
+        var p = StepPatch(); p.annotations = [.marker(MarkerAnnotation(id: "m", x: 1, y: 1, color: "#e11d48"))]
+        let m = try await store.mergeSteps(at: projectDir, keepId: "s2", dropId: "s1", patch: p, flattenedPng: Data([0x89]))
+        #expect(m.steps.map(\.id) == ["s2"]) // s1 dropped, kept at s1's old position
+        #expect(m.steps[0].order == 1)
+        #expect(m.steps[0].flattened == "export/.render/s2.png")
+        cleanup()
+    }
+
+    @Test func mergeIntoSelfThrows() async throws {
+        await #expect(throws: ProjectStore.StoreError.cannotMergeIntoSelf) {
+            _ = try await store.mergeSteps(at: projectDir, keepId: "s1", dropId: "s1", patch: StepPatch())
+        }
+        cleanup()
+    }
+}
