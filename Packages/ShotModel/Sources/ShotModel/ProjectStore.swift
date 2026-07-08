@@ -12,6 +12,9 @@ public actor ProjectStore {
     public enum StoreError: Error, LocalizedError, Equatable {
         case notAKnownProject(String)
         case manifestUnreadable(String)
+        case stepNotFound(String)
+        case cannotMergeIntoSelf
+        case renderPathNotConfined(String)
 
         public var errorDescription: String? {
             switch self {
@@ -19,6 +22,12 @@ public actor ProjectStore {
                 "Project path is not within the projects directory: \(p)"
             case .manifestUnreadable(let p):
                 "Could not read \(projectManifestFilename) in \(p)"
+            case .stepNotFound(let id):
+                "Step \(id) not found"
+            case .cannotMergeIntoSelf:
+                "Cannot merge a step into itself"
+            case .renderPathNotConfined(let id):
+                "Refusing to write render for step \"\(id)\" — path escapes the project folder"
             }
         }
     }
@@ -79,6 +88,21 @@ public actor ProjectStore {
     private func writeManifest(_ manifest: ProjectManifest, at projectPath: String) throws {
         let file = (projectPath as NSString).appendingPathComponent(projectManifestFilename)
         try writeFileAtomic(ProjectJSON.encodeManifest(manifest), to: file)
+    }
+
+    /// Write a step's re-baked render under export/.render and point the step at
+    /// it (symlink-confined: a hand-edited manifest id with traversal segments,
+    /// or a symlinked export/, can't escape the project). Bumps renderRev so the
+    /// report cache-busts the image.
+    private func writeStepRender(resolved: String, step: inout ProjectStep, id: String, png: Data) throws {
+        let rel = "export/.render/\(id).png"
+        guard let abs = confinePathNoSymlinks(dir: resolved, rel: rel) else {
+            throw StoreError.renderPathNotConfined(id)
+        }
+        try fm.createDirectory(atPath: (abs as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try png.write(to: URL(fileURLWithPath: abs))
+        step.flattened = rel
+        step.renderRev = (step.renderRev ?? 0) + 1
     }
 
     private func summarize(_ manifest: ProjectManifest, at projectPath: String) -> ProjectSummary {
@@ -268,6 +292,61 @@ public actor ProjectStore {
         try mutate(at: projectPath) { m in
             m.captureSettings = target
         }
+    }
+
+    /// Apply an editor patch to one step. If `flattenedPng` is given, write it
+    /// into the render cache and point step.flattened at it; otherwise a patch
+    /// that changed redaction/crop invalidates the stale render (freshness). The
+    /// render write is symlink-confined. Returns the updated manifest.
+    @discardableResult
+    public func updateStep(
+        at projectPath: String, stepId: String, patch: StepPatch, flattenedPng: Data? = nil
+    ) throws -> ProjectManifest {
+        let resolved = try resolveKnownProject(projectPath)
+        var manifest = try readManifest(at: resolved)
+        guard let idx = manifest.steps.firstIndex(where: { $0.id == stepId }) else {
+            throw StoreError.stepNotFound(stepId)
+        }
+        let hasFresh = (flattenedPng?.isEmpty == false)
+        applyPatchAndInvalidate(&manifest.steps[idx], patch, hasFreshPng: hasFresh)
+        if let png = flattenedPng, !png.isEmpty {
+            try writeStepRender(resolved: resolved, step: &manifest.steps[idx], id: stepId, png: png)
+        }
+        manifest.updatedAt = ProjectJSON.isoNow()
+        try writeManifest(manifest, at: resolved)
+        return manifest
+    }
+
+    /// Merge two steps into one: apply `patch` (+ optional re-baked render) to
+    /// the KEPT step, delete the DROPPED step, then renumber — atomically. Used
+    /// by the report to fold a right-click step into its menu-selection step
+    /// (the discarded click is carried onto the kept screenshot as a marker
+    /// baked into `flattenedPng`). The merged step stays at the DROPPED step's
+    /// position so the flow reads in the original order.
+    @discardableResult
+    public func mergeSteps(
+        at projectPath: String, keepId: String, dropId: String,
+        patch: StepPatch, flattenedPng: Data? = nil
+    ) throws -> ProjectManifest {
+        guard keepId != dropId else { throw StoreError.cannotMergeIntoSelf }
+        let resolved = try resolveKnownProject(projectPath)
+        var manifest = try readManifest(at: resolved)
+        guard let keepIdx = manifest.steps.firstIndex(where: { $0.id == keepId }) else {
+            throw StoreError.stepNotFound(keepId)
+        }
+        guard let dropIdx = manifest.steps.firstIndex(where: { $0.id == dropId }) else {
+            throw StoreError.stepNotFound(dropId)
+        }
+        let hasFresh = (flattenedPng?.isEmpty == false)
+        applyPatchAndInvalidate(&manifest.steps[keepIdx], patch, hasFreshPng: hasFresh)
+        if let png = flattenedPng, !png.isEmpty {
+            try writeStepRender(resolved: resolved, step: &manifest.steps[keepIdx], id: keepId, png: png)
+        }
+        manifest.steps.remove(at: dropIdx)
+        Self.renumber(&manifest.steps)
+        manifest.updatedAt = ProjectJSON.isoNow()
+        try writeManifest(manifest, at: resolved)
+        return manifest
     }
 
     /// Delete a project: remove its folder (originals included) and drop it
