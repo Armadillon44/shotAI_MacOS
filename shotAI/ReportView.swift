@@ -9,6 +9,8 @@ import SwiftUI
 /// Rendering rules live in ShotModel.ReportPresentation, ported from Report.tsx.
 struct ReportView: View {
     let opened: ProjectStore.OpenedProject
+    /// Open the annotation editor for a shot step (Phase C).
+    var onEdit: (ProjectStep) -> Void = { _ in }
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
@@ -21,7 +23,7 @@ struct ReportView: View {
                     IntroBox(intro: intro)
                 }
                 ForEach(steps) { step in
-                    StepRow(step: step, number: numbers[step.id], projectDir: opened.dir)
+                    StepRow(step: step, number: numbers[step.id], projectDir: opened.dir, onEdit: onEdit)
                 }
                 if steps.isEmpty {
                     Text("No steps in this project.")
@@ -84,6 +86,7 @@ private struct StepRow: View {
     let step: ProjectStep
     let number: Int?
     let projectDir: String
+    let onEdit: (ProjectStep) -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -138,8 +141,14 @@ private struct StepRow: View {
     }
 
     @ViewBuilder private var shotBlock: some View {
-        Text(step.caption.isEmpty ? "Untitled step" : step.caption)
-            .font(.headline)
+        HStack(alignment: .firstTextBaseline) {
+            Text(step.caption.isEmpty ? "Untitled step" : step.caption)
+                .font(.headline)
+            Spacer()
+            Button("Edit", systemImage: "pencil") { onEdit(step) }
+                .buttonStyle(.borderless)
+                .help("Annotate, redact, or crop this step")
+        }
         if let rel = ReportPresentation.displayImagePath(for: step) {
             StepFigure(step: step, projectDir: projectDir, relPath: rel)
         }

@@ -1,4 +1,5 @@
 import CaptureKit
+import EditorKit
 import ShotModel
 import SwiftUI
 
@@ -7,6 +8,8 @@ struct ContentView: View {
     @Environment(CaptureCoordinator.self) private var capture
     @State private var showOpenPanel = false
     @State private var recordSheetTarget: RecordTarget?
+    /// The editor model for the step currently being annotated (Phase C), or nil.
+    @State private var editor: EditorModel?
 
     private struct RecordTarget: Identifiable {
         let path: String
@@ -43,7 +46,7 @@ struct ContentView: View {
             }
         } detail: {
             if let opened = model.opened {
-                ReportView(opened: opened)
+                ReportView(opened: opened, onEdit: { step in openEditor(step, in: opened.dir) })
                     .id(opened.dir)
             } else if let error = model.errorMessage {
                 ContentUnavailableView("Could not open project", systemImage: "exclamationmark.triangle", description: Text(error))
@@ -106,6 +109,21 @@ struct ContentView: View {
                 .transition(.opacity)
             }
         }
+        // Full-window editor overlay (Phase C) — presented in-window, not a
+        // sheet, so it can't veto ⌘Q.
+        .overlay {
+            if let editor {
+                EditorOverlay(
+                    model: editor,
+                    onCancel: { self.editor = nil },
+                    onSaved: {
+                        self.editor = nil
+                        Task { await model.reloadOpened() } // show the flattened render
+                    }
+                )
+                .transition(.opacity)
+            }
+        }
         .alert(
             "Capture error",
             isPresented: Binding(
@@ -139,6 +157,11 @@ struct ContentView: View {
         .onChange(of: model.selectedPath) {
             Task { await model.openSelected() }
         }
+    }
+
+    /// Open the annotation editor for a step (loads its raw screenshot).
+    private func openEditor(_ step: ProjectStep, in projectDir: String) {
+        editor = EditorModel(step: step, projectDir: projectDir, store: model.store, scanner: VisionOCR())
     }
 
     /// Record into the opened project, or create a fresh one (which discard
