@@ -16,6 +16,9 @@ struct ReportView: View {
     /// persist — the manifest decoder coerces it to nil — so the placeholder box
     /// is UI-local until the user types something).
     @State private var addingIntro = false
+    /// The id of the field currently being edited — a single shared focus across
+    /// all inline fields so a background click can dismiss whichever is active.
+    @FocusState private var focus: String?
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
@@ -27,7 +30,7 @@ struct ReportView: View {
                 intro
                 ForEach(Array(steps.enumerated()), id: \.element.id) { pair in
                     InsertZone { callout in Task { await model.addTextStep(callout: callout, atIndex: pair.offset) } }
-                    StepRow(step: pair.element, number: numbers[pair.element.id], projectDir: opened.dir, onEdit: onEdit)
+                    StepRow(step: pair.element, number: numbers[pair.element.id], projectDir: opened.dir, focus: $focus, onEdit: onEdit)
                 }
                 if steps.isEmpty {
                     Text("No steps yet — record a process, or add a text block below.")
@@ -39,7 +42,13 @@ struct ReportView: View {
             .frame(maxWidth: 880)
             .frame(maxWidth: .infinity)
         }
-        .background(Palette.surface)
+        // Tappable surface: a click anywhere off a field commits the active edit
+        // (macOS text fields don't resign focus on a dead-space click on their own).
+        .background(
+            Palette.surface
+                .contentShape(Rectangle())
+                .onTapGesture { focus = nil }
+        )
     }
 
     private var header: some View {
@@ -63,9 +72,9 @@ struct ReportView: View {
     /// The overview preamble — editable when present, an "add" affordance when not.
     @ViewBuilder private var intro: some View {
         if let intro = opened.manifest.intro {
-            IntroBox(intro: intro, onRemove: { addingIntro = false; Task { await model.removeIntro() } })
+            IntroBox(intro: intro, focus: $focus, onRemove: { addingIntro = false; Task { await model.removeIntro() } })
         } else if addingIntro {
-            IntroBox(intro: SopIntro(heading: "", body: ""), onRemove: { addingIntro = false })
+            IntroBox(intro: SopIntro(heading: "", body: ""), focus: $focus, onRemove: { addingIntro = false })
         } else {
             Button { addingIntro = true } label: {
                 Label("Add overview", systemImage: "plus")
@@ -126,6 +135,7 @@ private struct InsertZone: View {
 /// SOP overview preamble — a lead-in above the steps, editable in place.
 private struct IntroBox: View {
     let intro: SopIntro
+    var focus: FocusState<String?>.Binding
     let onRemove: () -> Void
     @Environment(AppModel.self) private var model
 
@@ -140,10 +150,10 @@ private struct IntroBox: View {
                     .buttonStyle(.borderless)
                     .font(.caption)
             }
-            InlineEditable(text: intro.heading, placeholder: "Overview heading…", font: .title3.bold()) { new in
+            InlineEditable(text: intro.heading, placeholder: "Overview heading…", font: .title3.bold(), id: "intro:h", focus: focus) { new in
                 Task { await model.setIntro(heading: new, body: intro.body) }
             }
-            InlineEditable(text: intro.body, placeholder: "Describe the overall goal of this guide…", multiline: true) { new in
+            InlineEditable(text: intro.body, placeholder: "Describe the overall goal of this guide…", multiline: true, id: "intro:b", focus: focus) { new in
                 Task { await model.setIntro(heading: intro.heading, body: new) }
             }
         }
@@ -160,6 +170,7 @@ private struct StepRow: View {
     let step: ProjectStep
     let number: Int?
     let projectDir: String
+    var focus: FocusState<String?>.Binding
     let onEdit: (ProjectStep) -> Void
     @Environment(AppModel.self) private var model
 
@@ -169,7 +180,7 @@ private struct StepRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 if step.kind == .text {
                     if let callout = step.callout {
-                        CalloutBox(step: step, kind: callout)
+                        CalloutBox(step: step, kind: callout, focus: focus)
                     } else {
                         textBlock
                     }
@@ -205,10 +216,10 @@ private struct StepRow: View {
 
     private var textBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
-            InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .title3.bold()) { new in
+            InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .title3.bold(), id: "th:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, heading: new) }
             }
-            InlineEditable(text: step.body ?? "", placeholder: "Empty — click to add text.", multiline: true) { new in
+            InlineEditable(text: step.body ?? "", placeholder: "Empty — click to add text.", multiline: true, id: "tb:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, body: new) }
             }
         }
@@ -217,7 +228,7 @@ private struct StepRow: View {
 
     @ViewBuilder private var shotBlock: some View {
         HStack(alignment: .top, spacing: 8) {
-            InlineEditable(text: step.caption, placeholder: "Add a caption…", font: .headline) { new in
+            InlineEditable(text: step.caption, placeholder: "Add a caption…", font: .headline, id: "cap:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, caption: new) }
             }
             Button("Edit", systemImage: "pencil") { onEdit(step) }
@@ -232,7 +243,7 @@ private struct StepRow: View {
             StepFigure(step: step, projectDir: projectDir, relPath: rel)
                 .id("\(step.id)#\(step.renderRev ?? 0)#\(rel)")
         }
-        InlineEditable(text: step.body ?? "", placeholder: "+ Add instructions", multiline: true) { new in
+        InlineEditable(text: step.body ?? "", placeholder: "+ Add instructions", multiline: true, id: "body:\(step.id)", focus: focus) { new in
             Task { await model.editStepText(stepId: step.id, body: new) }
         }
         // `note` is a legacy read-only field (Windows shows it if present but
@@ -255,6 +266,7 @@ private struct StepRow: View {
 private struct CalloutBox: View {
     let step: ProjectStep
     let kind: CalloutKind
+    var focus: FocusState<String?>.Binding
     @Environment(AppModel.self) private var model
 
     struct Colors {
@@ -278,7 +290,7 @@ private struct CalloutBox: View {
         let palette = Self.palette(kind)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
-                InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .headline, color: palette.text) { new in
+                InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .headline, color: palette.text, id: "ch:\(step.id)", focus: focus) { new in
                     Task { await model.editStepText(stepId: step.id, heading: new) }
                 }
                 Spacer(minLength: 8)
@@ -293,7 +305,7 @@ private struct CalloutBox: View {
                 .fixedSize()
                 .help("Change callout type")
             }
-            InlineEditable(text: step.body ?? "", placeholder: "Callout text…", color: palette.text, multiline: true) { new in
+            InlineEditable(text: step.body ?? "", placeholder: "Callout text…", color: palette.text, multiline: true, id: "cb:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, body: new) }
             }
         }
@@ -307,20 +319,27 @@ private struct CalloutBox: View {
 
 /// A click-to-edit text field: shows the value (or an italic placeholder) until
 /// clicked, then an inline text field. Commits automatically **on losing focus**
-/// (and on Enter for single-line); Esc cancels. No Save/Cancel buttons. Only
-/// writes when the value actually changed. Each field owns its own state.
+/// (and on Enter for single-line); Esc discards. No Save/Cancel buttons; only
+/// writes when the value changed.
+///
+/// Focus is driven by a SHARED `FocusState` (`focus`) keyed by this field's `id`
+/// so a background click in the report can dismiss whichever field is active
+/// (a plain macOS text field doesn't resign first responder on a dead-space
+/// click). Focus is taken on the next runloop tick — setting it synchronously as
+/// the field first appears misses (the view isn't in the responder chain yet),
+/// which is why a first click previously needed a second click to activate.
 struct InlineEditable: View {
     let text: String
     var placeholder: String
     var font: Font = .body
     var color: Color = Palette.ink
     var multiline: Bool = false
+    let id: String
+    var focus: FocusState<String?>.Binding
     var onCommit: (String) -> Void
 
     @State private var editing = false
     @State private var draft = ""
-    @State private var cancelling = false
-    @FocusState private var focused: Bool
 
     var body: some View {
         if editing {
@@ -328,19 +347,17 @@ struct InlineEditable: View {
                 if multiline {
                     TextField(placeholder, text: $draft, axis: .vertical).lineLimit(1...12)
                 } else {
-                    TextField(placeholder, text: $draft).onSubmit { commit() }
+                    TextField(placeholder, text: $draft).onSubmit { focus.wrappedValue = nil }
                 }
             }
             .font(font)
             .textFieldStyle(.roundedBorder)
-            .focused($focused)
-            .onExitCommand { cancelling = true; editing = false } // Esc discards
-            .onChange(of: focused) { _, nowFocused in
-                if !nowFocused, editing {
-                    if cancelling { cancelling = false; editing = false } else { commit() }
-                }
+            .focused(focus, equals: id)
+            .onExitCommand { draft = text; focus.wrappedValue = nil } // Esc discards
+            .onChange(of: focus.wrappedValue) { _, current in
+                if current != id { commit() } // lost focus: another field, background, or Esc
             }
-            .onAppear { draft = text; cancelling = false; focused = true }
+            .onAppear { draft = text; DispatchQueue.main.async { focus.wrappedValue = id } }
         } else {
             Button {
                 draft = text
