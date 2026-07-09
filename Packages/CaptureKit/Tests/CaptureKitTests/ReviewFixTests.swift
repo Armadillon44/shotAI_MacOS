@@ -191,4 +191,30 @@ import ShotModel
         _ = await h.engine.stop()
         h.cleanup()
     }
+
+    // Clicking an INACTIVE window frames THAT window, not a region "safety" crop:
+    // the frontmost app lags a click on an unfocused window, so auto mode
+    // hit-tests the window under the point (windowAt) and crops to it.
+    @Test func autoClickOnInactiveWindowFramesThatWindow() async throws {
+        let h = try EngineHarness()
+        // Frontmost is app A; the click lands OUTSIDE it.
+        h.activeWindows.snapshot = WindowSnapshot(
+            app: "Safari", title: "A", pid: 1, bundleID: "com.apple.Safari",
+            bounds: CGRect(x: 100, y: 80, width: 300, height: 200))
+        // The window actually under the cursor is the inactive app B.
+        let b = WindowSnapshot(
+            app: "Notes", title: "Note", pid: 2, bundleID: "com.apple.Notes",
+            bounds: CGRect(x: 400, y: 100, width: 300, height: 240))
+        h.activeWindows.windowsAtPoint = [b]
+        try await h.engine.start(projectPath: h.projectDir, attachHook: false)
+        let step = try await h.engine.captureStep(trigger: .click, point: CGPoint(x: 500, y: 200))
+        let dims = pngSize(try h.shotData(step!))
+        // B is 300x240pt → 600x480px → ×0.85 → 510x408 (a window crop, NOT the
+        // 1394-wide region "safety" box and NOT the 1700-wide fullscreen).
+        #expect(dims.width == 510)
+        #expect(dims.height == 408)
+        #expect(step?.window?.app == "Notes") // metadata reflects the clicked window
+        _ = await h.engine.stop()
+        h.cleanup()
+    }
 }

@@ -54,6 +54,8 @@ final class FakeActiveWindows: ActiveWindowProviding, @unchecked Sendable {
     private let lock = NSLock()
     var snapshot: WindowSnapshot?
     var windowRects: [Int: CGRect] = [:] // window id → bounds for resolveWindow
+    /// Windows for windowAt(point) hit-testing, front-to-back. Empty → nil.
+    var windowsAtPoint: [WindowSnapshot] = []
 
     /// When set, activeWindow() signals `entered` then suspends until
     /// `release()` — lets a test hold a capture at its first await to exercise
@@ -88,6 +90,12 @@ final class FakeActiveWindows: ActiveWindowProviding, @unchecked Sendable {
             }
         }
         return lock.withLock { snapshot }
+    }
+
+    func windowAt(_ point: CGPoint) async -> WindowSnapshot? {
+        lock.withLock {
+            windowsAtPoint.first { $0.bounds?.contains(point) ?? false }
+        }
     }
 
     func listWindows() async -> [WindowInfo] {

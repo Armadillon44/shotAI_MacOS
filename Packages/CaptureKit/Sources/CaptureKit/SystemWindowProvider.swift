@@ -22,6 +22,24 @@ public final class SystemWindowProvider: ActiveWindowProviding, Sendable {
         )
     }
 
+    public func windowAt(_ point: CGPoint) async -> WindowSnapshot? {
+        let ownPid = Int32(ProcessInfo.processInfo.processIdentifier)
+        // windowList() is front-to-back, so the first layer-0 non-own window
+        // whose bounds contain the point is the one the user clicked — correct
+        // even before the click has activated it (kCGWindowBounds and the click
+        // point are both global top-left points).
+        guard let w = windowList().first(where: { win in
+            win.pid != ownPid && win.layer == 0 && (win.bounds?.contains(point) ?? false)
+        }) else { return nil }
+        return WindowSnapshot(
+            app: w.app,
+            title: w.title,
+            pid: Int(w.pid),
+            bundleID: NSRunningApplication(processIdentifier: w.pid)?.bundleIdentifier,
+            bounds: w.bounds
+        )
+    }
+
     public func listWindows() async -> [WindowInfo] {
         let ownPid = Int32(ProcessInfo.processInfo.processIdentifier)
         var seen = Set<String>()

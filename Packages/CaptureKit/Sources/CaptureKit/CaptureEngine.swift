@@ -853,7 +853,10 @@ public actor CaptureEngine {
             options: .withoutOverwriting
         )
 
-        let window = active.map {
+        // Prefer the window auto mode actually framed (the clicked window, which
+        // may not be the frontmost app when an INACTIVE window was clicked); fall
+        // back to the frontmost for hotkeys and non-auto grabs.
+        let window = (grabbed.resolvedWindow ?? active).map {
             CapturedWindow(app: $0.app, title: $0.title, pid: $0.pid, bounds: $0.bounds.map(rect(from:)))
         }
         let element = await elementTask.value ?? .unavailable
@@ -916,6 +919,10 @@ public actor CaptureEngine {
         var originX: CGFloat
         var originY: CGFloat
         var display: DisplayInfo
+        /// The window auto mode actually framed (may differ from `active` when
+        /// the click landed on an INACTIVE window). captureStep prefers it for
+        /// the step's window metadata/caption. nil → use `active`.
+        var resolvedWindow: WindowSnapshot? = nil
     }
 
     private func grab(
@@ -928,13 +935,28 @@ public actor CaptureEngine {
         let mode = s.target.mode
         guard let displays = try? await screenshotter.displays(), !displays.isEmpty else { return nil }
         let clickDisplay = GrabMath.display(for: point, in: displays)
-        let autoMode: AutoMode? = mode == .auto ? captureModeFor(active: active) : nil
+        // In auto mode the window under the CLICK is what we want to frame, not
+        // the frontmost app — clicking an inactive window doesn't update the
+        // frontmost synchronously, so `active` lags and we'd fall back to a
+        // region crop. Use the active window when the click is already inside it
+        // (the common case, and it carries a title even for own-title-less apps),
+        // else hit-test the window under the point.
+        var autoTarget = active
+        if mode == .auto, let point {
+            if let b = active?.bounds, b.contains(point) {
+                autoTarget = active
+            } else {
+                autoTarget = await activeWindows.windowAt(point) ?? active
+            }
+        }
+        let autoMode: AutoMode? = mode == .auto ? captureModeFor(active: autoTarget) : nil
         log.debug("""
             grab mode=\(String(describing: mode), privacy: .public) \
             auto=\(String(describing: autoMode), privacy: .public) \
             active=\(active?.app ?? "nil", privacy: .private)/'\(active?.title ?? "", privacy: .private)' \
-            bundle=\(active?.bundleID ?? "nil", privacy: .private) \
-            bounds=\(String(describing: active?.bounds), privacy: .public) \
+            target=\(autoTarget?.app ?? "nil", privacy: .private) \
+            bundle=\(autoTarget?.bundleID ?? "nil", privacy: .private) \
+            bounds=\(String(describing: autoTarget?.bounds), privacy: .public) \
             click=\(String(describing: point), privacy: .public) \
             displays=\(displays.count, privacy: .public)
             """)
@@ -988,28 +1010,30 @@ public actor CaptureEngine {
                     winRect = await activeWindows.resolveWindow(ref)
                 }
             } else {
-                // auto-window: frame the active window only if the click is
-                // actually inside it. A desktop click makes Finder frontmost
-                // with an unrelated window elsewhere; that must fall through to
-                // fullscreen (Windows classifies the desktop as fullscreen),
-                // not crop to a window the user never touched. A hotkey (no
-                // point) keeps the active window, matching the focused-window
-                // hotkey behavior.
-                if let bounds = active?.bounds, point.map({ bounds.contains($0) }) ?? true {
+                // auto-window: frame the window the click landed on (autoTarget
+                // is the active window when the click is inside it, else the
+                // window hit-tested under the point). Only when the click is
+                // genuinely inside it — a desktop click resolves no window, so it
+                // falls through to a region/fullscreen grab, not a window the user
+                // never touched. A hotkey (no point) keeps the active window.
+                if let bounds = autoTarget?.bounds, point.map({ bounds.contains($0) }) ?? true {
                     winRect = bounds
                 }
                 if winRect == nil {
                     log.debug("""
-                        grab auto-window → NO winRect (bounds=\(String(describing: active?.bounds), privacy: .public) \
-                        contains-click=\(String(describing: active?.bounds.map { b in point.map { b.contains($0) } }), privacy: .public)) \
-                        → falling through to fullscreen
+                        grab auto-window → NO winRect (bounds=\(String(describing: autoTarget?.bounds), privacy: .public) \
+                        contains-click=\(String(describing: autoTarget?.bounds.map { b in point.map { b.contains($0) } }), privacy: .public)) \
+                        → falling through to region/fullscreen
                         """)
                 }
             }
             if let winRect {
                 let mon = GrabMath.display(containing: winRect.origin, in: displays) ?? clickDisplay
                 if let mon, let frame = try? await screenshotter.captureDisplay(mon.id) {
-                    if let result = prepare(frame: frame, region: winRect) {
+                    if var result = prepare(frame: frame, region: winRect) {
+                        // Auto mode framed autoTarget → carry it for the step's
+                        // window metadata (explicit .window mode keeps `active`).
+                        if mode == .auto { result.resolvedWindow = autoTarget }
                         log.debug("grab → WINDOW crop \(String(describing: result.prepared.png.count), privacy: .public)B origin=(\(result.originX, privacy: .public),\(result.originY, privacy: .public))")
                         return result
                     }
