@@ -25,14 +25,15 @@ struct ReportView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 intro
-                ForEach(steps) { step in
-                    StepRow(step: step, number: numbers[step.id], projectDir: opened.dir, onEdit: onEdit)
+                ForEach(Array(steps.enumerated()), id: \.element.id) { pair in
+                    insertZone(at: pair.offset) // insert BEFORE this step
+                    StepRow(step: pair.element, number: numbers[pair.element.id], projectDir: opened.dir, onEdit: onEdit)
                 }
                 if steps.isEmpty {
                     Text("No steps yet — record a process, or add a text block below.")
                         .foregroundStyle(Palette.ink3)
                 }
-                addStepMenu
+                addStepMenu // append at the end
             }
             .padding(24)
             .frame(maxWidth: 880)
@@ -86,6 +87,29 @@ struct ReportView: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .padding(.top, 4)
+    }
+
+    /// A subtle "insert here" affordance shown before each step: a hairline with
+    /// a ＋ that inserts a text block or callout at `index`.
+    private func insertZone(at index: Int) -> some View {
+        Menu {
+            Button("Text block") { Task { await model.addTextStep(atIndex: index) } }
+            Divider()
+            Button("Note") { Task { await model.addTextStep(callout: .note, atIndex: index) } }
+            Button("Caution") { Task { await model.addTextStep(callout: .caution, atIndex: index) } }
+            Button("Warning") { Task { await model.addTextStep(callout: .warning, atIndex: index) } }
+        } label: {
+            HStack(spacing: 6) {
+                Rectangle().fill(Palette.hair).frame(height: 1)
+                Image(systemName: "plus.circle").font(.system(size: 13)).foregroundStyle(Palette.ink3)
+                Rectangle().fill(Palette.hair).frame(height: 1)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(height: 16)
+        .opacity(0.5)
+        .help("Insert a step here")
     }
 }
 
@@ -197,8 +221,12 @@ private struct StepRow: View {
         InlineEditable(text: step.body ?? "", placeholder: "+ Add instructions", multiline: true) { new in
             Task { await model.editStepText(stepId: step.id, body: new) }
         }
-        InlineEditable(text: step.note, placeholder: "Add a note…", font: .system(size: 12.5), color: Palette.ink2, multiline: true) { new in
-            Task { await model.editStepText(stepId: step.id, note: new) }
+        // `note` is a legacy read-only field (Windows shows it if present but
+        // offers no editor); surfaced only when something populated it.
+        if !step.note.isEmpty {
+            Text(step.note)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Palette.ink2)
         }
         if let window = step.window {
             Text(window.title.isEmpty ? window.app : "\(window.app) — \(window.title)")
@@ -264,8 +292,9 @@ private struct CalloutBox: View {
 }
 
 /// A click-to-edit text field: shows the value (or an italic placeholder) until
-/// clicked, then a text field with Save/Cancel. Single-line commits on Enter;
-/// multi-line grows and commits via Save. Esc cancels. Each field owns its state.
+/// clicked, then an inline text field. Commits automatically **on losing focus**
+/// (and on Enter for single-line); Esc cancels. No Save/Cancel buttons. Only
+/// writes when the value actually changed. Each field owns its own state.
 struct InlineEditable: View {
     let text: String
     var placeholder: String
@@ -276,29 +305,28 @@ struct InlineEditable: View {
 
     @State private var editing = false
     @State private var draft = ""
+    @State private var cancelling = false
     @FocusState private var focused: Bool
 
     var body: some View {
         if editing {
-            VStack(alignment: .leading, spacing: 6) {
-                Group {
-                    if multiline {
-                        TextField(placeholder, text: $draft, axis: .vertical).lineLimit(1...12)
-                    } else {
-                        TextField(placeholder, text: $draft).onSubmit { commit() }
-                    }
-                }
-                .font(font)
-                .textFieldStyle(.roundedBorder)
-                .focused($focused)
-                .onExitCommand { editing = false }
-                HStack(spacing: 8) {
-                    Spacer()
-                    Button("Cancel") { editing = false }
-                    Button("Save") { commit() }.buttonStyle(.borderedProminent)
+            Group {
+                if multiline {
+                    TextField(placeholder, text: $draft, axis: .vertical).lineLimit(1...12)
+                } else {
+                    TextField(placeholder, text: $draft).onSubmit { commit() }
                 }
             }
-            .onAppear { draft = text; focused = true }
+            .font(font)
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onExitCommand { cancelling = true; editing = false } // Esc discards
+            .onChange(of: focused) { _, nowFocused in
+                if !nowFocused, editing {
+                    if cancelling { cancelling = false; editing = false } else { commit() }
+                }
+            }
+            .onAppear { draft = text; cancelling = false; focused = true }
         } else {
             Button {
                 draft = text
@@ -317,8 +345,8 @@ struct InlineEditable: View {
     }
 
     private func commit() {
-        onCommit(draft)
         editing = false
+        if draft != text { onCommit(draft) } // skip a write when nothing changed
     }
 }
 
@@ -348,7 +376,10 @@ private struct StepFigure: View {
                     .frame(height: 120)
             }
         }
-        .task(id: relPath) { load() }
+        // Re-load when the bytes change even though the path is stable: a re-save
+        // reuses export/.render/<id>.png and only bumps renderRev, so the render
+        // revision must be part of the reload key or the old image stays cached.
+        .task(id: "\(relPath)#\(step.renderRev ?? 0)") { load() }
     }
 
     private func figure(_ image: NSImage, _ pixelSize: (width: Double, height: Double), _ v: ReportPresentation.Viewport) -> some View {
