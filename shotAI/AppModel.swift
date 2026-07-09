@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import ShotModel
@@ -52,10 +53,12 @@ final class AppModel {
     }
 
     /// Create a project and select it (the "record into a new project" flow).
+    /// An optional title names it; nil falls back to the store's timestamp name.
     /// Returns its path, or nil on failure.
-    func createAndSelectProject() async -> String? {
+    @discardableResult
+    func createAndSelectProject(title: String? = nil) async -> String? {
         do {
-            let summary = try await store.createProject()
+            let summary = try await store.createProject(title: title)
             await refresh()
             selectedPath = summary.path
             opened = try await store.openProject(at: summary.path)
@@ -64,6 +67,49 @@ final class AppModel {
             errorMessage = error.localizedDescription
             return nil
         }
+    }
+
+    /// Open a project into the detail view (Home → detail navigation).
+    func open(path: String) async {
+        selectedPath = path
+        await openSelected()
+    }
+
+    /// Return to the Home surface (the "← Back" affordance).
+    func closeToHome() {
+        selectedPath = nil
+        opened = nil
+        errorMessage = nil
+    }
+
+    /// Rename a project, then re-list. Empty/whitespace names are ignored.
+    func renameProject(path: String, to title: String) async {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            try await store.renameProject(at: path, title: trimmed)
+            await refresh()
+            if selectedPath == path { await reloadOpened() }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Delete a project's folder, then re-list. Returns to Home if it was open.
+    func deleteProject(path: String) async {
+        do {
+            try await store.deleteProject(at: path)
+            if selectedPath == path { closeToHome() }
+            await refresh()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Reveal a project's folder in Finder (confined to a known project path).
+    func revealInFinder(path: String) {
+        guard projects.contains(where: { $0.path == path }) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
     /// The "Open Project…" panel flow: a user-picked folder becomes a known

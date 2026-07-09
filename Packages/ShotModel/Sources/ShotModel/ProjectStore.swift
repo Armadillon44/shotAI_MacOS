@@ -112,7 +112,8 @@ public actor ProjectStore {
             path: projectPath,
             createdAt: manifest.createdAt,
             updatedAt: manifest.updatedAt,
-            stepCount: manifest.steps.count
+            stepCount: manifest.steps.count,
+            hasSop: manifest.intro != nil || manifest.steps.contains { $0.aiInserted == true }
         )
     }
 
