@@ -41,14 +41,15 @@ struct ReportView: View {
             .padding(24)
             .frame(maxWidth: 880)
             .frame(maxWidth: .infinity)
+            // A click anywhere off a field commits the active edit (macOS text
+            // fields don't resign on a dead-space click). Field buttons/fields
+            // take gesture priority, so this only fires on empty space + labels.
+            // Must live on the content (not the ScrollView's background, which
+            // sits behind the content and never receives these taps).
+            .contentShape(Rectangle())
+            .onTapGesture { focus = nil }
         }
-        // Tappable surface: a click anywhere off a field commits the active edit
-        // (macOS text fields don't resign focus on a dead-space click on their own).
-        .background(
-            Palette.surface
-                .contentShape(Rectangle())
-                .onTapGesture { focus = nil }
-        )
+        .background(Palette.surface)
     }
 
     private var header: some View {
@@ -353,6 +354,13 @@ struct InlineEditable: View {
             .font(font)
             .textFieldStyle(.roundedBorder)
             .focused(focus, equals: id)
+            // Return finishes editing; Shift+Return inserts a newline in
+            // multi-line fields.
+            .onKeyPress(.return, phases: .down) { key in
+                if multiline && key.modifiers.contains(.shift) { return .ignored }
+                focus.wrappedValue = nil
+                return .handled
+            }
             .onExitCommand { draft = text; focus.wrappedValue = nil } // Esc discards
             .onChange(of: focus.wrappedValue) { _, current in
                 if current != id { commit() } // lost focus: another field, background, or Esc
