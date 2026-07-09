@@ -40,7 +40,6 @@ public actor CaptureEngine {
         public var menuPopup = false
         public var menuOwnerBounds: CGRect?
         public var preGrab: Task<CapturedFrame?, Never>?
-        public var insertAt: Int?
         public var elementTask: Task<StepElement?, Never>?
 
         public init() {}
@@ -55,17 +54,11 @@ public actor CaptureEngine {
         var stepCountAtStart: Int
         var createdThisSession: Bool
         var addedStepIds: [String] = []
-        var single: Single?
         /// A recording that inserts into the report at a fixed spot (the report's
         /// "Capture steps here" flow). Each captured step lands at
         /// `insertBase + addedStepIds.count`, so they keep their order at the
         /// chosen index. nil = append to the end (normal recording).
         var insertBase: Int? = nil
-
-        struct Single {
-            var insertAt: Int
-            var fired = false
-        }
     }
 
     /// Reference type so stale async results can be identity-checked against
@@ -172,8 +165,8 @@ public actor CaptureEngine {
             projectTitle: s.projectTitle,
             // Steps captured in THIS session (0 at the start). `stepCount` is the
             // filename counter — seeded past existing shots on disk — so it would
-            // report the project's running total (a fresh single-shot pill would
-            // read "4" on a 4-step project). addedStepIds is appended only on a
+            // report the project's running total (a fresh recording pill would read
+            // "4" on a 4-step project). addedStepIds is appended only on a
             // committed step, so its count is the true session progress.
             stepCount: s.addedStepIds.count
         )
@@ -192,7 +185,7 @@ public actor CaptureEngine {
             throw EngineError.recordingInProgressOtherProject
         }
         let opened = try await store.openProject(at: projectPath)
-        // Re-check after the await: a concurrent start()/captureSingle() may
+        // Re-check after the await: a concurrent start()/captureImmediate() may
         // have installed a session while we suspended (TOCTOU).
         if let s = session {
             if s.projectPath == opened.dir { return state() }
@@ -210,7 +203,6 @@ public actor CaptureEngine {
             target: target,
             stepCountAtStart: existing,
             createdThisSession: createdThisSession,
-            single: nil,
             insertBase: insertAt.map { max(0, min($0, existing)) }
         )
         if attachHook {
@@ -227,54 +219,6 @@ public actor CaptureEngine {
         eventsCont.yield(.recordingChanged(true))
         emitState()
         log.notice("session started [gen \(self.generation, privacy: .public)] createdThisSession=\(createdThisSession, privacy: .public) mode=\(String(describing: target.mode), privacy: .public) existingSteps=\(existing, privacy: .public) insertAt=\(String(describing: insertAt), privacy: .public)")
-        return state()
-    }
-
-    /// Arm a one-shot capture that inserts at a manifest index and auto-stops.
-    /// The hotkey is deliberately NOT registered (it can't carry an insert
-    /// index and wouldn't auto-stop).
-    ///
-    /// NOTE: currently unused by the macOS UI — the report's "insert a screenshot
-    /// here" flow was reworked to `captureImmediate` (area/window/screen, no
-    /// click) plus "Capture steps…" (`start(insertAt:)`). Retained as a tested
-    /// engine capability that mirrors the Windows single-shot insert; slated for
-    /// removal with its supporting machinery (`Session.Single`, the handleMouseDown
-    /// branch, the enqueueCapture single-shot arm, `rearmSingleShot`) if it stays
-    /// unsurfaced.
-    @discardableResult
-    public func captureSingle(
-        projectPath: String,
-        insertAt: Int,
-        target: CaptureTarget = CaptureTarget(mode: .auto)
-    ) async throws -> CaptureState {
-        guard session == nil else { throw EngineError.recordingInProgress }
-        let opened = try await store.openProject(at: projectPath)
-        // Re-check after the await (TOCTOU): another start could have raced in.
-        guard session == nil else { throw EngineError.recordingInProgress }
-        let shotsDir = try confinedShotsPath(projectDir: opened.dir, rel: "shots")
-        try FileManager.default.createDirectory(
-            atPath: shotsDir, withIntermediateDirectories: true)
-        let existing = opened.manifest.steps.count
-        let at = max(0, min(insertAt, existing))
-        generation += 1
-        session = Session(
-            projectPath: opened.dir,
-            projectTitle: opened.manifest.title,
-            stepCount: seedStepCounter(projectDir: opened.dir, manifestCount: existing),
-            target: target,
-            stepCountAtStart: existing,
-            createdThisSession: false,
-            single: .init(insertAt: at)
-        )
-        do {
-            try attachTriggers(hotkey: false)
-        } catch {
-            session = nil
-            throw error
-        }
-        eventsCont.yield(.recordingChanged(true))
-        emitState()
-        log.notice("single-shot capture armed [gen \(self.generation, privacy: .public)] insertAt=\(at, privacy: .public) mode=\(String(describing: target.mode), privacy: .public)")
         return state()
     }
 
@@ -312,8 +256,7 @@ public actor CaptureEngine {
             stepCount: seedStepCounter(projectDir: opened.dir, manifestCount: existing),
             target: target,
             stepCountAtStart: existing,
-            createdThisSession: false,
-            single: nil
+            createdThisSession: false
         )
         defer { if generation == gen { session = nil } }
         log.notice("immediate capture requested [gen \(gen, privacy: .public)] mode=\(String(describing: target.mode), privacy: .public) at=\(at, privacy: .public)")
@@ -395,8 +338,8 @@ public actor CaptureEngine {
     }
 
     /// Discard the session's captures. Deletes the WHOLE project only when it
-    /// was created this session, had zero steps at start, and isn't a
-    /// single-shot; otherwise deletes exactly the steps added this session.
+    /// was created this session and had zero steps at start; otherwise deletes
+    /// exactly the steps added this session.
     public func discard() async -> (state: CaptureState, projectDeleted: Bool) {
         tearingDown = true // block buffered inputs from enqueuing during the drain
         detachTriggers()
@@ -408,7 +351,7 @@ public actor CaptureEngine {
         tearingDown = false
         var projectDeleted = false
         if let s {
-            let whole = s.createdThisSession && s.stepCountAtStart == 0 && s.single == nil
+            let whole = s.createdThisSession && s.stepCountAtStart == 0
             do {
                 if whole {
                     try await store.deleteProject(at: s.projectPath)
@@ -533,7 +476,7 @@ public actor CaptureEngine {
         // AtPosition hit-tests the window under the point, and when that window
         // is ours the call recurses into our in-process SwiftUI accessibility on
         // this background thread, which is main-thread-only → SIGTRAP. So bail
-        // here (single-shot arm is not consumed — matching prior behavior).
+        // here (no step, and the element query never runs).
         if await ownWindows.pointHitsOwnWindow(point) {
             log.debug("own-window click suppressed at mousedown")
             return
@@ -545,24 +488,7 @@ public actor CaptureEngine {
         let elements = self.elements
         let elementTask = Task { await elements.elementAt(point) }
 
-        // 1. Single-shot
-        if session?.single != nil {
-            // `fired` is an in-flight guard so a second click during the capture
-            // doesn't enqueue a second shot. It's provisional: if THIS capture
-            // produces no step (a window-activation click, own-app/own-window
-            // suppression, or a failed grab), enqueueCapture re-arms it so the
-            // user's next real click captures instead of the pill vanishing with
-            // nothing inserted.
-            if session?.single?.fired == true { return }
-            session?.single?.fired = true
-            var opts = CaptureOptions()
-            opts.insertAt = session?.single?.insertAt
-            opts.elementTask = elementTask
-            enqueueCapture(trigger: .click, point: point, button: button, opts: opts, singleShot: true)
-            return
-        }
-
-        // 2. Double-click collapse (left only): the second mousedown within
+        // 1. Double-click collapse (left only): the second mousedown within
         // 400 ms and 6 pt produces NO step; the timestamp/point ALWAYS update
         // so longer bursts collapse pairwise.
         if button == .left {
@@ -578,7 +504,7 @@ public actor CaptureEngine {
             if isDouble { return }
         }
 
-        // 3. Right-click: arm the menu follow-up and capture the target
+        // 2. Right-click: arm the menu follow-up and capture the target
         // plainly (grabbing the just-opened menu would race its render).
         if button == .right {
             let owner = await activeWindows.activeWindow()?.bounds
@@ -598,7 +524,7 @@ public actor CaptureEngine {
             return
         }
 
-        // 4. Menu selection (left click while armed, within proximity)
+        // 3. Menu selection (left click while armed, within proximity)
         if let arm = menuArm, button == .left, now() < arm.until,
            GrabMath.withinDistance(
                point, arm.lastPoint,
@@ -642,7 +568,7 @@ public actor CaptureEngine {
             return
         }
 
-        // 5. Ordinary click: any non-menu click disarms.
+        // 4. Ordinary click: any non-menu click disarms.
         disarmMenu()
         var opts = CaptureOptions()
         opts.elementTask = elementTask
@@ -665,42 +591,18 @@ public actor CaptureEngine {
         trigger: ProjectStep.Trigger,
         point: CGPoint?,
         button: MouseButton,
-        opts: CaptureOptions,
-        singleShot: Bool = false
+        opts: CaptureOptions
     ) {
         let prev = queueTail
         queueTail = Task { [weak self] in
             await prev?.value
             guard let self else { return }
-            var captured = false
             do {
-                captured = try await self.captureStep(trigger: trigger, point: point, button: button, opts: opts) != nil
+                _ = try await self.captureStep(trigger: trigger, point: point, button: button, opts: opts)
             } catch {
                 await self.reportCaptureError(error)
             }
-            if singleShot {
-                if captured {
-                    // Fire-and-forget, exactly as Windows: stop() drains the queue
-                    // that CONTAINS this task — awaiting it here would deadlock.
-                    Task { await self.stop() }
-                } else {
-                    // The click produced no step (window-activation click,
-                    // own-app/own-window suppression, or a failed grab). Don't
-                    // burn the single-shot on it — re-arm so the next real click
-                    // captures, rather than the pill vanishing empty-handed.
-                    await self.rearmSingleShot()
-                }
-            }
         }
-    }
-
-    /// Re-arm a single-shot whose triggering click produced no step, so the
-    /// user's next real click captures. No-op once the session is gone (a
-    /// stop/discard mid-capture leaves nothing to re-arm).
-    private func rearmSingleShot() {
-        guard session?.single != nil else { return }
-        session?.single?.fired = false
-        log.notice("single-shot re-armed — the last click captured nothing")
     }
 
     private func reportCaptureError(_ error: Error) {
@@ -892,12 +794,11 @@ public actor CaptureEngine {
             note: ""
         )
 
-        // Insert index: an explicit opts.insertAt (single-shot) wins; otherwise a
-        // recording bound to a fixed spot (insertBase) advances one slot per step
-        // already captured this session, so a "Capture steps here" run lands its
-        // steps in order at the chosen index. No base → append (normal recording).
-        let insertIndex: Int? = opts.insertAt
-            ?? session?.insertBase.map { $0 + (session?.addedStepIds.count ?? 0) }
+        // Insert index: a recording bound to a fixed spot (insertBase, the report's
+        // "Capture steps here" flow) advances one slot per step already captured
+        // this session, so its steps land in order at the chosen index. No base →
+        // append (normal recording).
+        let insertIndex: Int? = session?.insertBase.map { $0 + (session?.addedStepIds.count ?? 0) }
         if let insertIndex {
             try await store.insertStep(at: projectDir, step, atIndex: insertIndex)
         } else {
