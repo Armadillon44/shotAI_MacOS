@@ -36,7 +36,7 @@ struct ReportView: View {
                     InsertZone { callout in Task { await model.addTextStep(callout: callout, atIndex: pair.offset) } }
                     StepRow(
                         step: pair.element, number: numbers[pair.element.id], projectDir: opened.dir,
-                        focus: $focus, index: pair.offset, total: steps.count,
+                        focus: $focus, index: pair.offset, total: steps.count, autoScroller: autoScroller,
                         onEdit: onEdit, onRequestDelete: { deleteStepTarget = pair.element }
                     )
                 }
@@ -47,9 +47,10 @@ struct ReportView: View {
                 InsertZone { callout in Task { await model.addTextStep(callout: callout, atIndex: steps.count) } } // append
                     .dropDestination(for: String.self) { ids, _ in
                         guard let dragged = ids.first else { return false }
+                        autoScroller.reset()
                         Task { await model.dropStep(dragged, before: nil) } // to the end
                         return true
-                    }
+                    } isTargeted: { autoScroller.noteHover($0) }
             }
             .padding(24)
             .frame(maxWidth: 880)
@@ -61,12 +62,8 @@ struct ReportView: View {
             // sits behind the content and never receives these taps).
             .contentShape(Rectangle())
             .onTapGesture { focus = nil }
-            // While a step drag hovers the report, run edge auto-scroll (this
-            // dropDestination only tracks presence — it doesn't handle the drop;
-            // the rows / trailing insert line do).
-            .dropDestination(for: String.self) { _, _ in false } isTargeted: { targeted in
-                if targeted { autoScroller.start() } else { autoScroller.stop() }
-            }
+            // Resolve the backing NSScrollView so a step drag near the top/bottom
+            // edge can auto-scroll (driven per-row via autoScroller.noteHover).
             .background(ScrollProbe { autoScroller.scrollView = $0 })
         }
         .background(Palette.surface)
@@ -207,6 +204,7 @@ private struct StepRow: View {
     var focus: FocusState<String?>.Binding
     let index: Int
     let total: Int
+    let autoScroller: AutoScroller
     let onEdit: (ProjectStep) -> Void
     let onRequestDelete: () -> Void
     @Environment(AppModel.self) private var model
@@ -237,9 +235,13 @@ private struct StepRow: View {
         }
         .dropDestination(for: String.self) { ids, _ in
             guard let dragged = ids.first, dragged != step.id else { return false }
+            autoScroller.reset()
             Task { await model.dropStep(dragged, before: step.id) }
             return true
-        } isTargeted: { dropTargeted = $0 }
+        } isTargeted: { targeted in
+            dropTargeted = targeted
+            autoScroller.noteHover(targeted) // runs edge auto-scroll while a drag is active
+        }
     }
 
     /// Per-step actions: reorder (move up/down) and delete.
@@ -636,17 +638,39 @@ extension Color {
 /// unlike drop-target callbacks, which don't report continuous position) and
 /// nudges the clip view when the pointer is inside a hot band at either edge.
 @MainActor private final class AutoScroller {
-    weak var scrollView: NSScrollView?
+    weak var scrollView: NSScrollView? {
+        didSet { if scrollView != nil { Log.ui.debug("auto-scroll: scroll view resolved") } }
+    }
     private var timer: Timer?
+    private var hoverCount = 0
 
-    func start() {
-        guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
-        }
+    /// A step-drag entered (+1) or left (-1) a report drop target. The timer runs
+    /// while at least one drop target is being hovered (i.e. a drag is active).
+    func noteHover(_ active: Bool) {
+        hoverCount = max(0, hoverCount + (active ? 1 : -1))
+        if hoverCount > 0 { start() } else { stop() }
     }
 
-    func stop() {
+    /// A drop landed — end the drag session cleanly.
+    func reset() {
+        hoverCount = 0
+        stop()
+    }
+
+    private func start() {
+        guard timer == nil else { return }
+        // MUST be a .common-mode timer: during a drag the main run loop runs in
+        // event-tracking mode, where a default-mode timer is suspended and never
+        // fires (that's why auto-scroll didn't trigger at all before).
+        let t = Timer(timeInterval: 0.03, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+        Log.ui.debug("auto-scroll: started")
+    }
+
+    private func stop() {
         timer?.invalidate()
         timer = nil
     }
@@ -674,15 +698,24 @@ extension Color {
 }
 
 /// Resolves the enclosing `NSScrollView` of the SwiftUI ScrollView so it can be
-/// auto-scrolled programmatically during a drag.
+/// auto-scrolled programmatically during a drag. Falls back to a window search
+/// if `enclosingScrollView` isn't wired up yet.
 private struct ScrollProbe: NSViewRepresentable {
     let onFound: (NSScrollView) -> Void
-    func makeNSView(context: Context) -> NSView {
-        let v = NSView()
-        DispatchQueue.main.async { if let sv = v.enclosingScrollView { onFound(sv) } }
-        return v
+    func makeNSView(context: Context) -> NSView { let v = NSView(); resolve(v); return v }
+    func updateNSView(_ nsView: NSView, context: Context) { resolve(nsView) }
+    private func resolve(_ v: NSView) {
+        DispatchQueue.main.async {
+            if let sv = v.enclosingScrollView ?? (v.window?.contentView).flatMap(firstScrollView(in:)) {
+                onFound(sv)
+            }
+        }
     }
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { if let sv = nsView.enclosingScrollView { onFound(sv) } }
-    }
+}
+
+/// First `NSScrollView` anywhere under `view` (depth-first).
+private func firstScrollView(in view: NSView) -> NSScrollView? {
+    if let sv = view as? NSScrollView { return sv }
+    for sub in view.subviews { if let sv = firstScrollView(in: sub) { return sv } }
+    return nil
 }
