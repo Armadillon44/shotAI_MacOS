@@ -21,6 +21,8 @@ struct ReportView: View {
     @FocusState private var focus: String?
     /// The step pending a delete confirmation, if any.
     @State private var deleteStepTarget: ProjectStep?
+    /// Drives edge auto-scroll while a step is being dragged.
+    @State private var autoScroller = AutoScroller()
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
@@ -59,6 +61,13 @@ struct ReportView: View {
             // sits behind the content and never receives these taps).
             .contentShape(Rectangle())
             .onTapGesture { focus = nil }
+            // While a step drag hovers the report, run edge auto-scroll (this
+            // dropDestination only tracks presence — it doesn't handle the drop;
+            // the rows / trailing insert line do).
+            .dropDestination(for: String.self) { _, _ in false } isTargeted: { targeted in
+                if targeted { autoScroller.start() } else { autoScroller.stop() }
+            }
+            .background(ScrollProbe { autoScroller.scrollView = $0 })
         }
         .background(Palette.surface)
         .confirmationDialog(
@@ -258,6 +267,7 @@ private struct StepRow: View {
     /// step number for numbered steps, or a type glyph for callouts.
     private var rail: some View {
         VStack(spacing: 6) {
+            badge // number/glyph on top, aligned with the step's first line
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Palette.ink3)
@@ -270,7 +280,6 @@ private struct StepRow: View {
                         .foregroundStyle(Palette.accentInk)
                         .clipShape(Capsule())
                 }
-            badge
         }
     }
 
@@ -618,5 +627,62 @@ extension Color {
             green: Double((v >> 8) & 0xFF) / 255,
             blue: Double(v & 0xFF) / 255
         )
+    }
+}
+
+/// Auto-scrolls the report's `NSScrollView` while a step is dragged near the top
+/// or bottom edge — SwiftUI's ScrollView doesn't auto-scroll during a drag. A
+/// timer polls the mouse location (which stays valid throughout a drag session,
+/// unlike drop-target callbacks, which don't report continuous position) and
+/// nudges the clip view when the pointer is inside a hot band at either edge.
+@MainActor private final class AutoScroller {
+    weak var scrollView: NSScrollView?
+    private var timer: Timer?
+
+    func start() {
+        guard timer == nil else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func tick() {
+        guard let sv = scrollView, let win = sv.window else { return }
+        let mouse = NSEvent.mouseLocation // screen coords, origin bottom-left
+        let onScreen = win.convertToScreen(sv.convert(sv.bounds, to: nil))
+        guard mouse.x >= onScreen.minX, mouse.x <= onScreen.maxX else { return }
+        let edge: CGFloat = 64, maxSpeed: CGFloat = 26
+        var dy: CGFloat = 0
+        if mouse.y > onScreen.maxY - edge { // near the top → scroll up
+            dy = -maxSpeed * min(1, (mouse.y - (onScreen.maxY - edge)) / edge)
+        } else if mouse.y < onScreen.minY + edge { // near the bottom → scroll down
+            dy = maxSpeed * min(1, ((onScreen.minY + edge) - mouse.y) / edge)
+        }
+        guard dy != 0 else { return }
+        let clip = sv.contentView
+        let maxY = max(0, (sv.documentView?.frame.height ?? 0) - clip.bounds.height)
+        var origin = clip.bounds.origin
+        origin.y = min(max(0, origin.y + dy), maxY)
+        clip.scroll(to: origin)
+        sv.reflectScrolledClipView(clip)
+    }
+}
+
+/// Resolves the enclosing `NSScrollView` of the SwiftUI ScrollView so it can be
+/// auto-scrolled programmatically during a drag.
+private struct ScrollProbe: NSViewRepresentable {
+    let onFound: (NSScrollView) -> Void
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async { if let sv = v.enclosingScrollView { onFound(sv) } }
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { if let sv = nsView.enclosingScrollView { onFound(sv) } }
     }
 }
