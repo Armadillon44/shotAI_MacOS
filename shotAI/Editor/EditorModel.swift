@@ -60,9 +60,10 @@ final class EditorModel {
         self.store = store
         self.scanner = scanner
         // Seed the new-shape stroke width to the image-scaled default so lines
-        // read boldly on large captures (matches the Windows editor on load).
-        self.strokeWidth = Double(AnnotationStyle.defaultStrokeWidth(
-            width: imageSize.width, height: imageSize.height))
+        // read boldly on large captures. Cap at the slider's ceiling (40) so a
+        // very large image's default can't sit above the slider's range.
+        self.strokeWidth = min(40, Double(AnnotationStyle.defaultStrokeWidth(
+            width: imageSize.width, height: imageSize.height)))
         Log.editor.info("editor opened step \(step.id, privacy: .public) raw=\(cg.width, privacy: .public)x\(cg.height, privacy: .public)")
     }
 
@@ -200,11 +201,13 @@ final class EditorModel {
     }
 
     /// Translate the selected annotation by (dx, dy), starting from `original`
-    /// (the snapshot taken at drag start). Blur stays clamped to the image;
-    /// box/arrow may overhang (the bake clips them), matching Windows.
+    /// (the snapshot taken at drag start). A moved blur keeps its SIZE and stays
+    /// fully on-image (origin clamped) — an intersection clamp would shrink it at
+    /// an edge and could reveal pixels the user meant to redact. Box/arrow may
+    /// overhang (the bake clips them), matching Windows.
     func moveSelected(_ original: Annotation, dx: CGFloat, dy: CGFloat) {
         guard let i = selectedIndex else { return }
-        annotations[i] = storable(translate(original, dx: dx, dy: dy))
+        annotations[i] = clampBlurOrigin(translate(original, dx: dx, dy: dy))
     }
 
     /// Resize the selected annotation to `newBounds`, scaling `original`'s
@@ -282,13 +285,26 @@ final class EditorModel {
         }
     }
 
-    /// Redaction must stay on-image (off-image blur is dropped at bake, leaking
-    /// pixels); box/arrow may overhang and are clipped by the bake.
+    /// Intersection-clamp a resized blur to the image (shrinking at an edge is
+    /// the intended behavior for a RESIZE). Box/arrow overhang and are clipped by
+    /// the bake. A degenerate (<1px) result keeps the incoming rect rather than
+    /// vanishing — the user is actively dragging and sees the preview.
     private func storable(_ a: Annotation) -> Annotation {
         guard case .blur(var b) = a else { return a }
         let r = clampedToImage(CGRect(x: b.x, y: b.y, width: b.width, height: b.height))
         guard r.width >= 1, r.height >= 1 else { return a }
         b.x = r.minX; b.y = r.minY; b.width = r.width; b.height = r.height
+        return .blur(b)
+    }
+
+    /// Keep a MOVED blur fully on-image by clamping its origin (size preserved),
+    /// so a reposition near an edge never shrinks it or floats it off-image
+    /// (both would expose pixels the user meant to redact). Non-blur passes
+    /// through unchanged.
+    private func clampBlurOrigin(_ a: Annotation) -> Annotation {
+        guard case .blur(var b) = a else { return a }
+        b.x = max(0, min(b.x, max(0, imageSize.width - b.width)))
+        b.y = max(0, min(b.y, max(0, imageSize.height - b.height)))
         return .blur(b)
     }
 
@@ -301,6 +317,10 @@ final class EditorModel {
 
     // MARK: - Auto-redact (Vision OCR pre-scan)
 
+    /// NOTE: intentionally NOT surfaced in the UI right now — the Auto-redact
+    /// button was removed by design. This (and the injected `scanner` + the
+    /// `scanning` save-gate) is kept wired for an easy future re-add; it is
+    /// dormant, not dead. Re-add a button that calls this to re-enable it.
     func autoRedact() async {
         scanning = true
         defer { scanning = false }
