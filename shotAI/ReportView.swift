@@ -2,15 +2,20 @@ import AppKit
 import ShotModel
 import SwiftUI
 
-/// The in-app report, read-only for Phase A: each step rendered as its
-/// screenshot with an overlaid click-register marker + caption + note; text
-/// steps as heading/body blocks; callouts as tinted boxes. Prefers the
-/// flattened render (annotations baked + redaction) over the raw screenshot.
-/// Rendering rules live in ShotModel.ReportPresentation, ported from Report.tsx.
+/// The in-app report. Read the step guide, and (R1) edit its words in place:
+/// captions, instructions/notes, text steps, callouts, and the overview intro
+/// are all click-to-edit. Prefers the flattened render (annotations baked +
+/// redaction) over the raw screenshot. Rendering rules live in
+/// ShotModel.ReportPresentation, ported from Report.tsx.
 struct ReportView: View {
     let opened: ProjectStore.OpenedProject
     /// Open the annotation editor for a shot step (Phase C).
     var onEdit: (ProjectStep) -> Void = { _ in }
+    @Environment(AppModel.self) private var model
+    /// True while composing a not-yet-saved overview (an all-empty intro can't
+    /// persist — the manifest decoder coerces it to nil — so the placeholder box
+    /// is UI-local until the user types something).
+    @State private var addingIntro = false
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
@@ -19,16 +24,15 @@ struct ReportView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
-                if let intro = opened.manifest.intro {
-                    IntroBox(intro: intro)
-                }
+                intro
                 ForEach(steps) { step in
                     StepRow(step: step, number: numbers[step.id], projectDir: opened.dir, onEdit: onEdit)
                 }
                 if steps.isEmpty {
-                    Text("No steps in this project.")
-                        .foregroundStyle(.secondary)
+                    Text("No steps yet — record a process, or add a text block below.")
+                        .foregroundStyle(Palette.ink3)
                 }
+                addStepMenu
             }
             .padding(24)
             .frame(maxWidth: 880)
@@ -51,33 +55,69 @@ struct ReportView: View {
                 Text("· \(numbers.count) numbered step\(numbers.count == 1 ? "" : "s")")
             }
             .font(.callout)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Palette.ink2)
         }
+    }
+
+    /// The overview preamble — editable when present, an "add" affordance when not.
+    @ViewBuilder private var intro: some View {
+        if let intro = opened.manifest.intro {
+            IntroBox(intro: intro, onRemove: { addingIntro = false; Task { await model.removeIntro() } })
+        } else if addingIntro {
+            IntroBox(intro: SopIntro(heading: "", body: ""), onRemove: { addingIntro = false })
+        } else {
+            Button { addingIntro = true } label: {
+                Label("Add overview", systemImage: "plus")
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    private var addStepMenu: some View {
+        Menu {
+            Button("Text block") { Task { await model.addTextStep() } }
+            Divider()
+            Button("Note") { Task { await model.addTextStep(callout: .note) } }
+            Button("Caution") { Task { await model.addTextStep(callout: .caution) } }
+            Button("Warning") { Task { await model.addTextStep(callout: .warning) } }
+        } label: {
+            Label("Add step", systemImage: "plus.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .padding(.top, 4)
     }
 }
 
-/// SOP overview preamble — a lead-in above the steps, NOT a numbered step.
+/// SOP overview preamble — a lead-in above the steps, editable in place.
 private struct IntroBox: View {
     let intro: SopIntro
+    let onRemove: () -> Void
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !intro.heading.isEmpty {
-                Text(intro.heading).font(.title3.bold())
+            HStack {
+                Text("OVERVIEW")
+                    .font(.system(size: 11, weight: .bold)).kerning(0.6)
+                    .foregroundStyle(Palette.ink3)
+                Spacer()
+                Button("Remove") { onRemove() }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
             }
-            if !intro.body.isEmpty {
-                Text(intro.body).foregroundStyle(.primary.opacity(0.85))
+            InlineEditable(text: intro.heading, placeholder: "Overview heading…", font: .title3.bold()) { new in
+                Task { await model.setIntro(heading: new, body: intro.body) }
+            }
+            InlineEditable(text: intro.body, placeholder: "Describe the overall goal of this guide…", multiline: true) { new in
+                Task { await model.setIntro(heading: intro.heading, body: new) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(Palette.surface2)
-        .overlay(alignment: .leading) {
-            Rectangle().fill(Palette.accent).frame(width: 4)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 6).stroke(Palette.hair)
-        }
+        .overlay(alignment: .leading) { Rectangle().fill(Palette.accent).frame(width: 4) }
+        .overlay { RoundedRectangle(cornerRadius: 6).stroke(Palette.hair) }
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
@@ -87,6 +127,7 @@ private struct StepRow: View {
     let number: Int?
     let projectDir: String
     let onEdit: (ProjectStep) -> Void
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -118,8 +159,6 @@ private struct StepRow: View {
                     .clipShape(Circle())
                     .overlay(Circle().stroke(CalloutBox.palette(callout).border))
             } else {
-                // Numbered (screenshot) steps get the solid-violet brand badge;
-                // an un-numbered text step gets a subtle neutral disc.
                 Text(number.map(String.init) ?? "")
                     .font(.system(size: 14, weight: .semibold).monospacedDigit())
                     .frame(width: 32, height: 32)
@@ -132,35 +171,34 @@ private struct StepRow: View {
 
     private var textBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let heading = step.heading, !heading.isEmpty {
-                Text(heading).font(.title3.bold())
+            InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .title3.bold()) { new in
+                Task { await model.editStepText(stepId: step.id, heading: new) }
             }
-            if let body = step.body, !body.isEmpty {
-                Text(body).foregroundStyle(.primary.opacity(0.85))
+            InlineEditable(text: step.body ?? "", placeholder: "Empty — click to add text.", multiline: true) { new in
+                Task { await model.editStepText(stepId: step.id, body: new) }
             }
         }
         .padding(.top, 4)
     }
 
     @ViewBuilder private var shotBlock: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(step.caption.isEmpty ? "Untitled step" : step.caption)
-                .font(.headline)
-            Spacer()
+        HStack(alignment: .top, spacing: 8) {
+            InlineEditable(text: step.caption, placeholder: "Add a caption…", font: .headline) { new in
+                Task { await model.editStepText(stepId: step.id, caption: new) }
+            }
             Button("Edit", systemImage: "pencil") { onEdit(step) }
                 .buttonStyle(.borderless)
                 .help("Annotate, redact, or crop this step")
+                .fixedSize()
         }
         if let rel = ReportPresentation.displayImagePath(for: step) {
             StepFigure(step: step, projectDir: projectDir, relPath: rel)
         }
-        if let body = step.body, !body.isEmpty {
-            Text(body)
+        InlineEditable(text: step.body ?? "", placeholder: "+ Add instructions", multiline: true) { new in
+            Task { await model.editStepText(stepId: step.id, body: new) }
         }
-        if !step.note.isEmpty {
-            Text(step.note)
-                .font(.system(size: 12.5))
-                .foregroundStyle(Palette.ink2)
+        InlineEditable(text: step.note, placeholder: "Add a note…", font: .system(size: 12.5), color: Palette.ink2, multiline: true) { new in
+            Task { await model.editStepText(stepId: step.id, note: new) }
         }
         if let window = step.window {
             Text(window.title.isEmpty ? window.app : "\(window.app) — \(window.title)")
@@ -171,10 +209,11 @@ private struct StepRow: View {
     }
 }
 
-/// A text step styled as a tinted note/caution/warning box.
+/// A text step styled as a tinted note/caution/warning box, editable in place.
 private struct CalloutBox: View {
     let step: ProjectStep
     let kind: CalloutKind
+    @Environment(AppModel.self) private var model
 
     struct Colors {
         let background: Color
@@ -195,20 +234,91 @@ private struct CalloutBox: View {
 
     var body: some View {
         let palette = Self.palette(kind)
-        VStack(alignment: .leading, spacing: 4) {
-            if let heading = step.heading, !heading.isEmpty {
-                Text(heading).bold()
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .headline, color: palette.text) { new in
+                    Task { await model.editStepText(stepId: step.id, heading: new) }
+                }
+                Spacer(minLength: 8)
+                Menu {
+                    ForEach(CalloutKind.allCases, id: \.self) { k in
+                        Button(k.rawValue.capitalized) { Task { await model.editStepText(stepId: step.id, callout: k) } }
+                    }
+                } label: {
+                    Text(ReportPresentation.calloutGlyph(kind)).foregroundStyle(palette.text)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Change callout type")
             }
-            if let body = step.body, !body.isEmpty {
-                Text(body)
+            InlineEditable(text: step.body ?? "", placeholder: "Callout text…", color: palette.text, multiline: true) { new in
+                Task { await model.editStepText(stepId: step.id, body: new) }
             }
         }
-        .foregroundStyle(palette.text)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(palette.background)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.border, lineWidth: 1.5))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// A click-to-edit text field: shows the value (or an italic placeholder) until
+/// clicked, then a text field with Save/Cancel. Single-line commits on Enter;
+/// multi-line grows and commits via Save. Esc cancels. Each field owns its state.
+struct InlineEditable: View {
+    let text: String
+    var placeholder: String
+    var font: Font = .body
+    var color: Color = Palette.ink
+    var multiline: Bool = false
+    var onCommit: (String) -> Void
+
+    @State private var editing = false
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        if editing {
+            VStack(alignment: .leading, spacing: 6) {
+                Group {
+                    if multiline {
+                        TextField(placeholder, text: $draft, axis: .vertical).lineLimit(1...12)
+                    } else {
+                        TextField(placeholder, text: $draft).onSubmit { commit() }
+                    }
+                }
+                .font(font)
+                .textFieldStyle(.roundedBorder)
+                .focused($focused)
+                .onExitCommand { editing = false }
+                HStack(spacing: 8) {
+                    Spacer()
+                    Button("Cancel") { editing = false }
+                    Button("Save") { commit() }.buttonStyle(.borderedProminent)
+                }
+            }
+            .onAppear { draft = text; focused = true }
+        } else {
+            Button {
+                draft = text
+                editing = true
+            } label: {
+                Text(text.isEmpty ? placeholder : text)
+                    .font(font)
+                    .foregroundStyle(text.isEmpty ? Palette.ink3 : color)
+                    .italic(text.isEmpty)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Click to edit")
+        }
+    }
+
+    private func commit() {
+        onCommit(draft)
+        editing = false
     }
 }
 

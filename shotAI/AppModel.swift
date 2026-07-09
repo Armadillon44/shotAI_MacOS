@@ -125,4 +125,47 @@ final class AppModel {
             errorMessage = "Not a shotAI project: \(url.path) (\(error.localizedDescription))"
         }
     }
+
+    // MARK: - Report authoring (R1: inline text + callouts)
+
+    private func afterEdit() async {
+        await reloadOpened()  // re-render the report
+        await refresh()       // updatedAt bumped → Home re-sorts
+    }
+
+    /// Set the overview preamble (stored even when empty — shows an editable box).
+    func setIntro(heading: String, body: String) async {
+        guard let dir = opened?.dir else { return }
+        do { try await store.setIntro(at: dir, heading: heading, body: body); await afterEdit() }
+        catch { errorMessage = error.localizedDescription }
+    }
+
+    /// Remove the overview preamble.
+    func removeIntro() async {
+        guard let dir = opened?.dir else { return }
+        do { try await store.removeIntro(at: dir); await afterEdit() }
+        catch { errorMessage = error.localizedDescription }
+    }
+
+    /// Add a text step or note/caution/warning callout (append when atIndex nil).
+    func addTextStep(heading: String = "", body: String = "", callout: CalloutKind? = nil, atIndex: Int? = nil) async {
+        guard let dir = opened?.dir else { return }
+        do { try await store.addTextStep(at: dir, atIndex: atIndex, heading: heading, body: body, callout: callout); await afterEdit() }
+        catch { errorMessage = error.localizedDescription }
+    }
+
+    /// Edit a step's text fields (only the non-nil ones are written).
+    func editStepText(
+        stepId: String, caption: String? = nil, note: String? = nil,
+        heading: String? = nil, body: String? = nil, callout: CalloutKind? = nil
+    ) async {
+        guard let dir = opened?.dir else { return }
+        do {
+            try await store.editStepText(
+                at: dir, stepId: stepId, caption: caption, note: note,
+                heading: heading, body: body, callout: callout
+            )
+            await afterEdit()
+        } catch { errorMessage = error.localizedDescription }
+    }
 }
