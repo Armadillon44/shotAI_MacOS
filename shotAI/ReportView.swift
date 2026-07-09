@@ -43,6 +43,11 @@ struct ReportView: View {
                         .foregroundStyle(Palette.ink3)
                 }
                 InsertZone { callout in Task { await model.addTextStep(callout: callout, atIndex: steps.count) } } // append
+                    .dropDestination(for: String.self) { ids, _ in
+                        guard let dragged = ids.first else { return false }
+                        Task { await model.dropStep(dragged, before: nil) } // to the end
+                        return true
+                    }
             }
             .padding(24)
             .frame(maxWidth: 880)
@@ -196,6 +201,7 @@ private struct StepRow: View {
     let onEdit: (ProjectStep) -> Void
     let onRequestDelete: () -> Void
     @Environment(AppModel.self) private var model
+    @State private var dropTargeted = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -215,6 +221,16 @@ private struct StepRow: View {
             stepMenu
         }
         .padding(.vertical, 6)
+        // A dragged step dropped on this row lands just before it; the accent
+        // line shows where it will go.
+        .overlay(alignment: .top) {
+            if dropTargeted { Rectangle().fill(Palette.accent).frame(height: 2) }
+        }
+        .dropDestination(for: String.self) { ids, _ in
+            guard let dragged = ids.first, dragged != step.id else { return false }
+            Task { await model.dropStep(dragged, before: step.id) }
+            return true
+        } isTargeted: { dropTargeted = $0 }
     }
 
     /// Per-step actions: reorder (move up/down) and delete.
@@ -238,24 +254,47 @@ private struct StepRow: View {
         .help("Step actions")
     }
 
-    /// Left rail: the step number for numbered steps, a type glyph for callouts.
+    /// Left rail: a drag grip (reorder any step, callouts included) over the
+    /// step number for numbered steps, or a type glyph for callouts.
     private var rail: some View {
-        Group {
-            if let callout = step.callout, ReportPresentation.isCalloutStep(step) {
-                Text(ReportPresentation.calloutGlyph(callout))
-                    .font(.system(size: 15))
-                    .frame(width: 32, height: 32)
-                    .background(CalloutBox.palette(callout).background)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(CalloutBox.palette(callout).border))
-            } else if let number {
-                NumberBadge(number: number, stepId: step.id, focus: focus) { pos in
-                    Task { await model.moveStep(id: step.id, toPosition: pos) }
+        VStack(spacing: 6) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Palette.ink3)
+                .help("Drag to reorder")
+                .draggable(step.id) {
+                    Text(dragPreview)
+                        .font(.callout)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Palette.accentTint)
+                        .foregroundStyle(Palette.accentInk)
+                        .clipShape(Capsule())
                 }
-            } else {
-                // Defensive: a non-callout step should always have a number.
-                Circle().fill(Palette.hair2).frame(width: 32, height: 32)
+            badge
+        }
+    }
+
+    /// A short label for the drag preview.
+    private var dragPreview: String {
+        if ReportPresentation.isCalloutStep(step) { return step.callout?.rawValue.capitalized ?? "Callout" }
+        return number.map { "Step \($0)" } ?? "Step"
+    }
+
+    @ViewBuilder private var badge: some View {
+        if let callout = step.callout, ReportPresentation.isCalloutStep(step) {
+            Text(ReportPresentation.calloutGlyph(callout))
+                .font(.system(size: 15))
+                .frame(width: 32, height: 32)
+                .background(CalloutBox.palette(callout).background)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(CalloutBox.palette(callout).border))
+        } else if let number {
+            NumberBadge(number: number, stepId: step.id, focus: focus) { pos in
+                Task { await model.moveStep(id: step.id, toPosition: pos) }
             }
+        } else {
+            // Defensive: a non-callout step should always have a number.
+            Circle().fill(Palette.hair2).frame(width: 32, height: 32)
         }
     }
 
