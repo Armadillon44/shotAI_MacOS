@@ -74,6 +74,28 @@ final class CaptureCoordinator {
         }
     }
 
+    /// Arm a single in-place capture: the next real click records ONE screenshot,
+    /// inserts it at `insertAt`, and auto-stops. Same permission gate + pill /
+    /// window-hide takeover as `record` (driven by the engine's recordingChanged).
+    @discardableResult
+    func captureSingle(projectPath: String, insertAt: Int) async -> Bool {
+        Log.capture.notice("captureSingle requested insertAt=\(insertAt, privacy: .public)")
+        guard CapturePermission.screenRecording.isGranted() else {
+            CapturePermission.screenRecording.request()
+            Log.capture.info("Screen Recording not granted — showing permissions wizard")
+            showWizard = true
+            return false
+        }
+        do {
+            try await engine.captureSingle(projectPath: projectPath, insertAt: insertAt)
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            Log.capture.error("captureSingle failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+            return false
+        }
+    }
+
     /// The area-select flow: hide the requesting window so it isn't covering
     /// the selectable area; restore it even on cancel.
     func selectArea() async -> ShotModel.Rect? {
