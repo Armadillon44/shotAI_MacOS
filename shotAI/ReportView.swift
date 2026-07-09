@@ -639,16 +639,23 @@ extension Color {
 /// nudges the clip view when the pointer is inside a hot band at either edge.
 @MainActor private final class AutoScroller {
     weak var scrollView: NSScrollView? {
-        didSet { if scrollView != nil { Log.ui.debug("auto-scroll: scroll view resolved") } }
+        didSet { if scrollView != nil { Log.ui.notice("auto-scroll: scroll view resolved") } }
     }
-    private var timer: Timer?
+    private var timer: DispatchSourceTimer?
     private var hoverCount = 0
+    private var loggedTick = false
 
     /// A step-drag entered (+1) or left (-1) a report drop target. The timer runs
     /// while at least one drop target is being hovered (i.e. a drag is active).
     func noteHover(_ active: Bool) {
+        let before = hoverCount
         hoverCount = max(0, hoverCount + (active ? 1 : -1))
-        if hoverCount > 0 { start() } else { stop() }
+        if hoverCount > 0, before == 0 {
+            Log.ui.notice("auto-scroll: drag active — starting timer")
+            start()
+        } else if hoverCount == 0, before > 0 {
+            stop()
+        }
     }
 
     /// A drop landed — end the drag session cleanly.
@@ -659,33 +666,40 @@ extension Color {
 
     private func start() {
         guard timer == nil else { return }
-        // MUST be a .common-mode timer: during a drag the main run loop runs in
-        // event-tracking mode, where a default-mode timer is suspended and never
-        // fires (that's why auto-scroll didn't trigger at all before).
-        let t = Timer(timeInterval: 0.03, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
-        }
-        RunLoop.main.add(t, forMode: .common)
+        loggedTick = false
+        // GCD timer on the main queue: unlike a run-loop Timer it isn't gated by
+        // the run-loop mode, so it fires during the drag's event-tracking loop.
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now(), repeating: .milliseconds(30))
+        t.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.tick() } }
+        t.resume()
         timer = t
-        Log.ui.debug("auto-scroll: started")
     }
 
     private func stop() {
-        timer?.invalidate()
+        timer?.cancel()
         timer = nil
     }
 
     private func tick() {
-        guard let sv = scrollView, let win = sv.window else { return }
+        guard let sv = scrollView, let win = sv.window else {
+            if !loggedTick { loggedTick = true; Log.ui.notice("auto-scroll: tick but no scroll view/window") }
+            return
+        }
         let mouse = NSEvent.mouseLocation // screen coords, origin bottom-left
         let onScreen = win.convertToScreen(sv.convert(sv.bounds, to: nil))
-        guard mouse.x >= onScreen.minX, mouse.x <= onScreen.maxX else { return }
         let edge: CGFloat = 64, maxSpeed: CGFloat = 26
         var dy: CGFloat = 0
-        if mouse.y > onScreen.maxY - edge { // near the top → scroll up
-            dy = -maxSpeed * min(1, (mouse.y - (onScreen.maxY - edge)) / edge)
-        } else if mouse.y < onScreen.minY + edge { // near the bottom → scroll down
-            dy = maxSpeed * min(1, ((onScreen.minY + edge) - mouse.y) / edge)
+        if mouse.x >= onScreen.minX, mouse.x <= onScreen.maxX {
+            if mouse.y > onScreen.maxY - edge { // near the top → scroll up
+                dy = -maxSpeed * min(1, (mouse.y - (onScreen.maxY - edge)) / edge)
+            } else if mouse.y < onScreen.minY + edge { // near the bottom → scroll down
+                dy = maxSpeed * min(1, ((onScreen.minY + edge) - mouse.y) / edge)
+            }
+        }
+        if !loggedTick {
+            loggedTick = true
+            Log.ui.notice("auto-scroll: first tick mouseY=\(Int(mouse.y), privacy: .public) svMinY=\(Int(onScreen.minY), privacy: .public) svMaxY=\(Int(onScreen.maxY), privacy: .public) dy=\(Int(dy), privacy: .public)")
         }
         guard dy != 0 else { return }
         let clip = sv.contentView
