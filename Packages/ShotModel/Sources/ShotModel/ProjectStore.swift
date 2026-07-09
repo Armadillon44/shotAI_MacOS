@@ -324,6 +324,26 @@ public actor ProjectStore {
         }
     }
 
+    /// Reorder the steps to match `orderedIds` (a permutation of the current step
+    /// ids), then renumber. Ids not present are ignored; any current step missing
+    /// from `orderedIds` is kept, appended in its original order (defensive — a
+    /// reorder must never drop a step).
+    @discardableResult
+    public func reorderSteps(at projectPath: String, orderedIds: [String]) throws -> ProjectManifest {
+        try mutate(at: projectPath) { m in
+            let byId = Dictionary(m.steps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            var reordered: [ProjectStep] = []
+            var seen = Set<String>()
+            for id in orderedIds where !seen.contains(id) {
+                if let step = byId[id] { reordered.append(step); seen.insert(id) }
+            }
+            for step in m.steps where !seen.contains(step.id) { reordered.append(step) }
+            m.steps = reordered
+            Self.renumber(&m.steps)
+            Log.store.notice("reorderSteps: \(reordered.count, privacy: .public) step(s) reordered")
+        }
+    }
+
     /// Delete multiple steps by id (e.g. discarding a capture session's
     /// additions): removes them from the manifest, renumbers, and best-effort
     /// deletes each one's screenshot + flattened render from disk. Every

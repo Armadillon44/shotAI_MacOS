@@ -81,4 +81,24 @@ import Testing
         #expect(try read().steps[1].callout == .warning)
         cleanup()
     }
+
+    @Test func reorderStepsPermutesAndRenumbers() async throws {
+        _ = try await store.addTextStep(at: projectDir, atIndex: nil, heading: "A", body: "")
+        _ = try await store.addTextStep(at: projectDir, atIndex: nil, heading: "B", body: "")
+        let ids = try read().steps.map(\.id) // [s1, A, B]
+        _ = try await store.reorderSteps(at: projectDir, orderedIds: ids.reversed())
+        let after = try read().steps
+        #expect(after.map(\.id) == Array(ids.reversed()))
+        #expect(after.map(\.order) == [1, 2, 3]) // renumbered to new order
+        cleanup()
+    }
+
+    @Test func reorderKeepsUnmentionedStepsAppended() async throws {
+        _ = try await store.addTextStep(at: projectDir, atIndex: nil, heading: "A", body: "")
+        let ids = try read().steps.map(\.id) // [s1, A]
+        // Mention only A → A moves first, the unmentioned s1 is kept (appended).
+        _ = try await store.reorderSteps(at: projectDir, orderedIds: [ids[1]])
+        #expect(try read().steps.map(\.id) == [ids[1], ids[0]])
+        cleanup()
+    }
 }

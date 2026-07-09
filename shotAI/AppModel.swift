@@ -190,4 +190,31 @@ final class AppModel {
             Log.store.error("editStepText failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
     }
+
+    // MARK: - Report structure (R2: delete / reorder)
+
+    /// Delete one step (and its screenshot/render), then re-render + re-list.
+    func deleteStep(id: String) async {
+        guard let dir = opened?.dir else { return }
+        do { try await store.deleteSteps(at: dir, ids: [id]); await afterEdit() }
+        catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("deleteStep failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    /// Move a step up (-1) or down (+1) among the steps, clamped at the ends.
+    func moveStep(id: String, by offset: Int) async {
+        guard let opened else { return }
+        var ids = opened.manifest.steps.map(\.id)
+        guard let i = ids.firstIndex(of: id) else { return }
+        let j = i + offset
+        guard j >= 0, j < ids.count else { return }
+        ids.swapAt(i, j)
+        do { try await store.reorderSteps(at: opened.dir, orderedIds: ids); await afterEdit() }
+        catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("moveStep failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
 }
