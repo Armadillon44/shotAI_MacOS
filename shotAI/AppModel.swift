@@ -79,12 +79,14 @@ final class AppModel {
     /// Open a project into the detail view (Home → detail navigation).
     func open(path: String) async {
         Log.ui.info("open(path:) navigating to project detail")
+        lastMerge = nil
         selectedPath = path
         await openSelected()
     }
 
     /// Return to the Home surface (the "← Back" affordance).
     func closeToHome() {
+        lastMerge = nil
         selectedPath = nil
         opened = nil
         errorMessage = nil
@@ -141,9 +143,19 @@ final class AppModel {
 
     // MARK: - Report authoring (R1: inline text + callouts)
 
-    private func afterEdit() async {
+    /// One-level undo for the most recent merge (cleared by any other edit).
+    struct MergeUndo { let projectDir: String; let dropped: ProjectStep; let dropIndex: Int; let keptPre: ProjectStep }
+    private(set) var lastMerge: MergeUndo?
+    var canUndoMerge: Bool { lastMerge != nil && lastMerge?.projectDir == opened?.dir }
+
+    private func reloadOnly() async {
         await reloadOpened()  // re-render the report
         await refresh()       // updatedAt bumped → Home re-sorts
+    }
+
+    private func afterEdit() async {
+        lastMerge = nil       // any normal edit invalidates a pending merge-undo
+        await reloadOnly()
     }
 
     /// Set the overview preamble (stored even when empty — shows an editable box).
@@ -332,12 +344,44 @@ final class AppModel {
             if !bod.isEmpty { patch.body = bod }
             let nte = Self.joinText(current.note, next.note, "\n\n")
             if !nte.isEmpty { patch.note = nte }
+            // Snapshot for one-level undo BEFORE the merge mutates the manifest.
+            lastMerge = MergeUndo(projectDir: opened.dir, dropped: current, dropIndex: i, keptPre: next)
             try await store.mergeSteps(at: opened.dir, keepId: next.id, dropId: current.id, patch: patch, flattenedPng: png)
-            await afterEdit()
+            await reloadOnly() // NOT afterEdit — keep lastMerge so "Undo merge" can offer it
         } catch {
+            lastMerge = nil
             errorMessage = error.localizedDescription
             Log.store.error("mergeIntoNext failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
+    }
+
+    /// Undo the most recent merge: restore the kept step's pre-merge state,
+    /// re-insert the dropped step, and regenerate the kept step's render if it had
+    /// one (the merge overwrote it).
+    func undoLastMerge() async {
+        guard let m = lastMerge, let opened, m.projectDir == opened.dir else { return }
+        lastMerge = nil
+        do {
+            let keptPng = m.keptPre.flattened != nil ? try flattenRender(for: m.keptPre) : nil
+            try await store.restoreMerge(at: opened.dir, keptPre: m.keptPre, dropped: m.dropped, dropIndex: m.dropIndex, keptPng: keptPng)
+            await reloadOnly()
+        } catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("undoLastMerge failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    /// Re-bake a step's own render (raw + its annotations/crop + its click marker).
+    private func flattenRender(for step: ProjectStep) throws -> Data? {
+        guard let dir = opened?.dir, !step.screenshot.isEmpty,
+              let abs = confinePath(dir: dir, rel: step.screenshot),
+              let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: abs) as CFURL, nil),
+              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
+        else { return nil }
+        let marker: Flatten.Marker? = step.click.map { c in
+            Flatten.Marker(x: c.image.x, y: c.image.y, color: AnnotationStyle.markerColor(for: step), radius: c.radius.map { CGFloat($0) })
+        }
+        return try Flatten.toPNG(image: cg, annotations: step.annotations, crop: step.crop, marker: marker)
     }
 
     /// Join two text fields (dropped → kept), trimming and dropping empties.
