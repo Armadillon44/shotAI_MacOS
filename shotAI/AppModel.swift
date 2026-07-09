@@ -1,5 +1,8 @@
 import AppKit
+import CoreGraphics
+import EditorKit
 import Foundation
+import ImageIO
 import Observation
 import ShotModel
 
@@ -268,6 +271,48 @@ final class AppModel {
         catch {
             errorMessage = error.localizedDescription
             Log.store.error("importImageStep failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    /// Merge a step into the following step (the Windows right-click→menu-selection
+    /// fold): keep the NEXT step's screenshot, bake this step's click marker onto
+    /// it (so both clicks show), drop this step. Shot→shot only.
+    func mergeIntoNext(id: String) async {
+        guard let opened else { return }
+        let steps = opened.manifest.steps
+        guard let i = steps.firstIndex(where: { $0.id == id }), i + 1 < steps.count else { return }
+        let current = steps[i], next = steps[i + 1]
+        guard current.kind != .text, next.kind != .text, !next.screenshot.isEmpty else { return }
+        // Load the KEPT (next) step's raw screenshot to re-bake from.
+        guard let abs = confinePath(dir: opened.dir, rel: next.screenshot),
+              let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: abs) as CFURL, nil),
+              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
+        else {
+            errorMessage = "Couldn't load the next step's screenshot to merge into."
+            return
+        }
+        // next's own annotations + this step's click carried in as a marker.
+        var merged = next.annotations
+        if let c = current.click {
+            merged.append(.marker(MarkerAnnotation(
+                id: "merge-\(current.id)", x: c.image.x, y: c.image.y,
+                color: AnnotationStyle.markerColor(for: current), radius: c.radius)))
+        }
+        let keepMarker: Flatten.Marker? = next.click.map { c in
+            Flatten.Marker(x: c.image.x, y: c.image.y,
+                           color: AnnotationStyle.markerColor(for: next), radius: c.radius.map { CGFloat($0) })
+        }
+        do {
+            let png = try Flatten.toPNG(image: cg, annotations: merged, crop: next.crop, marker: keepMarker)
+            var patch = StepPatch()
+            patch.annotations = merged
+            patch.crop = .set(next.crop)
+            patch.markerBaked = true
+            try await store.mergeSteps(at: opened.dir, keepId: next.id, dropId: current.id, patch: patch, flattenedPng: png)
+            await afterEdit()
+        } catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("mergeIntoNext failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
     }
 }
