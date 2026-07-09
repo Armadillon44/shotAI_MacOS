@@ -86,25 +86,31 @@ private struct InsertZone: View {
     @State private var hovering = false
 
     var body: some View {
-        Menu {
-            Button("Text block") { onInsert(nil) }
-            Divider()
-            Button("Note") { onInsert(.note) }
-            Button("Caution") { onInsert(.caution) }
-            Button("Warning") { onInsert(.warning) }
-        } label: {
-            HStack(spacing: 8) {
-                line
+        // Full-width row so the flanking lines expand and CENTER the ＋. The
+        // lines live outside the Menu (a borderless Menu sizes its label to its
+        // content, which would collapse flexible lines to nothing).
+        HStack(spacing: 10) {
+            line
+            Menu {
+                Button("Text block") { onInsert(nil) }
+                Divider()
+                Button("Note") { onInsert(.note) }
+                Button("Caution") { onInsert(.caution) }
+                Button("Warning") { onInsert(.warning) }
+            } label: {
                 Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 15))
+                    .font(.system(size: 18)) // ~20% larger than before
                     .foregroundStyle(hovering ? Palette.accent : Palette.ink3)
-                line
             }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            line
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(height: 18)
-        .opacity(hovering ? 1 : 0.35)
+        .frame(maxWidth: .infinity)
+        .frame(height: 22)
+        .contentShape(Rectangle())
+        .opacity(hovering ? 1 : 0.4)
         .onHover { hovering = $0 }
         .animation(.easeInOut(duration: 0.12), value: hovering)
         .help("Insert a step here")
