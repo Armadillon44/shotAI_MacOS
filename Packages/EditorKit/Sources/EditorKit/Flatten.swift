@@ -222,22 +222,34 @@ public enum Flatten {
             guard ar.points.count == 4 else { return }
             let (x1, y1, x2, y2) = (ar.points[0], ar.points[1], ar.points[2], ar.points[3])
             let color = cgColor(fromHex: ar.stroke) ?? defaultAccent
+            ctx.saveGState()
             ctx.setStrokeColor(color)
             ctx.setFillColor(color)
             ctx.setLineWidth(ar.strokeWidth)
-            ctx.setLineCap(.round)
+            // BUTT cap (not round): a round cap draws a half-disc PAST the tip,
+            // poking beyond the arrowhead apex so the head looks slid down the
+            // shaft. The head is built exactly like the live editor preview and
+            // the Windows editor: base = tip − unit·head, corners ± perp·(head/2),
+            // filled AND stroked with a miter join.
+            ctx.setLineCap(.butt)
+            ctx.setLineJoin(.miter)
+            let dx = x2 - x1, dy = y2 - y1
+            let len = max(0.0001, (dx * dx + dy * dy).squareRoot())
+            let ux = dx / len, uy = dy / len
+            let head = max(12, ar.strokeWidth * 3)
             ctx.beginPath()
             ctx.move(to: CGPoint(x: x1, y: y1))
             ctx.addLine(to: CGPoint(x: x2, y: y2))
             ctx.strokePath()
-            let angle = atan2(y2 - y1, x2 - x1)
-            let head = max(12, ar.strokeWidth * 3)
+            let baseX = x2 - ux * head, baseY = y2 - uy * head
+            let px = -uy, py = ux, half = head / 2
             ctx.beginPath()
             ctx.move(to: CGPoint(x: x2, y: y2))
-            ctx.addLine(to: CGPoint(x: x2 - head * cos(angle - .pi / 6), y: y2 - head * sin(angle - .pi / 6)))
-            ctx.addLine(to: CGPoint(x: x2 - head * cos(angle + .pi / 6), y: y2 - head * sin(angle + .pi / 6)))
+            ctx.addLine(to: CGPoint(x: baseX + px * half, y: baseY + py * half))
+            ctx.addLine(to: CGPoint(x: baseX - px * half, y: baseY - py * half))
             ctx.closePath()
-            ctx.fillPath()
+            ctx.drawPath(using: .fillStroke)
+            ctx.restoreGState()
 
         case .stamp(let s):
             ctx.saveGState()
