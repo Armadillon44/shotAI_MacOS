@@ -1,7 +1,16 @@
+import AppKit
 import CaptureKit
 import EditorKit
 import ShotModel
 import SwiftUI
+
+/// Window widths per surface — a narrow Home, a wide project detail, matching
+/// the Windows app's list ↔ detail width switch. Referenced by the app's
+/// `defaultSize` so the window opens at the Home width.
+enum WindowLayout {
+    static let home: CGFloat = 800
+    static let detail: CGFloat = 1040
+}
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
@@ -12,6 +21,8 @@ struct ContentView: View {
     @State private var editor: EditorModel?
     /// Message shown when a step can't be opened for editing.
     @State private var editorError: String?
+    /// The hosting window, captured once, so we can size it per surface.
+    @State private var window: NSWindow?
 
     private struct RecordTarget: Identifiable {
         let path: String
@@ -40,6 +51,17 @@ struct ContentView: View {
         // shotAI's brand accent (violet) for selection, controls, and the
         // editor overlay — propagates down the whole window hierarchy.
         .tint(Palette.accent)
+        // Capture the hosting window once, then size it per surface: narrow on
+        // Home, wide when a project is open. Center-preserving + animated.
+        .background(WindowAccessor { w in
+            guard window == nil else { return }
+            window = w
+            w.minSize = NSSize(width: 680, height: 560)
+            applyWindowWidth(w, animated: false)
+        })
+        .onChange(of: model.opened?.dir) {
+            if let window { applyWindowWidth(window, animated: true) }
+        }
         // Hide the window's Record/Permissions/… toolbar while the editor
         // overlay is up, so its controls can't sit behind the editor's own bar.
         .toolbar(editor == nil ? .automatic : .hidden, for: .windowToolbar)
@@ -165,6 +187,21 @@ struct ContentView: View {
         }
     }
 
+    /// Size the window to the current surface's width (Home vs. project detail),
+    /// keeping the window's horizontal center fixed and clamping to the screen.
+    private func applyWindowWidth(_ window: NSWindow, animated: Bool) {
+        let target = model.opened == nil ? WindowLayout.home : WindowLayout.detail
+        var f = window.frame
+        guard abs(f.size.width - target) > 0.5 else { return }
+        f.origin.x -= (target - f.size.width) / 2 // preserve center
+        f.size.width = target
+        if let vis = window.screen?.visibleFrame {
+            if f.size.width > vis.size.width { f.size.width = vis.size.width }
+            f.origin.x = min(max(f.origin.x, vis.minX), vis.maxX - f.size.width)
+        }
+        window.setFrame(f, display: true, animate: animated)
+    }
+
     /// Open the annotation editor for a step (loads its raw screenshot). If the
     /// screenshot can't be loaded, tell the user instead of silently no-op'ing.
     private func openEditor(_ step: ProjectStep, in projectDir: String) {
@@ -195,5 +232,19 @@ struct ContentView: View {
         parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         guard let date = parser.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) else { return nil }
         return date.formatted(date: .abbreviated, time: .omitted)
+    }
+}
+
+/// Resolves the `NSWindow` hosting this SwiftUI view so it can be sized
+/// programmatically. The callback is idempotent (the caller guards to run once).
+private struct WindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow) -> Void
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async { if let w = v.window { onResolve(w) } }
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { if let w = nsView.window { onResolve(w) } }
     }
 }
