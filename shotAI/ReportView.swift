@@ -32,6 +32,7 @@ struct ReportView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
+                if model.canUndoMerge { undoMergeBanner }
                 intro
                 ForEach(Array(steps.enumerated()), id: \.element.id) { pair in
                     InsertZone { choice in handleInsert(choice, at: pair.offset) }
@@ -112,6 +113,20 @@ struct ReportView: View {
             guard let data = try? Data(contentsOf: url) else { return }
             Task { await model.importImageStep(data: data, atIndex: index) }
         }
+    }
+
+    /// One-tap undo shown right after a merge (until the next edit).
+    private var undoMergeBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.uturn.backward").foregroundStyle(Palette.ink2)
+            Text("Steps merged.").font(.callout).foregroundStyle(Palette.ink2)
+            Spacer(minLength: 8)
+            Button("Undo merge") { Task { await model.undoLastMerge() } }
+        }
+        .padding(10)
+        .background(Palette.surface2)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.hair))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private var header: some View {

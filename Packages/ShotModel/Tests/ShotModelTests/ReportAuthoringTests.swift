@@ -123,4 +123,17 @@ import Testing
         #expect(try read().steps.count == 1) // unchanged
         cleanup()
     }
+
+    @Test func mergeThenRestoreRoundTrips() async throws {
+        try await store.addStep(at: projectDir, ProjectStep(id: "s2", order: 0, screenshot: "shots/x.png", trigger: .click))
+        let before = try read().steps.map(\.id)          // [s1, s2]
+        let dropped = try read().steps[0]                // s1
+        let keptPre = try read().steps[1]                // s2 (pre-merge)
+        _ = try await store.mergeSteps(at: projectDir, keepId: "s2", dropId: "s1", patch: StepPatch(), flattenedPng: nil)
+        #expect(try read().steps.map(\.id) == ["s2"])    // merged down
+        _ = try await store.restoreMerge(at: projectDir, keptPre: keptPre, dropped: dropped, dropIndex: 0, keptPng: nil)
+        #expect(try read().steps.map(\.id) == before)    // both back, original order
+        #expect(try read().steps.map(\.order) == [1, 2])
+        cleanup()
+    }
 }

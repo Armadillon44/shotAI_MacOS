@@ -478,6 +478,34 @@ public actor ProjectStore {
         return manifest
     }
 
+    /// Undo a merge: restore the kept step to its pre-merge state, re-insert the
+    /// dropped step at `dropIndex`, and (if given) rewrite the kept step's render
+    /// — atomically. The dropped step's screenshot file survived the merge (which
+    /// only removed it from the manifest), so re-inserting it restores the image.
+    @discardableResult
+    public func restoreMerge(
+        at projectPath: String, keptPre: ProjectStep, dropped: ProjectStep, dropIndex: Int, keptPng: Data?
+    ) throws -> ProjectManifest {
+        let resolved = try resolveKnownProject(projectPath)
+        var manifest = try readManifest(at: resolved)
+        guard let ki = manifest.steps.firstIndex(where: { $0.id == keptPre.id }) else {
+            throw StoreError.stepNotFound(keptPre.id)
+        }
+        var kept = keptPre
+        if let png = keptPng, !png.isEmpty {
+            // The merge overwrote the kept step's render; rewrite its pre-merge one.
+            try writeStepRender(resolved: resolved, step: &kept, id: kept.id, png: png)
+        }
+        manifest.steps[ki] = kept
+        let i = max(0, min(dropIndex, manifest.steps.count))
+        manifest.steps.insert(dropped, at: i)
+        Self.renumber(&manifest.steps)
+        manifest.updatedAt = ProjectJSON.isoNow()
+        try writeManifest(manifest, at: resolved)
+        Log.store.notice("restoreMerge: restored kept=[\(keptPre.id, privacy: .public)], re-inserted dropped=[\(dropped.id, privacy: .public)] at \(i, privacy: .public)")
+        return manifest
+    }
+
     /// Delete a project: remove its folder (originals included) and drop it
     /// from recents. Confined to a known project. A folder already gone from
     /// disk (moved/cloud-synced away) is tolerated so recents is still pruned
