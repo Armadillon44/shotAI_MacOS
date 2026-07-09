@@ -285,9 +285,10 @@ import ShotModel
         await #expect(throws: CaptureEngine.EngineError.recordingInProgressOtherProject) {
             try await h.engine.start(projectPath: other, attachHook: false)
         }
-        // Single-shot refuses while ANY session exists.
+        // An immediate capture refuses while ANY session exists.
         await #expect(throws: CaptureEngine.EngineError.recordingInProgress) {
-            try await h.engine.captureSingle(projectPath: h.projectDir, insertAt: 0)
+            try await h.engine.captureImmediate(
+                projectPath: h.projectDir, insertAt: 0, target: CaptureTarget(mode: .screen))
         }
         _ = await h.engine.stop()
         h.cleanup()
@@ -348,58 +349,6 @@ import ShotModel
         let (_, projectDeleted) = await h.engine.discard()
         #expect(projectDeleted)
         #expect(!FileManager.default.fileExists(atPath: created.path))
-        h.cleanup()
-    }
-
-    @Test func singleShotFiresOnceInsertsAndAutoStops() async throws {
-        let h = try EngineHarness()
-        for id in ["a", "b"] {
-            try await h.store.addStep(
-                at: h.projectDir, ProjectStep(id: id, order: 0, screenshot: "", trigger: .hotkey))
-        }
-        try await h.engine.captureSingle(projectPath: h.projectDir, insertAt: 1)
-        #expect(!h.triggers.lastAttachHadHotkey) // hotkey NOT registered
-        // A pill click must not consume the armed shot.
-        h.ownWindows.ownFrames = [CGRect(x: 0, y: 0, width: 100, height: 40)]
-        await h.tap(CGPoint(x: 50, y: 20), .left)
-        #expect(try h.readSteps().count == 2)
-        // The real click fires once and auto-stops.
-        await h.tap(CGPoint(x: 500, y: 300), .left)
-        _ = await eventually { await h.engine.state().status == .idle }
-        let steps = try h.readSteps()
-        #expect(steps.count == 3)
-        #expect(steps[1].trigger == .click) // inserted at index 1
-        #expect(steps.map(\.order) == [1, 2, 3])
-        #expect(h.triggers.detachCount >= 1)
-        h.cleanup()
-    }
-
-    @Test func singleShotSurvivesANonCapturingClick() async throws {
-        let h = try EngineHarness()
-        for id in ["a", "b"] {
-            try await h.store.addStep(
-                at: h.projectDir, ProjectStep(id: id, order: 0, screenshot: "", trigger: .hotkey))
-        }
-        try await h.engine.captureSingle(projectPath: h.projectDir, insertAt: 1)
-        // Pill shows 0 captured this session, not the project's running total.
-        #expect(await h.engine.state().stepCount == 0)
-
-        // A click that passes the mousedown own-window gate but yields no step
-        // (here: frontmost is our own app, e.g. a window-activation click) must
-        // NOT consume the armed shot — the session stays live, nothing inserted.
-        h.ownWindows.frontmostIsOwn = true
-        await h.tap(CGPoint(x: 500, y: 300), .left)
-        #expect(await h.engine.state().status == .recording) // still armed
-        #expect(try h.readSteps().count == 2)                // nothing inserted
-        #expect(await h.engine.state().stepCount == 0)
-
-        // The next real click captures once and auto-stops.
-        h.ownWindows.frontmostIsOwn = false
-        await h.tap(CGPoint(x: 500, y: 300), .left)
-        _ = await eventually { await h.engine.state().status == .idle }
-        let steps = try h.readSteps()
-        #expect(steps.count == 3)
-        #expect(steps[1].trigger == .click) // inserted at index 1
         h.cleanup()
     }
 
