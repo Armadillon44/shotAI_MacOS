@@ -38,11 +38,11 @@ struct EditorOverlay: View {
                 canvas
             }
         }
-        // Fill the window's CONTENT area (below the title bar). Extending under
-        // the title bar collided the editor toolbar with the window's native
-        // toolbar; only bleed to the sides/bottom.
+        // Fill the ENTIRE window (ContentView makes the title bar transparent +
+        // full-size while editing), so there's no empty title-bar band above the
+        // top bar. The top bar itself insets to clear the traffic-light buttons.
         .background(.ultraThickMaterial)
-        .ignoresSafeArea(edges: [.horizontal, .bottom])
+        .ignoresSafeArea()
         .alert("Couldn't save this step", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }
@@ -113,7 +113,11 @@ struct EditorOverlay: View {
             .buttonStyle(.borderedProminent)
             .disabled(model.saving || model.scanning)
         }
-        .padding(12)
+        .padding(.vertical, 12)
+        .padding(.trailing, 12)
+        // Clear the window's traffic-light buttons (top-left) — the editor fills
+        // under the transparent title bar while open.
+        .padding(.leading, 78)
     }
 
     /// Controls contextual to the active tool / selection: color + line width for

@@ -77,6 +77,22 @@ struct ContentView: View {
         // Hide the window's Record/Permissions/… toolbar while the editor
         // overlay is up, so its controls can't sit behind the editor's own bar.
         .toolbar(editor == nil ? .automatic : .hidden, for: .windowToolbar)
+        // While editing, let the editor fill the WHOLE window (under a transparent
+        // title bar) so there's no empty title-bar band above its top bar. The
+        // editor's top bar leaves room for the traffic-light buttons. Restored on
+        // close so Home/report keep the normal titled chrome + toolbar.
+        .onChange(of: editor != nil) { _, editing in
+            guard let window else { return }
+            if editing {
+                window.titlebarAppearsTransparent = true
+                window.titleVisibility = .hidden
+                window.styleMask.insert(.fullSizeContentView)
+            } else {
+                window.titlebarAppearsTransparent = false
+                window.titleVisibility = .visible
+                window.styleMask.remove(.fullSizeContentView)
+            }
+        }
         .toolbar {
             if model.opened != nil {
                 ToolbarItem(placement: .navigation) {
