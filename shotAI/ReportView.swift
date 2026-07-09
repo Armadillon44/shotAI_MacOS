@@ -638,12 +638,15 @@ extension Color {
 /// unlike drop-target callbacks, which don't report continuous position) and
 /// nudges the clip view when the pointer is inside a hot band at either edge.
 @MainActor private final class AutoScroller {
-    weak var scrollView: NSScrollView? {
+    // Strong: owned via ReportView's @State and released when the report goes
+    // away. A weak ref could clear unexpectedly and strand auto-scroll.
+    var scrollView: NSScrollView? {
         didSet { if scrollView != nil { Log.ui.notice("auto-scroll: scroll view resolved") } }
     }
     private var timer: DispatchSourceTimer?
     private var hoverCount = 0
     private var loggedTick = false
+    private var loggedScroll = false
 
     /// A step-drag entered (+1) or left (-1) a report drop target. The timer runs
     /// while at least one drop target is being hovered (i.e. a drag is active).
@@ -667,6 +670,7 @@ extension Color {
     private func start() {
         guard timer == nil else { return }
         loggedTick = false
+        loggedScroll = false
         // GCD timer on the main queue: unlike a run-loop Timer it isn't gated by
         // the run-loop mode, so it fires during the drag's event-tracking loop.
         let t = DispatchSource.makeTimerSource(queue: .main)
@@ -703,25 +707,45 @@ extension Color {
         }
         guard dy != 0 else { return }
         let clip = sv.contentView
-        let maxY = max(0, (sv.documentView?.frame.height ?? 0) - clip.bounds.height)
+        let docH = sv.documentView?.frame.height ?? 0
+        let clipH = clip.bounds.height
+        let maxY = max(0, docH - clipH)
+        let oldY = clip.bounds.origin.y
+        let newY = min(max(0, oldY + dy), maxY)
+        if !loggedScroll {
+            loggedScroll = true
+            Log.ui.notice("auto-scroll: apply oldY=\(Int(oldY), privacy: .public) newY=\(Int(newY), privacy: .public) docH=\(Int(docH), privacy: .public) clipH=\(Int(clipH), privacy: .public)")
+        }
+        guard newY != oldY else { return }
         var origin = clip.bounds.origin
-        origin.y = min(max(0, origin.y + dy), maxY)
+        origin.y = newY
         clip.scroll(to: origin)
         sv.reflectScrolledClipView(clip)
     }
 }
 
 /// Resolves the enclosing `NSScrollView` of the SwiftUI ScrollView so it can be
-/// auto-scrolled programmatically during a drag. Falls back to a window search
-/// if `enclosingScrollView` isn't wired up yet.
+/// auto-scrolled programmatically during a drag. RETRIES until found — on the
+/// first render the view may not be inside the scroll view / window yet, and if
+/// that single attempt misses, auto-scroll silently never works (a race that
+/// made it work only intermittently). Falls back to a window search.
 private struct ScrollProbe: NSViewRepresentable {
     let onFound: (NSScrollView) -> Void
-    func makeNSView(context: Context) -> NSView { let v = NSView(); resolve(v); return v }
-    func updateNSView(_ nsView: NSView, context: Context) { resolve(nsView) }
-    private func resolve(_ v: NSView) {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    final class Coordinator { var found = false }
+
+    func makeNSView(context: Context) -> NSView { let v = NSView(); attempt(v, context.coordinator, 0); return v }
+    func updateNSView(_ nsView: NSView, context: Context) { attempt(nsView, context.coordinator, 0) }
+
+    private func attempt(_ v: NSView, _ coord: Coordinator, _ tries: Int) {
+        guard !coord.found else { return }
         DispatchQueue.main.async {
+            if coord.found { return }
             if let sv = v.enclosingScrollView ?? (v.window?.contentView).flatMap(firstScrollView(in:)) {
+                coord.found = true
                 onFound(sv)
+            } else if tries < 30 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { attempt(v, coord, tries + 1) }
             }
         }
     }
