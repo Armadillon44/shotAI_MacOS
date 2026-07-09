@@ -241,4 +241,23 @@ final class AppModel {
             Log.store.error("moveStep(toPosition) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
     }
+
+    /// Drag-and-drop reorder: move `draggedId` to just before `targetId`
+    /// (any step kind — callouts included). `targetId == nil` moves it to the end.
+    func dropStep(_ draggedId: String, before targetId: String?) async {
+        guard let opened, draggedId != targetId else { return }
+        var order = opened.manifest.steps.map(\.id)
+        guard let from = order.firstIndex(of: draggedId) else { return }
+        order.remove(at: from)
+        if let targetId, let ti = order.firstIndex(of: targetId) {
+            order.insert(draggedId, at: ti) // before the target (uses its post-removal index)
+        } else {
+            order.append(draggedId)
+        }
+        do { try await store.reorderSteps(at: opened.dir, orderedIds: order); await afterEdit() }
+        catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("dropStep failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
 }
