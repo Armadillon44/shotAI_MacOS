@@ -23,7 +23,7 @@ final class EditorModel {
 
     var annotations: [Annotation]
     var crop: Rect?
-    var tool: Tool = .redact
+    var tool: Tool = .select
     var redactMode: BlurAnnotation.Mode = .pixelate
     var redactBlock: Double = AnnotationStyle.defaultBlockSize
     /// Draw color for NEW shapes (box/arrow) and applied to the colorable

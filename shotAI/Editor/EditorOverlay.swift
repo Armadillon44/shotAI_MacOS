@@ -4,9 +4,9 @@ import ShotModel
 import SwiftUI
 
 /// Full-window annotation editor. Presented as an in-window overlay (not a
-/// sheet). Tools: Select (move/resize/delete any shape), Box, Arrow, Redact
-/// (drag to obscure), Crop. A contextual properties bar exposes color + stroke
-/// width for the active tool / selection. Save re-flattens from the raw
+/// sheet). Windows-style layout: a vertical TOOL RAIL on the left (Select · Box
+/// · Arrow · Redact · Crop), a top bar with the contextual properties + Save /
+/// Cancel, and the canvas filling the rest. Save re-flattens from the raw
 /// screenshot with redaction baked into the pixels.
 struct EditorOverlay: View {
     @State var model: EditorModel
@@ -15,11 +15,12 @@ struct EditorOverlay: View {
 
     // Drag state (image-px space).
     private struct Drag {
-        enum Mode { case createRect, createArrow, createRedact, createCrop, move, resize, none }
+        enum Mode { case createRect, createArrow, createRedact, createCrop, move, resize, moveCrop, resizeCrop, none }
         var mode: Mode
         var startImg: CGPoint
-        var origRect: CGRect          // selection bounds at drag start (move/resize)
-        var original: Annotation?     // selection snapshot, for arrow scaling
+        var origRect: CGRect              // selection/crop bounds at drag start
+        var original: Annotation? = nil   // selection snapshot, for arrow scaling
+        var fixedCorner: CGPoint? = nil   // resizeCrop: the corner held fixed
     }
     @State private var drag: Drag?
     @State private var draftRect: CGRect?               // box/redact/crop draft (image px)
@@ -29,9 +30,13 @@ struct EditorOverlay: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            toolbar
+            topBar
             Divider()
-            canvas
+            HStack(spacing: 0) {
+                toolRail
+                Divider()
+                canvas
+            }
         }
         // Fill the window's CONTENT area (below the title bar). Extending under
         // the title bar collided the editor toolbar with the window's native
@@ -48,34 +53,44 @@ struct EditorOverlay: View {
         }
     }
 
-    // MARK: - Toolbar
+    // MARK: - Tool rail (left)
 
-    private var toolbar: some View {
+    private var toolRail: some View {
+        VStack(spacing: 6) {
+            toolButton(.select, "cursorarrow", "Select")
+            toolButton(.box, "rectangle", "Box")
+            toolButton(.arrow, "arrow.up.right", "Arrow")
+            toolButton(.redact, "eye.slash", "Redact")
+            toolButton(.crop, "crop", "Crop")
+            Spacer()
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 8)
+        .frame(width: 56)
+        .background(.thinMaterial)
+    }
+
+    private func toolButton(_ tool: EditorModel.Tool, _ icon: String, _ label: String) -> some View {
+        Button { model.tool = tool } label: {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .frame(width: 36, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(model.tool == tool ? accent.opacity(0.18) : Color.clear)
+        .foregroundStyle(model.tool == tool ? accent : Color.primary)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .help(label)
+    }
+
+    // MARK: - Top bar (properties + actions)
+
+    private var topBar: some View {
         HStack(spacing: 12) {
-            Text(model.step.caption.isEmpty ? "Edit step" : model.step.caption)
-                .font(.headline).lineLimit(1)
-
-            Picker("Tool", selection: $model.tool) {
-                Image(systemName: "cursorarrow").tag(EditorModel.Tool.select)
-                Image(systemName: "rectangle").tag(EditorModel.Tool.box)
-                Image(systemName: "arrow.up.right").tag(EditorModel.Tool.arrow)
-                Image(systemName: "eye.slash").tag(EditorModel.Tool.redact)
-                Image(systemName: "crop").tag(EditorModel.Tool.crop)
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
-            .help("Select · Box · Arrow · Redact · Crop")
-
             propertiesBar
 
-            Button {
-                Task { await model.autoRedact() }
-            } label: {
-                if model.scanning { ProgressView().controlSize(.small) }
-                else { Label("Auto-redact", systemImage: "sparkles") }
-            }
-            .disabled(model.scanning || model.saving)
-            .help("Scan for SSNs, card numbers, and API keys and redact them")
+            Spacer()
 
             if model.selectedID != nil {
                 Button(role: .destructive) { model.deleteSelected() } label: {
@@ -85,8 +100,6 @@ struct EditorOverlay: View {
             if model.crop != nil {
                 Button("Clear crop") { model.crop = nil }
             }
-
-            Spacer()
 
             Button("Cancel", role: .cancel) { onCancel() }
                 .keyboardShortcut(.cancelAction)
@@ -98,16 +111,13 @@ struct EditorOverlay: View {
             }
             .keyboardShortcut(.defaultAction)
             .buttonStyle(.borderedProminent)
-            // Block save mid-scan — it would bake without the OCR redactions and
-            // then lose them when the scan appends after the flatten.
             .disabled(model.saving || model.scanning)
         }
         .padding(12)
     }
 
-    /// Controls contextual to the active tool / selection, matching the Windows
-    /// editor's properties bar (color + stroke width for shapes; blur mode for
-    /// redactions).
+    /// Controls contextual to the active tool / selection: color + line width for
+    /// shapes, blur mode for redactions.
     @ViewBuilder private var propertiesBar: some View {
         if showsShapeStyle {
             ColorPicker("", selection: strokeColorBinding, supportsOpacity: false)
@@ -115,7 +125,7 @@ struct EditorOverlay: View {
                 .help("Color")
             HStack(spacing: 4) {
                 Image(systemName: "lineweight").foregroundStyle(.secondary)
-                Slider(value: strokeWidthBinding, in: 1 ... 80).frame(width: 110)
+                Slider(value: strokeWidthBinding, in: 1 ... 40).frame(width: 120)
             }
             .help("Line width")
         }
@@ -129,7 +139,7 @@ struct EditorOverlay: View {
         }
     }
 
-    /// Show the color/width controls when a shape tool is active or a colorable
+    /// Show color/width controls when a shape tool is active or a colorable
     /// (box/arrow) shape is selected.
     private var showsShapeStyle: Bool {
         model.tool == .box || model.tool == .arrow || model.selectedIsColorable
@@ -147,7 +157,7 @@ struct EditorOverlay: View {
 
     private var strokeWidthBinding: Binding<Double> {
         Binding(
-            get: { model.strokeWidth },
+            get: { min(model.strokeWidth, 40) },
             set: { w in
                 model.strokeWidth = w
                 model.setSelectedStrokeWidth(w)
@@ -203,17 +213,20 @@ struct EditorOverlay: View {
         CGPoint(x: f.ox + p.x * f.s, y: f.oy + p.y * f.s)
     }
 
+    private func cropCGRect() -> CGRect? {
+        model.crop.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+    }
+
     private func draw(_ ctx: GraphicsContext, _ f: Fit) {
         let imageRect = CGRect(x: f.ox, y: f.oy, width: f.dw, height: f.dh)
         ctx.draw(ctx.resolve(Image(decorative: model.rawImage, scale: 1)), in: imageRect)
 
-        // Vector annotation previews (rect/arrow/stamp/text/marker). Rect/arrow
-        // are now authorable+editable; stamp/text/marker are still preview-only
-        // (E2). Baked on save.
+        // Vector annotation previews (rect/arrow authorable; stamp/text/marker
+        // still preview-only until E2). Baked on save.
         for a in model.annotations { drawAnnotationPreview(ctx, a, f) }
 
-        // Redaction previews (blur) — solid gray placeholder; the real mosaic is
-        // baked at flatten. Unselected ones get a faint dashed border.
+        // Redaction previews (blur) — gray placeholder; the real mosaic is baked
+        // at flatten. Unselected ones get a faint dashed border.
         for a in model.annotations {
             guard case .blur(let b) = a else { continue }
             let r = toDisplay(CGRect(x: b.x, y: b.y, width: b.width, height: b.height), f)
@@ -224,19 +237,16 @@ struct EditorOverlay: View {
             }
         }
 
-        // Selection chrome (Select tool only, matching Windows): accent bounding
-        // box + a bottom-right resize handle around whatever editable shape is
-        // selected (rect/arrow/blur).
+        // Selection chrome (Select tool only): accent bounding box + bottom-right
+        // resize handle around the selected editable shape (rect/arrow/blur).
         if model.tool == .select, model.selectedID != nil, let b = model.boundsOfSelected() {
             let r = toDisplay(b, f)
             ctx.stroke(Path(r), with: .color(accent), lineWidth: 2)
-            let h = CGRect(x: r.maxX - 6, y: r.maxY - 6, width: 12, height: 12)
-            ctx.fill(Path(roundedRect: h, cornerRadius: 2), with: .color(accent))
-            ctx.stroke(Path(roundedRect: h, cornerRadius: 2), with: .color(.white), lineWidth: 1)
+            handle(ctx, at: CGPoint(x: r.maxX, y: r.maxY))
         }
 
-        // Click-register marker preview — baked on save, so show it here too
-        // (WYSIWYG). Drawn before the crop dim so a crop that excludes it dims it.
+        // Click-register marker preview — baked on save (WYSIWYG). Drawn before
+        // the crop dim so a crop that excludes it dims it.
         if let click = model.step.click {
             let radius = (click.radius ?? Double(AnnotationStyle.clickMarkerRadius(
                 width: model.imageSize.width, height: model.imageSize.height))) * f.s
@@ -247,13 +257,20 @@ struct EditorOverlay: View {
             ctx.stroke(Path(ellipseIn: box), with: .color(color), lineWidth: max(2, radius * 0.22))
         }
 
-        // Crop: dim everything outside the crop rect.
-        if let crop = model.crop {
-            let cr = toDisplay(CGRect(x: crop.x, y: crop.y, width: crop.width, height: crop.height), f)
+        // Crop: dim everything outside the crop rect; show corner handles in the
+        // Crop tool so it can be resized after drawing.
+        if let crop = cropCGRect() {
+            let cr = toDisplay(crop, f)
             var outside = Path(imageRect)
             outside.addRect(cr)
             ctx.fill(outside, with: .color(.black.opacity(0.5)), style: FillStyle(eoFill: true))
             ctx.stroke(Path(cr), with: .color(accent), lineWidth: 2)
+            if model.tool == .crop {
+                for c in [CGPoint(x: cr.minX, y: cr.minY), CGPoint(x: cr.maxX, y: cr.minY),
+                          CGPoint(x: cr.minX, y: cr.maxY), CGPoint(x: cr.maxX, y: cr.maxY)] {
+                    handle(ctx, at: c)
+                }
+            }
         }
 
         // Draft while dragging a new shape.
@@ -265,6 +282,12 @@ struct EditorOverlay: View {
             drawArrow(ctx, imgA: a, imgB: b, imgStroke: model.strokeWidth,
                       color: Color(hex: model.strokeColor), f)
         }
+    }
+
+    private func handle(_ ctx: GraphicsContext, at p: CGPoint) {
+        let h = CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)
+        ctx.fill(Path(roundedRect: h, cornerRadius: 2), with: .color(accent))
+        ctx.stroke(Path(roundedRect: h, cornerRadius: 2), with: .color(.white), lineWidth: 1)
     }
 
     private func drawAnnotationPreview(_ ctx: GraphicsContext, _ a: Annotation, _ f: Fit) {
@@ -302,7 +325,7 @@ struct EditorOverlay: View {
     }
 
     /// Shaft + filled/stroked arrowhead, mirroring Flatten's baked geometry
-    /// (pointer length/width = max(12, strokeWidth*3), butt cap, miter head).
+    /// (butt cap, head = max(12, strokeWidth*3), miter join) so preview == bake.
     private func drawArrow(_ ctx: GraphicsContext, imgA: CGPoint, imgB: CGPoint,
                            imgStroke: Double, color: Color, _ f: Fit) {
         let a = toDisplay(imgA, f), b = toDisplay(imgB, f)
@@ -346,6 +369,14 @@ struct EditorOverlay: View {
                     if let orig = d.original {
                         model.resizeSelected(orig, to: normalized(CGPoint(x: d.origRect.minX, y: d.origRect.minY), curImg))
                     }
+                case .moveCrop:
+                    let dx = curImg.x - d.startImg.x, dy = curImg.y - d.startImg.y
+                    model.setCrop(d.origRect.offsetBy(dx: dx, dy: dy))
+                case .resizeCrop:
+                    if let fc = d.fixedCorner {
+                        let r = normalized(fc, curImg)
+                        if r.width >= 1, r.height >= 1 { model.setCrop(r) }
+                    }
                 case .none:
                     break
                 }
@@ -374,16 +405,30 @@ struct EditorOverlay: View {
     private func beginDrag(startImg: CGPoint, f: Fit) -> Drag {
         switch model.tool {
         case .box:
-            return Drag(mode: .createRect, startImg: startImg, origRect: .zero, original: nil)
+            return Drag(mode: .createRect, startImg: startImg, origRect: .zero)
         case .arrow:
-            return Drag(mode: .createArrow, startImg: startImg, origRect: .zero, original: nil)
+            return Drag(mode: .createArrow, startImg: startImg, origRect: .zero)
         case .redact:
-            return Drag(mode: .createRedact, startImg: startImg, origRect: .zero, original: nil)
+            return Drag(mode: .createRedact, startImg: startImg, origRect: .zero)
         case .crop:
-            return Drag(mode: .createCrop, startImg: startImg, origRect: .zero, original: nil)
+            // Resize (a corner handle) or move (inside) an existing crop; else
+            // draw a new one.
+            if let c = cropCGRect() {
+                let hi = 10 / f.s
+                let corners = [CGPoint(x: c.minX, y: c.minY), CGPoint(x: c.maxX, y: c.minY),
+                               CGPoint(x: c.minX, y: c.maxY), CGPoint(x: c.maxX, y: c.maxY)]
+                if let gi = corners.firstIndex(where: { abs(startImg.x - $0.x) <= hi && abs(startImg.y - $0.y) <= hi }) {
+                    return Drag(mode: .resizeCrop, startImg: startImg, origRect: c,
+                                fixedCorner: corners[3 - gi]) // diagonal opposite stays put
+                }
+                if c.contains(startImg) {
+                    return Drag(mode: .moveCrop, startImg: startImg, origRect: c)
+                }
+            }
+            return Drag(mode: .createCrop, startImg: startImg, origRect: .zero)
         case .select:
             // Resize if the drag started on the selected shape's bottom-right
-            // handle (±~8 pt tolerance so it doesn't hijack nearby empty space).
+            // handle (±~8 pt tolerance).
             if let sel = model.boundsOfSelected() {
                 let handleImg = 8 / f.s
                 let corner = CGPoint(x: sel.maxX, y: sel.maxY)
@@ -391,12 +436,11 @@ struct EditorOverlay: View {
                     return Drag(mode: .resize, startImg: startImg, origRect: sel, original: model.selected)
                 }
             }
-            // Otherwise select the shape under the point and move it.
             model.selectAnnotation(at: startImg)
             if let sel = model.boundsOfSelected() {
                 return Drag(mode: .move, startImg: startImg, origRect: sel, original: model.selected)
             }
-            return Drag(mode: .none, startImg: startImg, origRect: .zero, original: nil)
+            return Drag(mode: .none, startImg: startImg, origRect: .zero)
         }
     }
 
