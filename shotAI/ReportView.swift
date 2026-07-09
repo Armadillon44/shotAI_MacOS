@@ -13,6 +13,7 @@ struct ReportView: View {
     /// Open the annotation editor for a shot step (Phase C).
     var onEdit: (ProjectStep) -> Void = { _ in }
     @Environment(AppModel.self) private var model
+    @Environment(CaptureCoordinator.self) private var capture
     /// True while composing a not-yet-saved overview (an all-empty intro can't
     /// persist — the manifest decoder coerces it to nil — so the placeholder box
     /// is UI-local until the user types something).
@@ -112,6 +113,10 @@ struct ReportView: View {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             guard let data = try? Data(contentsOf: url) else { return }
             Task { await model.importImageStep(data: data, atIndex: index) }
+        case .screenshot:
+            // Arm a single in-place capture: the window hides, the pill shows,
+            // and the next click records one screenshot inserted here.
+            Task { await capture.captureSingle(projectPath: opened.dir, insertAt: index) }
         }
     }
 
@@ -168,7 +173,7 @@ struct ReportView: View {
 /// the accent on hover to signal it's clickable. Clicking opens a menu to insert
 /// a text block or a note/caution/warning callout at this position.
 /// What an insert zone can add at its position.
-private enum InsertChoice { case text, image, callout(CalloutKind) }
+private enum InsertChoice { case text, image, screenshot, callout(CalloutKind) }
 
 private struct InsertZone: View {
     let onInsert: (InsertChoice) -> Void
@@ -183,6 +188,7 @@ private struct InsertZone: View {
             Menu {
                 Button("Text block") { onInsert(.text) }
                 Button("Image…") { onInsert(.image) }
+                Button("Screenshot…") { onInsert(.screenshot) }
                 Divider()
                 Button("Note") { onInsert(.callout(.note)) }
                 Button("Caution") { onInsert(.callout(.caution)) }
