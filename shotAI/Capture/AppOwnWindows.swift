@@ -23,8 +23,17 @@ final class AppOwnWindows: OwnWindowChecking, Sendable {
 
     func frontmostIsOwnApp() async -> Bool {
         await MainActor.run {
-            NSWorkspace.shared.frontmostApplication?.processIdentifier
-                == ProcessInfo.processInfo.processIdentifier
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier
+                == ProcessInfo.processInfo.processIdentifier else { return false }
+            // Being the active app isn't enough. Once recording hides the report
+            // window we STAY the active app with nothing on screen but the
+            // non-activating pill, yet the user's click lands on ANOTHER app —
+            // suppressing it here would eat their first capture (the dead first
+            // click). Only suppress when a real, main-capable window of ours is
+            // actually visible (e.g. the report window itself, or the no-hide
+            // test mode). The pill/overlay are caught geometrically by
+            // pointHitsOwnWindow, so this stays safe.
+            return NSApp.windows.contains { $0.isVisible && $0.canBecomeMain }
         }
     }
 }
