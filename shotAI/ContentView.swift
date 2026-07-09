@@ -57,6 +57,9 @@ struct ContentView: View {
             }
         }
         .navigationTitle(model.opened?.manifest.title ?? "shotAI")
+        // shotAI's brand accent (violet) for selection, controls, and the
+        // editor overlay — propagates down the whole window hierarchy.
+        .tint(Palette.accent)
         // Hide the window's Record/Permissions/… toolbar while the editor
         // overlay is up, so its controls can't sit behind the editor's own bar.
         .toolbar(editor == nil ? .automatic : .hidden, for: .windowToolbar)

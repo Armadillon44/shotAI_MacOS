@@ -155,7 +155,7 @@ struct PillView: View {
         .overlay(alignment: .top) {
             if active {
                 // Accent bar tints red while an error is unacknowledged.
-                Rectangle().fill(Color(hex: showError ? "#ef4444" : "#4f46e5")).frame(height: 2)
+                Rectangle().fill(Color(hex: showError ? "#ef4444" : "#6344f1")).frame(height: 2)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -232,7 +232,7 @@ struct PillView: View {
             } else {
                 pillButton("❚❚ Pause", help: "Pause") { onAction(.pause) }
             }
-            pillButton("■ Stop", help: "Stop & finish", background: Color(hex: "#4f46e5")) {
+            pillButton("■ Stop", help: "Stop & finish", background: Color(hex: "#6344f1")) {
                 onAction(.stop)
             }
             Rectangle()

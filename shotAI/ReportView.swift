@@ -34,7 +34,7 @@ struct ReportView: View {
             .frame(maxWidth: 880)
             .frame(maxWidth: .infinity)
         }
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(Palette.surface)
     }
 
     private var header: some View {
@@ -71,12 +71,12 @@ private struct IntroBox: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color(hex: "#f8f9fc"))
+        .background(Palette.surface2)
         .overlay(alignment: .leading) {
-            Rectangle().fill(Color(hex: "#4f46e5")).frame(width: 4)
+            Rectangle().fill(Palette.accent).frame(width: 4)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.1))
+            RoundedRectangle(cornerRadius: 6).stroke(Palette.hair)
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
@@ -118,11 +118,13 @@ private struct StepRow: View {
                     .clipShape(Circle())
                     .overlay(Circle().stroke(CalloutBox.palette(callout).border))
             } else {
+                // Numbered (screenshot) steps get the solid-violet brand badge;
+                // an un-numbered text step gets a subtle neutral disc.
                 Text(number.map(String.init) ?? "")
                     .font(.system(size: 14, weight: .semibold).monospacedDigit())
                     .frame(width: 32, height: 32)
-                    .background(Color(hex: "#eef2ff"))
-                    .foregroundStyle(Color(hex: "#4f46e5"))
+                    .background(number != nil ? Palette.accent : Palette.hair2)
+                    .foregroundStyle(Palette.onAccent)
                     .clipShape(Circle())
             }
         }
@@ -158,12 +160,12 @@ private struct StepRow: View {
         if !step.note.isEmpty {
             Text(step.note)
                 .font(.system(size: 12.5))
-                .foregroundStyle(Color(hex: "#374151"))
+                .foregroundStyle(Palette.ink2)
         }
         if let window = step.window {
             Text(window.title.isEmpty ? window.app : "\(window.app) — \(window.title)")
                 .font(.caption)
-                .foregroundStyle(Color(hex: "#9097a1"))
+                .foregroundStyle(Palette.ink3)
                 .lineLimit(1)
         }
     }
@@ -174,20 +176,20 @@ private struct CalloutBox: View {
     let step: ProjectStep
     let kind: CalloutKind
 
-    struct Palette {
+    struct Colors {
         let background: Color
         let border: Color
         let text: Color
     }
 
-    static func palette(_ kind: CalloutKind) -> Palette {
+    static func palette(_ kind: CalloutKind) -> Colors {
         switch kind {
         case .note:
-            Palette(background: Color(hex: "#ecfdf5"), border: Color(hex: "#6ee7b7"), text: Color(hex: "#065f46"))
+            Colors(background: Palette.noteBg, border: Palette.noteBd, text: Palette.noteFg)
         case .caution:
-            Palette(background: Color(hex: "#fffbeb"), border: Color(hex: "#fcd34d"), text: Color(hex: "#92400e"))
+            Colors(background: Palette.cautBg, border: Palette.cautBd, text: Palette.cautFg)
         case .warning:
-            Palette(background: Color(hex: "#fef2f2"), border: Color(hex: "#fca5a5"), text: Color(hex: "#991b1b"))
+            Colors(background: Palette.warnBg, border: Palette.warnBd, text: Palette.warnFg)
         }
     }
 
@@ -254,7 +256,7 @@ private struct StepFigure: View {
         .offset(x: v.offsetX, y: v.offsetY)
         .frame(width: v.boxWidth, height: v.boxHeight, alignment: .topLeading)
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.hair))
     }
 
     private func load() {
