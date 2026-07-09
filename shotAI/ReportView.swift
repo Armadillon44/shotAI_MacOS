@@ -1,6 +1,7 @@
 import AppKit
 import ShotModel
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The in-app report. Read the step guide, and (R1) edit its words in place:
 /// captions, instructions/notes, text steps, callouts, and the overview intro
@@ -23,6 +24,9 @@ struct ReportView: View {
     @State private var deleteStepTarget: ProjectStep?
     /// Drives edge auto-scroll while a step is being dragged.
     @State private var autoScroller = AutoScroller()
+    /// Pending "insert image" — the index to insert at while the file importer is up.
+    @State private var imageInsertIndex: Int?
+    @State private var showImageImporter = false
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
@@ -33,7 +37,7 @@ struct ReportView: View {
                 header
                 intro
                 ForEach(Array(steps.enumerated()), id: \.element.id) { pair in
-                    InsertZone { callout in Task { await model.addTextStep(callout: callout, atIndex: pair.offset) } }
+                    InsertZone { choice in handleInsert(choice, at: pair.offset) }
                     StepRow(
                         step: pair.element, number: numbers[pair.element.id], projectDir: opened.dir,
                         focus: $focus, index: pair.offset, total: steps.count, autoScroller: autoScroller,
@@ -44,7 +48,7 @@ struct ReportView: View {
                     Text("No steps yet — record a process, or add a text block below.")
                         .foregroundStyle(Palette.ink3)
                 }
-                InsertZone { callout in Task { await model.addTextStep(callout: callout, atIndex: steps.count) } } // append
+                InsertZone { choice in handleInsert(choice, at: steps.count) } // append
                     .dropDestination(for: String.self) { ids, _ in
                         guard let dragged = ids.first else { return false }
                         autoScroller.reset()
@@ -79,6 +83,23 @@ struct ReportView: View {
             Button("Cancel", role: .cancel) { deleteStepTarget = nil }
         } message: {
             Text("This removes the step and its screenshot. This can't be undone.")
+        }
+        .fileImporter(isPresented: $showImageImporter, allowedContentTypes: [.png, .jpeg]) { result in
+            guard case .success(let url) = result, let index = imageInsertIndex else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else { return }
+            Task { await model.importImageStep(data: data, atIndex: index) }
+        }
+    }
+
+    /// Route an insert-zone choice: text/callout add immediately; image opens the
+    /// file importer, remembering where to insert.
+    private func handleInsert(_ choice: InsertChoice, at index: Int) {
+        switch choice {
+        case .text: Task { await model.addTextStep(atIndex: index) }
+        case .callout(let kind): Task { await model.addTextStep(callout: kind, atIndex: index) }
+        case .image: imageInsertIndex = index; showImageImporter = true
         }
     }
 
@@ -120,9 +141,11 @@ struct ReportView: View {
 /// flanked by hairlines (-----+-----). Faded but visible at rest; brightens to
 /// the accent on hover to signal it's clickable. Clicking opens a menu to insert
 /// a text block or a note/caution/warning callout at this position.
+/// What an insert zone can add at its position.
+private enum InsertChoice { case text, image, callout(CalloutKind) }
+
 private struct InsertZone: View {
-    /// nil = plain text block; otherwise the callout kind.
-    let onInsert: (CalloutKind?) -> Void
+    let onInsert: (InsertChoice) -> Void
     @State private var hovering = false
 
     var body: some View {
@@ -132,11 +155,12 @@ private struct InsertZone: View {
         HStack(spacing: 10) {
             line
             Menu {
-                Button("Text block") { onInsert(nil) }
+                Button("Text block") { onInsert(.text) }
+                Button("Image…") { onInsert(.image) }
                 Divider()
-                Button("Note") { onInsert(.note) }
-                Button("Caution") { onInsert(.caution) }
-                Button("Warning") { onInsert(.warning) }
+                Button("Note") { onInsert(.callout(.note)) }
+                Button("Caution") { onInsert(.callout(.caution)) }
+                Button("Warning") { onInsert(.callout(.warning)) }
             } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 18)) // ~20% larger than before

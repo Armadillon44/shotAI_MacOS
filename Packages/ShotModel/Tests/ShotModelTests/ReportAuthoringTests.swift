@@ -101,4 +101,26 @@ import Testing
         #expect(try read().steps.map(\.id) == [ids[1], ids[0]])
         cleanup()
     }
+
+    @Test func importImageStepWritesFileAndInsertsShotStep() async throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) // PNG signature
+        _ = try await store.importImageStep(at: projectDir, atIndex: 0, imageData: png)
+        let steps = try read().steps
+        #expect(steps.count == 2)
+        #expect(steps[0].kind != .text)                       // a screenshot-kind step
+        #expect(steps[0].screenshot.hasPrefix("shots/import-"))
+        #expect(steps[0].screenshot.hasSuffix(".png"))
+        #expect(FileManager.default.fileExists(atPath: projectDir + "/" + steps[0].screenshot))
+        #expect(steps[1].id == "s1")                          // inserted before the original
+        #expect(steps.map(\.order) == [1, 2])
+        cleanup()
+    }
+
+    @Test func importImageStepRejectsNonImage() async throws {
+        await #expect(throws: ProjectStore.StoreError.notAnImage) {
+            _ = try await store.importImageStep(at: projectDir, atIndex: nil, imageData: Data([0, 1, 2, 3]))
+        }
+        #expect(try read().steps.count == 1) // unchanged
+        cleanup()
+    }
 }

@@ -260,4 +260,14 @@ final class AppModel {
             Log.store.error("dropStep failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
     }
+
+    /// Import an image file as a new step at `atIndex` (nil → append).
+    func importImageStep(data: Data, atIndex: Int?) async {
+        guard let dir = opened?.dir else { return }
+        do { try await store.importImageStep(at: dir, atIndex: atIndex, imageData: data); await afterEdit() }
+        catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("importImageStep failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
 }

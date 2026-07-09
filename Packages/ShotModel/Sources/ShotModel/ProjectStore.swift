@@ -15,6 +15,7 @@ public actor ProjectStore {
         case stepNotFound(String)
         case cannotMergeIntoSelf
         case renderPathNotConfined(String)
+        case notAnImage
 
         public var errorDescription: String? {
             switch self {
@@ -28,6 +29,8 @@ public actor ProjectStore {
                 "Cannot merge a step into itself"
             case .renderPathNotConfined(let id):
                 "Refusing to write render for step \"\(id)\" — path escapes the project folder"
+            case .notAnImage:
+                "That file isn't a PNG or JPEG image."
             }
         }
     }
@@ -341,6 +344,40 @@ public actor ProjectStore {
             m.steps = reordered
             Self.renumber(&m.steps)
             Log.store.notice("reorderSteps: \(reordered.count, privacy: .public) step(s) reordered")
+        }
+    }
+
+    /// PNG / JPEG magic-byte sniff — returns the file extension, or nil if the
+    /// bytes aren't a supported image (defense-in-depth against a mis-typed or
+    /// hostile file, mirroring the Windows importStep validation).
+    private static func imageExtension(_ data: Data) -> String? {
+        let b = [UInt8](data.prefix(4))
+        if b.count >= 4, b[0] == 0x89, b[1] == 0x50, b[2] == 0x4E, b[3] == 0x47 { return "png" }
+        if b.count >= 3, b[0] == 0xFF, b[1] == 0xD8, b[2] == 0xFF { return "jpg" }
+        return nil
+    }
+
+    /// Import a user-supplied image as a new (screenshot-kind) step at `atIndex`
+    /// (clamped; nil → append). The bytes MUST be a real PNG/JPEG (magic-byte
+    /// checked); the file is written into shots/ symlink-confined to the project.
+    @discardableResult
+    public func importImageStep(at projectPath: String, atIndex: Int?, imageData: Data) throws -> ProjectManifest {
+        guard let ext = Self.imageExtension(imageData) else { throw StoreError.notAnImage }
+        let resolved = try resolveKnownProject(projectPath)
+        let id = UUID().uuidString.lowercased()
+        let rel = "shots/import-\(id).\(ext)"
+        guard let abs = confinePathNoSymlinks(dir: resolved, rel: rel) else {
+            Log.store.error("SECURITY path-confinement refused image import rel=[\(rel, privacy: .private)]")
+            throw StoreError.renderPathNotConfined(id)
+        }
+        try fm.createDirectory(atPath: (abs as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try imageData.write(to: URL(fileURLWithPath: abs))
+        let step = ProjectStep(id: id, order: 0, screenshot: rel, trigger: .hotkey)
+        Log.store.notice("importImageStep [step \(id, privacy: .public)] kind=\(ext, privacy: .public) bytes=\(imageData.count, privacy: .public)")
+        return try mutate(at: projectPath) { m in
+            let i = atIndex.map { max(0, min($0, m.steps.count)) } ?? m.steps.count
+            m.steps.insert(step, at: i)
+            Self.renumber(&m.steps)
         }
     }
 
