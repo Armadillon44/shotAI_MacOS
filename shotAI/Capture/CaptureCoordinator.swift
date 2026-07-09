@@ -51,8 +51,10 @@ final class CaptureCoordinator {
         target: CaptureTarget,
         createdThisSession: Bool = false
     ) async -> Bool {
+        Log.capture.notice("record requested — mode \(target.mode.rawValue, privacy: .public)")
         guard CapturePermission.screenRecording.isGranted() else {
             CapturePermission.screenRecording.request()
+            Log.capture.info("Screen Recording not granted — showing permissions wizard")
             showWizard = true
             return false
         }
@@ -63,9 +65,11 @@ final class CaptureCoordinator {
                 target: target,
                 createdThisSession: createdThisSession
             )
+            Log.capture.notice("Recording started — mode \(target.mode.rawValue, privacy: .public)")
             return true
         } catch {
             lastError = error.localizedDescription
+            Log.capture.error("record failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
             return false
         }
     }
@@ -73,18 +77,25 @@ final class CaptureCoordinator {
     /// The area-select flow: hide the requesting window so it isn't covering
     /// the selectable area; restore it even on cancel.
     func selectArea() async -> ShotModel.Rect? {
+        Log.capture.info("selectArea started")
         let main = mainWindow
         main?.orderOut(nil)
         defer {
             main?.makeKeyAndOrderFront(nil)
             NSApp.activate()
         }
-        guard let rect = await areaSelect.selectArea() else { return nil }
+        guard let rect = await areaSelect.selectArea() else {
+            Log.capture.info("selectArea cancelled")
+            return nil
+        }
+        Log.capture.notice("selectArea selected a region")
         return ShotModel.Rect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height)
     }
 
     func listTargets() async -> CaptureTargets {
-        await engine.listTargets()
+        let targets = await engine.listTargets()
+        Log.capture.info("listTargets → \(targets.windows.count, privacy: .public) windows, \(targets.monitors.count, privacy: .public) monitors")
+        return targets
     }
 
     /// Synchronous trigger release for applicationWillTerminate.
@@ -101,6 +112,7 @@ final class CaptureCoordinator {
         case .resume:
             Task { await engine.resume() }
         case .stop:
+            Log.capture.notice("Stop requested")
             Task { await engine.stop() }
         case .discard:
             // Defer so the pill's SwiftUI Button action fully unwinds before
@@ -131,7 +143,10 @@ final class CaptureCoordinator {
         alert.addButton(withTitle: "Cancel")
         alert.window.level = .modalPanel
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        Task { _ = await engine.discard() }
+        Task {
+            let result = await engine.discard()
+            Log.capture.notice("Discarded capture (projectDeleted=\(result.projectDeleted, privacy: .public))")
+        }
     }
 
     // MARK: - Engine events
@@ -149,6 +164,7 @@ final class CaptureCoordinator {
                 onStepAdded?(step)
             case .error(let message):
                 lastError = message
+                Log.capture.error("Capture error: \(message, privacy: .private)")
                 // The main-window alert is invisible while recording (window
                 // ordered out); mirror the error onto the always-visible pill.
                 pill?.update(error: message)

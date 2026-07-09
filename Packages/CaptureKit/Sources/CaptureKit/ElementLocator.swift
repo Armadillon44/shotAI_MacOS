@@ -40,7 +40,7 @@ public final class AXElementLocator: ElementLocating, @unchecked Sendable {
             logDisabledOnce()
             return nil
         }
-        return await withCheckedContinuation { continuation in
+        let result: StepElement? = await withCheckedContinuation { continuation in
             let settled = SettleOnce(continuation: continuation)
             queue.async {
                 let result = Self.query(point: point)
@@ -56,6 +56,16 @@ public final class AXElementLocator: ElementLocating, @unchecked Sendable {
                 settled.resolve(nil)
             }
         }
+        // Degrade paths: nil = query timed out or found nothing (capture falls
+        // back to a window-only caption); available=false = a raw hit element
+        // with no actionable label. Log the outcome (controlType is the Windows
+        // UIA vocabulary — safe to surface; NEVER the element name/text).
+        if result == nil {
+            Log.capture.debug("element-locator: query returned nil (timed out or no element)")
+        } else if let result, !result.available {
+            Log.capture.debug("element-locator: element unavailable (no actionable label) [\(result.controlType ?? "Unknown", privacy: .public)]")
+        }
+        return result
     }
 
     /// First-resolution-wins guard for the timeout race.
@@ -81,7 +91,7 @@ public final class AXElementLocator: ElementLocating, @unchecked Sendable {
         defer { disabledLogged.unlock() }
         if !loggedDisabled {
             loggedDisabled = true
-            NSLog("element-locator: Accessibility not granted — element names disabled")
+            Log.capture.notice("element-locator: Accessibility not granted — element names disabled")
         }
     }
 
