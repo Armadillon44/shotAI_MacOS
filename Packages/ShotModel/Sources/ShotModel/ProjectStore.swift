@@ -259,6 +259,62 @@ public actor ProjectStore {
         }
     }
 
+    // MARK: - Report authoring (text edits — no re-flatten)
+
+    /// Edit a step's text fields (caption / note / heading / body / callout type).
+    /// Only the non-nil arguments are written. These are rendered live in the
+    /// report — NOT baked into the flattened PNG — so this deliberately does NOT
+    /// touch `flattened` / `renderRev` (no re-flatten, no freshness bump).
+    @discardableResult
+    public func editStepText(
+        at projectPath: String, stepId: String,
+        caption: String? = nil, note: String? = nil,
+        heading: String? = nil, body: String? = nil, callout: CalloutKind? = nil
+    ) throws -> ProjectManifest {
+        try mutate(at: projectPath) { m in
+            guard let i = m.steps.firstIndex(where: { $0.id == stepId }) else {
+                throw StoreError.stepNotFound(stepId)
+            }
+            if let caption { m.steps[i].caption = caption }
+            if let note { m.steps[i].note = note }
+            if let heading { m.steps[i].heading = heading }
+            if let body { m.steps[i].body = body }
+            if let callout { m.steps[i].callout = callout }
+        }
+    }
+
+    /// Set the SOP overview preamble (stored even when empty — the editor shows
+    /// an empty, editable box; use `removeIntro` to clear it).
+    @discardableResult
+    public func setIntro(at projectPath: String, heading: String, body: String) throws -> ProjectManifest {
+        try mutate(at: projectPath) { $0.intro = SopIntro(heading: heading, body: body) }
+    }
+
+    /// Remove the SOP overview preamble entirely.
+    @discardableResult
+    public func removeIntro(at projectPath: String) throws -> ProjectManifest {
+        try mutate(at: projectPath) { $0.intro = nil }
+    }
+
+    /// Add a text step (a plain heading/body block, or a note/caution/warning
+    /// callout when `callout` is set) at `atIndex` (clamped; nil → append).
+    @discardableResult
+    public func addTextStep(
+        at projectPath: String, atIndex: Int?,
+        heading: String = "", body: String = "", callout: CalloutKind? = nil
+    ) throws -> ProjectManifest {
+        let step = ProjectStep(
+            id: UUID().uuidString.lowercased(), order: 0, kind: .text,
+            screenshot: "", trigger: .hotkey,
+            heading: heading, body: body, callout: callout
+        )
+        return try mutate(at: projectPath) { m in
+            let i = atIndex.map { max(0, min($0, m.steps.count)) } ?? m.steps.count
+            m.steps.insert(step, at: i)
+            Self.renumber(&m.steps)
+        }
+    }
+
     /// Delete multiple steps by id (e.g. discarding a capture session's
     /// additions): removes them from the manifest, renumbers, and best-effort
     /// deletes each one's screenshot + flattened render from disk. Every
