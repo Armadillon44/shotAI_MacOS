@@ -24,9 +24,6 @@ struct ReportView: View {
     @State private var deleteStepTarget: ProjectStep?
     /// Drives edge auto-scroll while a step is being dragged.
     @State private var autoScroller = AutoScroller()
-    /// Pending "insert image" — the index to insert at while the file importer is up.
-    @State private var imageInsertIndex: Int?
-    @State private var showImageImporter = false
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
@@ -40,7 +37,8 @@ struct ReportView: View {
                     InsertZone { choice in handleInsert(choice, at: pair.offset) }
                     StepRow(
                         step: pair.element, number: numbers[pair.element.id], projectDir: opened.dir,
-                        focus: $focus, index: pair.offset, total: steps.count, autoScroller: autoScroller,
+                        focus: $focus, index: pair.offset, total: steps.count,
+                        canMergeNext: canMergeNext(at: pair.offset), autoScroller: autoScroller,
                         onEdit: onEdit, onRequestDelete: { deleteStepTarget = pair.element }
                     )
                 }
@@ -84,22 +82,35 @@ struct ReportView: View {
         } message: {
             Text("This removes the step and its screenshot. This can't be undone.")
         }
-        .fileImporter(isPresented: $showImageImporter, allowedContentTypes: [.png, .jpeg]) { result in
-            guard case .success(let url) = result, let index = imageInsertIndex else { return }
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else { return }
-            Task { await model.importImageStep(data: data, atIndex: index) }
-        }
     }
 
-    /// Route an insert-zone choice: text/callout add immediately; image opens the
-    /// file importer, remembering where to insert.
+    /// Merge is offered only for a shot step followed by another shot step (the
+    /// click of this step is carried onto the next step's screenshot).
+    private func canMergeNext(at index: Int) -> Bool {
+        guard index + 1 < steps.count else { return false }
+        let cur = steps[index], next = steps[index + 1]
+        return cur.kind != .text && next.kind != .text && !next.screenshot.isEmpty
+    }
+
+    /// Route an insert-zone choice: text/callout add immediately; image opens a
+    /// modal open panel (SwiftUI's .fileImporter is unreliable when triggered
+    /// from inside a Menu action — the menu's event loop swallows it).
     private func handleInsert(_ choice: InsertChoice, at index: Int) {
         switch choice {
         case .text: Task { await model.addTextStep(atIndex: index) }
         case .callout(let kind): Task { await model.addTextStep(callout: kind, atIndex: index) }
-        case .image: imageInsertIndex = index; showImageImporter = true
+        case .image:
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.png, .jpeg]
+            panel.allowsMultipleSelection = false
+            panel.canChooseDirectories = false
+            panel.prompt = "Insert"
+            panel.message = "Choose a PNG or JPEG image to insert as a step."
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else { return }
+            Task { await model.importImageStep(data: data, atIndex: index) }
         }
     }
 
@@ -228,6 +239,7 @@ private struct StepRow: View {
     var focus: FocusState<String?>.Binding
     let index: Int
     let total: Int
+    let canMergeNext: Bool
     let autoScroller: AutoScroller
     let onEdit: (ProjectStep) -> Void
     let onRequestDelete: () -> Void
@@ -275,6 +287,9 @@ private struct StepRow: View {
                 .disabled(index == 0)
             Button("Move down") { Task { await model.moveStep(id: step.id, by: 1) } }
                 .disabled(index >= total - 1)
+            if canMergeNext {
+                Button("Merge into next step") { Task { await model.mergeIntoNext(id: step.id) } }
+            }
             Divider()
             Button("Delete step", role: .destructive) { onRequestDelete() }
         } label: {
