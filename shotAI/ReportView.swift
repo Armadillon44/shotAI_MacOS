@@ -216,7 +216,11 @@ private struct StepRow: View {
                 .fixedSize()
         }
         if let rel = ReportPresentation.displayImagePath(for: step) {
+            // Force a fresh figure (new @State → reload) whenever the render
+            // revision or path changes, so a re-saved redaction refreshes in
+            // place instead of showing the cached image until reopen.
             StepFigure(step: step, projectDir: projectDir, relPath: rel)
+                .id("\(step.id)#\(step.renderRev ?? 0)#\(rel)")
         }
         InlineEditable(text: step.body ?? "", placeholder: "+ Add instructions", multiline: true) { new in
             Task { await model.editStepText(stepId: step.id, body: new) }
