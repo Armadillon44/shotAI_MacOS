@@ -594,13 +594,20 @@ public struct ProjectSummary: Equatable, Sendable {
     public var createdAt: String
     public var updatedAt: String
     public var stepCount: Int
+    /// Whether Claude has written a guide for this project — an SOP intro or any
+    /// AI-inserted step. Drives the "SOP ready" / "Draft" status badge on Home.
+    public var hasSop: Bool
 
-    public init(id: String, title: String, path: String, createdAt: String, updatedAt: String, stepCount: Int) {
+    public init(
+        id: String, title: String, path: String,
+        createdAt: String, updatedAt: String, stepCount: Int, hasSop: Bool = false
+    ) {
         self.id = id
         self.title = title
         self.path = path
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.stepCount = stepCount
+        self.hasSop = hasSop
     }
 }

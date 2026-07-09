@@ -23,37 +23,17 @@ struct ContentView: View {
 
     var body: some View {
         @Bindable var model = model
-        NavigationSplitView {
-            List(model.projects, id: \.path, selection: $model.selectedPath) { project in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(project.title)
-                        .font(.headline)
-                        .lineLimit(2)
-                    Text("\(project.stepCount) step\(project.stepCount == 1 ? "" : "s")\(Self.formatDate(project.updatedAt).map { " · \($0)" } ?? "")")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 4)
-                .tag(project.path)
-            }
-            .navigationSplitViewColumnWidth(min: 220, ideal: 280)
-            .overlay {
-                if model.projects.isEmpty {
-                    ContentUnavailableView(
-                        "No projects",
-                        systemImage: "folder",
-                        description: Text("Projects in \(model.projectsDirDisplay) appear here. Use Open Project… to browse elsewhere.")
-                    )
-                }
-            }
-        } detail: {
+        // Full-window Home ⇄ detail switch (the Windows single-window model),
+        // not a persistent sidebar. Opening a project shows its report; Back
+        // (or closeToHome) returns to the Home card grid.
+        Group {
             if let opened = model.opened {
                 ReportView(opened: opened, onEdit: { step in openEditor(step, in: opened.dir) })
                     .id(opened.dir)
-            } else if let error = model.errorMessage {
-                ContentUnavailableView("Could not open project", systemImage: "exclamationmark.triangle", description: Text(error))
             } else {
-                ContentUnavailableView("Select a project", systemImage: "doc.text.image", description: Text("Pick a project from the list to view its report."))
+                HomeView(capture: capture, onOpen: { path in
+                    Task { await model.open(path: path) }
+                })
             }
         }
         .navigationTitle(model.opened?.manifest.title ?? "shotAI")
@@ -64,14 +44,16 @@ struct ContentView: View {
         // overlay is up, so its controls can't sit behind the editor's own bar.
         .toolbar(editor == nil ? .automatic : .hidden, for: .windowToolbar)
         .toolbar {
-            ToolbarItem {
-                Button("Record", systemImage: "record.circle") {
-                    startRecordFlow()
+            if model.opened != nil {
+                ToolbarItem(placement: .navigation) {
+                    Button("Back", systemImage: "chevron.left") { model.closeToHome() }
+                        .help("Back to all projects")
                 }
-                .disabled(capture.state.status != .idle)
-                .help(model.opened == nil
-                    ? "Create a new project and record steps"
-                    : "Record steps into this project")
+                ToolbarItem {
+                    Button("Record", systemImage: "record.circle") { startRecordFlow() }
+                        .disabled(capture.state.status != .idle)
+                        .help("Record more steps into this project")
+                }
             }
             ToolbarItem {
                 Button("Permissions", systemImage: "lock.shield") {
@@ -154,6 +136,14 @@ struct ContentView: View {
         } message: {
             Text(editorError ?? "")
         }
+        .alert(
+            "Couldn't open project",
+            isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.errorMessage ?? "")
+        }
         .task {
             await model.refresh()
             // Live-refresh the report as steps land; refresh everything when
@@ -172,9 +162,6 @@ struct ContentView: View {
             if !CapturePermission.screenRecording.isGranted() {
                 capture.showWizard = true
             }
-        }
-        .onChange(of: model.selectedPath) {
-            Task { await model.openSelected() }
         }
     }
 
