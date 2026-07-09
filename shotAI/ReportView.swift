@@ -26,14 +26,14 @@ struct ReportView: View {
                 header
                 intro
                 ForEach(Array(steps.enumerated()), id: \.element.id) { pair in
-                    insertZone(at: pair.offset) // insert BEFORE this step
+                    InsertZone { callout in Task { await model.addTextStep(callout: callout, atIndex: pair.offset) } }
                     StepRow(step: pair.element, number: numbers[pair.element.id], projectDir: opened.dir, onEdit: onEdit)
                 }
                 if steps.isEmpty {
                     Text("No steps yet — record a process, or add a text block below.")
                         .foregroundStyle(Palette.ink3)
                 }
-                addStepMenu // append at the end
+                InsertZone { callout in Task { await model.addTextStep(callout: callout, atIndex: steps.count) } } // append
             }
             .padding(24)
             .frame(maxWidth: 880)
@@ -74,42 +74,46 @@ struct ReportView: View {
         }
     }
 
-    private var addStepMenu: some View {
-        Menu {
-            Button("Text block") { Task { await model.addTextStep() } }
-            Divider()
-            Button("Note") { Task { await model.addTextStep(callout: .note) } }
-            Button("Caution") { Task { await model.addTextStep(callout: .caution) } }
-            Button("Warning") { Task { await model.addTextStep(callout: .warning) } }
-        } label: {
-            Label("Add step", systemImage: "plus.circle")
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .padding(.top, 4)
-    }
+}
 
-    /// A subtle "insert here" affordance shown before each step: a hairline with
-    /// a ＋ that inserts a text block or callout at `index`.
-    private func insertZone(at index: Int) -> some View {
+/// An "insert a step here" affordance rendered between steps: a centered ＋
+/// flanked by hairlines (-----+-----). Faded but visible at rest; brightens to
+/// the accent on hover to signal it's clickable. Clicking opens a menu to insert
+/// a text block or a note/caution/warning callout at this position.
+private struct InsertZone: View {
+    /// nil = plain text block; otherwise the callout kind.
+    let onInsert: (CalloutKind?) -> Void
+    @State private var hovering = false
+
+    var body: some View {
         Menu {
-            Button("Text block") { Task { await model.addTextStep(atIndex: index) } }
+            Button("Text block") { onInsert(nil) }
             Divider()
-            Button("Note") { Task { await model.addTextStep(callout: .note, atIndex: index) } }
-            Button("Caution") { Task { await model.addTextStep(callout: .caution, atIndex: index) } }
-            Button("Warning") { Task { await model.addTextStep(callout: .warning, atIndex: index) } }
+            Button("Note") { onInsert(.note) }
+            Button("Caution") { onInsert(.caution) }
+            Button("Warning") { onInsert(.warning) }
         } label: {
-            HStack(spacing: 6) {
-                Rectangle().fill(Palette.hair).frame(height: 1)
-                Image(systemName: "plus.circle").font(.system(size: 13)).foregroundStyle(Palette.ink3)
-                Rectangle().fill(Palette.hair).frame(height: 1)
+            HStack(spacing: 8) {
+                line
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(hovering ? Palette.accent : Palette.ink3)
+                line
             }
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(height: 16)
-        .opacity(0.5)
+        .frame(height: 18)
+        .opacity(hovering ? 1 : 0.35)
+        .onHover { hovering = $0 }
+        .animation(.easeInOut(duration: 0.12), value: hovering)
         .help("Insert a step here")
+    }
+
+    private var line: some View {
+        Rectangle()
+            .fill(hovering ? Palette.accent.opacity(0.55) : Palette.hair)
+            .frame(height: 1)
     }
 }
 
