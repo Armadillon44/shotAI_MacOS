@@ -57,6 +57,7 @@ public actor ProjectStore {
         if settings.recents().contains(where: { lexicallyResolve(absolutize($0)) == resolved }) {
             return resolved
         }
+        Log.store.error("resolveKnownProject denied: path is not a known project [\(projectPath, privacy: .private)]")
         throw StoreError.notAKnownProject(projectPath)
     }
 
@@ -72,6 +73,7 @@ public actor ProjectStore {
     private func readManifest(at projectPath: String) throws -> ProjectManifest {
         let file = (projectPath as NSString).appendingPathComponent(projectManifestFilename)
         guard let data = fm.contents(atPath: file) else {
+            Log.store.error("readManifest: manifest missing/unreadable at [\(projectPath, privacy: .private)]")
             throw StoreError.manifestUnreadable(projectPath)
         }
         do {
@@ -81,6 +83,7 @@ public actor ProjectStore {
             }
             return manifest
         } catch {
+            Log.store.error("readManifest decode failed [\(String(describing: type(of: error)), privacy: .public)] at [\(projectPath, privacy: .private)]: \(error.localizedDescription, privacy: .private)")
             throw StoreError.manifestUnreadable(projectPath)
         }
     }
@@ -97,6 +100,7 @@ public actor ProjectStore {
     private func writeStepRender(resolved: String, step: inout ProjectStep, id: String, png: Data) throws {
         let rel = "export/.render/\(id).png"
         guard let abs = confinePathNoSymlinks(dir: resolved, rel: rel) else {
+            Log.store.error("SECURITY path-confinement refused render write [step \(id, privacy: .public)] rel=[\(rel, privacy: .private)]")
             throw StoreError.renderPathNotConfined(id)
         }
         try fm.createDirectory(atPath: (abs as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
@@ -197,6 +201,7 @@ public actor ProjectStore {
         )
         try writeManifest(manifest, at: dir)
         settings.addRecent(dir)
+        Log.store.notice("createProject: created project [id \(id, privacy: .public)]")
         return summarize(manifest, at: dir)
     }
 
@@ -271,7 +276,8 @@ public actor ProjectStore {
         caption: String? = nil, note: String? = nil,
         heading: String? = nil, body: String? = nil, callout: CalloutKind? = nil
     ) throws -> ProjectManifest {
-        try mutate(at: projectPath) { m in
+        Log.store.info("editStepText [step \(stepId, privacy: .public)]")
+        return try mutate(at: projectPath) { m in
             guard let i = m.steps.firstIndex(where: { $0.id == stepId }) else {
                 throw StoreError.stepNotFound(stepId)
             }
@@ -287,13 +293,15 @@ public actor ProjectStore {
     /// an empty, editable box; use `removeIntro` to clear it).
     @discardableResult
     public func setIntro(at projectPath: String, heading: String, body: String) throws -> ProjectManifest {
-        try mutate(at: projectPath) { $0.intro = SopIntro(heading: heading, body: body) }
+        Log.store.info("setIntro")
+        return try mutate(at: projectPath) { $0.intro = SopIntro(heading: heading, body: body) }
     }
 
     /// Remove the SOP overview preamble entirely.
     @discardableResult
     public func removeIntro(at projectPath: String) throws -> ProjectManifest {
-        try mutate(at: projectPath) { $0.intro = nil }
+        Log.store.info("removeIntro")
+        return try mutate(at: projectPath) { $0.intro = nil }
     }
 
     /// Add a text step (a plain heading/body block, or a note/caution/warning
@@ -308,6 +316,7 @@ public actor ProjectStore {
             screenshot: "", trigger: .hotkey,
             heading: heading, body: body, callout: callout
         )
+        Log.store.info("addTextStep [step \(step.id, privacy: .public)] callout=\(String(describing: callout), privacy: .public)")
         return try mutate(at: projectPath) { m in
             let i = atIndex.map { max(0, min($0, m.steps.count)) } ?? m.steps.count
             m.steps.insert(step, at: i)
@@ -337,10 +346,14 @@ public actor ProjectStore {
                 // Symlink-hardened: a manifest path through a symlinked `shots`
                 // (or any component) would let removeItem delete OUTSIDE the
                 // project — skip it, same as any other confinement failure.
-                guard let abs = confinePathNoSymlinks(dir: resolved, rel: rel) else { continue }
+                guard let abs = confinePathNoSymlinks(dir: resolved, rel: rel) else {
+                    Log.store.error("SECURITY path-confinement refused step-file delete rel=[\(rel, privacy: .private)]")
+                    continue
+                }
                 try? fm.removeItem(atPath: abs)
             }
         }
+        Log.store.notice("deleteSteps: removed \(removed.count, privacy: .public) step(s)")
         return manifest
     }
 
@@ -371,6 +384,7 @@ public actor ProjectStore {
         }
         manifest.updatedAt = ProjectJSON.isoNow()
         try writeManifest(manifest, at: resolved)
+        Log.store.notice("updateStep [step \(stepId, privacy: .public)] freshRender=\(hasFresh, privacy: .public) renderRev=\(manifest.steps[idx].renderRev ?? 0, privacy: .public)")
         return manifest
     }
 
@@ -399,6 +413,7 @@ public actor ProjectStore {
         if let png = flattenedPng, !png.isEmpty {
             try writeStepRender(resolved: resolved, step: &manifest.steps[keepIdx], id: keepId, png: png)
         }
+        Log.store.notice("mergeSteps kept=[\(keepId, privacy: .public)] dropped=[\(dropId, privacy: .public)] freshRender=\(hasFresh, privacy: .public) renderRev=\(manifest.steps[keepIdx].renderRev ?? 0, privacy: .public)")
         manifest.steps.remove(at: dropIdx)
         Self.renumber(&manifest.steps)
         manifest.updatedAt = ProjectJSON.isoNow()
@@ -415,8 +430,10 @@ public actor ProjectStore {
         if fm.fileExists(atPath: resolved) {
             try fm.removeItem(atPath: resolved)
         }
-        let pruned = settings.recents().filter { lexicallyResolve(absolutize($0)) != resolved }
+        let before = settings.recents()
+        let pruned = before.filter { lexicallyResolve(absolutize($0)) != resolved }
         settings.setRecents(pruned)
+        Log.store.notice("deleteProject: removed project, pruned \(before.count - pruned.count, privacy: .public) recent(s)")
     }
 
     /// "Project yyyy/MM/dd HH:mm:ss" (local time) — same default as Windows.

@@ -25,6 +25,7 @@ final class AppModel {
 
     func refresh() async {
         projects = await store.listProjects()
+        Log.store.debug("refresh listed \(self.projects.count, privacy: .public) projects")
         // Keep a live selection when its project vanished from disk.
         if let selectedPath, !projects.contains(where: { $0.path == selectedPath }) {
             self.selectedPath = nil
@@ -43,6 +44,7 @@ final class AppModel {
         } catch {
             opened = nil
             errorMessage = error.localizedDescription
+            Log.store.error("openSelected failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -62,15 +64,18 @@ final class AppModel {
             await refresh()
             selectedPath = summary.path
             opened = try await store.openProject(at: summary.path)
+            Log.store.notice("createAndSelectProject succeeded")
             return summary.path
         } catch {
             errorMessage = error.localizedDescription
+            Log.store.error("createAndSelectProject failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
             return nil
         }
     }
 
     /// Open a project into the detail view (Home → detail navigation).
     func open(path: String) async {
+        Log.ui.info("open(path:) navigating to project detail")
         selectedPath = path
         await openSelected()
     }
@@ -90,8 +95,10 @@ final class AppModel {
             try await store.renameProject(at: path, title: trimmed)
             await refresh()
             if selectedPath == path { await reloadOpened() }
+            Log.store.notice("renameProject succeeded")
         } catch {
             errorMessage = error.localizedDescription
+            Log.store.error("renameProject failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -101,8 +108,10 @@ final class AppModel {
             try await store.deleteProject(at: path)
             if selectedPath == path { closeToHome() }
             await refresh()
+            Log.store.notice("deleteProject succeeded")
         } catch {
             errorMessage = error.localizedDescription
+            Log.store.error("deleteProject failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -123,6 +132,7 @@ final class AppModel {
             opened = openedProject
         } catch {
             errorMessage = "Not a shotAI project: \(url.path) (\(error.localizedDescription))"
+            Log.store.error("openUserPicked failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -137,21 +147,30 @@ final class AppModel {
     func setIntro(heading: String, body: String) async {
         guard let dir = opened?.dir else { return }
         do { try await store.setIntro(at: dir, heading: heading, body: body); await afterEdit() }
-        catch { errorMessage = error.localizedDescription }
+        catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("setIntro failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
     }
 
     /// Remove the overview preamble.
     func removeIntro() async {
         guard let dir = opened?.dir else { return }
         do { try await store.removeIntro(at: dir); await afterEdit() }
-        catch { errorMessage = error.localizedDescription }
+        catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("removeIntro failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
     }
 
     /// Add a text step or note/caution/warning callout (append when atIndex nil).
     func addTextStep(heading: String = "", body: String = "", callout: CalloutKind? = nil, atIndex: Int? = nil) async {
         guard let dir = opened?.dir else { return }
         do { try await store.addTextStep(at: dir, atIndex: atIndex, heading: heading, body: body, callout: callout); await afterEdit() }
-        catch { errorMessage = error.localizedDescription }
+        catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("addTextStep failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
     }
 
     /// Edit a step's text fields (only the non-nil ones are written).
@@ -166,6 +185,9 @@ final class AppModel {
                 heading: heading, body: body, callout: callout
             )
             await afterEdit()
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("editStepText failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
     }
 }

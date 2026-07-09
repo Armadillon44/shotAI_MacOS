@@ -214,6 +214,7 @@ public actor CaptureEngine {
         }
         eventsCont.yield(.recordingChanged(true))
         emitState()
+        log.notice("session started [gen \(self.generation, privacy: .public)] createdThisSession=\(createdThisSession, privacy: .public) mode=\(String(describing: target.mode), privacy: .public) existingSteps=\(existing, privacy: .public)")
         return state()
     }
 
@@ -249,6 +250,7 @@ public actor CaptureEngine {
         }
         eventsCont.yield(.recordingChanged(true))
         emitState()
+        log.notice("single-shot capture armed [gen \(self.generation, privacy: .public)] insertAt=\(at, privacy: .public)")
         return state()
     }
 
@@ -278,6 +280,7 @@ public actor CaptureEngine {
         tearingDown = false
         if wasRecording { eventsCont.yield(.recordingChanged(false)) }
         emitState()
+        log.notice("session stopped wasRecording=\(wasRecording, privacy: .public)")
         return state()
     }
 
@@ -305,7 +308,9 @@ public actor CaptureEngine {
                 }
             } catch {
                 // Soft: discard cleanup failure never throws.
+                log.error("discard cleanup failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
             }
+            log.notice("session discarded projectDeleted=\(projectDeleted, privacy: .public) stepsAddedThisSession=\(s.addedStepIds.count, privacy: .public)")
             eventsCont.yield(.recordingChanged(false))
         }
         emitState()
@@ -419,7 +424,10 @@ public actor CaptureEngine {
         // is ours the call recurses into our in-process SwiftUI accessibility on
         // this background thread, which is main-thread-only → SIGTRAP. So bail
         // here (single-shot arm is not consumed — matching prior behavior).
-        if await ownWindows.pointHitsOwnWindow(point) { return }
+        if await ownWindows.pointHitsOwnWindow(point) {
+            log.debug("own-window click suppressed at mousedown")
+            return
+        }
         guard sessionAlive(gen) else { return }
 
         // Element resolution starts NOW (after the own-window gate), before the
@@ -467,6 +475,7 @@ public actor CaptureEngine {
                 ownerBounds: owner, lastPoint: point, chain: 0)
             menuArm = arm
             startMenuPolling(arm: arm)
+            log.debug("menu armed on right-click chain=\(arm.chain, privacy: .public)")
             var opts = CaptureOptions()
             opts.elementTask = elementTask
             enqueueCapture(trigger: .click, point: point, button: .right, opts: opts)
@@ -507,6 +516,7 @@ public actor CaptureEngine {
             } else {
                 disarmMenu()
             }
+            log.debug("menu selection captured chain=\(chain, privacy: .public) reArmed=\(chain < CaptureConstants.maxMenuChain, privacy: .public)")
             var opts = CaptureOptions()
             opts.menuPopup = true
             opts.menuOwnerBounds = owner
@@ -560,6 +570,7 @@ public actor CaptureEngine {
     }
 
     private func reportCaptureError(_ error: Error) {
+        log.error("capture failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         eventsCont.yield(.error("Capture failed: \(error.localizedDescription)"))
     }
 
@@ -649,8 +660,14 @@ public actor CaptureEngine {
         // OWN-WINDOW EXCLUSION — any signal suppresses the step silently. The
         // geometric test is load-bearing: the non-activating pill never
         // reports as frontmost.
-        if await ownWindows.frontmostIsOwnApp() { return nil }
-        if let point, await ownWindows.pointHitsOwnWindow(point) { return nil }
+        if await ownWindows.frontmostIsOwnApp() {
+            log.debug("step suppressed — frontmost is own app")
+            return nil
+        }
+        if let point, await ownWindows.pointHitsOwnWindow(point) {
+            log.debug("step suppressed — click hits own window")
+            return nil
+        }
 
         // Right-click late owner fill (the focused window at right-click time
         // is the menu owner; it won't be once the menu takes focus).
@@ -672,6 +689,7 @@ public actor CaptureEngine {
             // failure — stay silent (sessionAlive gate).
             if sessionAlive(gen), !lastGrabFailed {
                 lastGrabFailed = true
+                log.error("screenshot grab returned no frame — surfacing capture failure to user")
                 eventsCont.yield(.error("A screenshot could not be captured. If this keeps happening, re-check Screen Recording permission in System Settings."))
             }
             return nil // soft fail: no step
@@ -745,6 +763,7 @@ public actor CaptureEngine {
         // Only record the id against the session it belongs to (defensive: the
         // addStep await is another suspension point).
         if sessionAlive(gen) { session?.addedStepIds.append(step.id) }
+        log.info("step captured [id \(step.id, privacy: .public)] order=\(order, privacy: .public) trigger=\(String(describing: trigger), privacy: .public)")
         eventsCont.yield(.stepAdded(step))
         emitState()
         return step
@@ -773,8 +792,8 @@ public actor CaptureEngine {
         log.debug("""
             grab mode=\(String(describing: mode), privacy: .public) \
             auto=\(String(describing: autoMode), privacy: .public) \
-            active=\(active?.app ?? "nil", privacy: .public)/'\(active?.title ?? "", privacy: .public)' \
-            bundle=\(active?.bundleID ?? "nil", privacy: .public) \
+            active=\(active?.app ?? "nil", privacy: .private)/'\(active?.title ?? "", privacy: .private)' \
+            bundle=\(active?.bundleID ?? "nil", privacy: .private) \
             bounds=\(String(describing: active?.bounds), privacy: .public) \
             click=\(String(describing: point), privacy: .public) \
             displays=\(displays.count, privacy: .public)

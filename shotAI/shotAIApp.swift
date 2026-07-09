@@ -1,3 +1,4 @@
+import AppKit
 import CaptureKit
 import ShotModel
 import SwiftUI
@@ -9,6 +10,7 @@ struct ShotAIApp: App {
     @State private var capture: CaptureCoordinator
 
     init() {
+        Log.bootstrap() // banner + uncaught-exception handler, as early as possible
         let model = AppModel()
         _model = State(initialValue: model)
         let capture = CaptureCoordinator(store: model.store)
@@ -38,6 +40,19 @@ struct ShotAIApp: App {
                 }
                 .keyboardShortcut("q", modifiers: .command)
             }
+            // Troubleshooting: dump this app's recent log to a file + reveal it,
+            // so a user can send it (parity with the Windows log file).
+            CommandGroup(after: .help) {
+                Button("Export shotAI Logs…") {
+                    do {
+                        let url = try Log.exportRecentLog(hours: 24)
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    } catch {
+                        Log.app.error("Log export failed: \(error.localizedDescription, privacy: .public)")
+                        NSSound.beep()
+                    }
+                }
+            }
         }
     }
 }
@@ -55,7 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         .terminateNow
     }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Log.app.notice("Application did finish launching")
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        Log.app.notice("Application will terminate")
         Self.captureCoordinator?.teardownTriggers()
     }
 }

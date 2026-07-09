@@ -41,7 +41,10 @@ final class EditorModel {
               let abs = confinePath(dir: projectDir, rel: step.screenshot),
               let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: abs) as CFURL, nil),
               let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
-        else { return nil }
+        else {
+            Log.editor.error("raw screenshot load failed for step \(step.id, privacy: .public)")
+            return nil
+        }
         self.step = step
         self.projectDir = projectDir
         self.rawImage = cg
@@ -50,6 +53,7 @@ final class EditorModel {
         self.crop = step.crop
         self.store = store
         self.scanner = scanner
+        Log.editor.info("editor opened step \(step.id, privacy: .public) raw=\(cg.width, privacy: .public)x\(cg.height, privacy: .public)")
     }
 
     // MARK: - Redaction editing (the editable subset in C4a)
@@ -151,6 +155,7 @@ final class EditorModel {
         scanning = true
         defer { scanning = false }
         let rects = await scanner.scanForSensitiveRects(rawImage)
+        Log.editor.info("auto-redact OCR scan found \(rects.count, privacy: .public) region(s)")
         for r in rects {
             // SOLID for auto-detected secrets — definitive, matching the Windows
             // app (a mosaic of a short token can be brute-legible; a hard fill
@@ -166,6 +171,8 @@ final class EditorModel {
     func save() async -> Bool {
         saving = true
         defer { saving = false }
+        let stepId = step.id // captured for logging (os.Logger interpolation needs it out of self)
+        Log.editor.notice("save() started for step \(stepId, privacy: .public)")
         // Bake the step's click marker so the report/export/Claude all see the
         // clicked spot and the report won't double-draw its overlay.
         let marker: Flatten.Marker? = step.click.map { click in
@@ -183,13 +190,17 @@ final class EditorModel {
             let png = try await Task.detached(priority: .userInitiated) {
                 try Flatten.toPNG(image: image.value, annotations: anns, crop: cropRect, marker: marker)
             }.value
+            Log.editor.info("flatten produced PNG \(png.count, privacy: .public) bytes for step \(stepId, privacy: .public)")
             var patch = StepPatch()
             patch.annotations = annotations
             patch.crop = .set(crop)
             patch.markerBaked = (marker != nil)
-            _ = try await store.updateStep(at: projectDir, stepId: step.id, patch: patch, flattenedPng: png)
+            let manifest = try await store.updateStep(at: projectDir, stepId: stepId, patch: patch, flattenedPng: png)
+            let newRev = manifest.steps.first { $0.id == stepId }?.renderRev ?? 0
+            Log.editor.notice("flattened render written for step \(stepId, privacy: .public) renderRev=\(newRev, privacy: .public)")
             return true
         } catch {
+            Log.editor.error("save failed for step \(stepId, privacy: .public) [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
             errorMessage = error.localizedDescription
             return false
         }
