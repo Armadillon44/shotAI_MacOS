@@ -58,6 +58,11 @@ struct ContentView: View {
             guard window == nil else { return }
             window = w
             w.minSize = NSSize(width: 680, height: 560)
+            // Don't let macOS restore this window's state on relaunch: we size it
+            // ourselves per surface and always open to Home, so restoration adds
+            // nothing — but after an unclean exit (crash/force-quit) it flashes a
+            // blank placeholder for any transient sheet/overlay that was open.
+            w.isRestorable = false
             applyWindowWidth(w, animated: false)
         })
         .onChange(of: model.opened?.dir) {

@@ -57,6 +57,7 @@ final class CapturePillController {
             defer: false
         )
         panel.title = "shotAI — Capture"
+        panel.isRestorable = false // never resurrect a blank pill on relaunch
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         panel.isFloatingPanel = true
