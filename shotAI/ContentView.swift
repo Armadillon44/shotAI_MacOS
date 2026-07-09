@@ -1,6 +1,7 @@
 import AppKit
 import CaptureKit
 import EditorKit
+import QuartzCore
 import ShotModel
 import SwiftUI
 
@@ -60,7 +61,13 @@ struct ContentView: View {
             applyWindowWidth(w, animated: false)
         })
         .onChange(of: model.opened?.dir) {
-            if let window { applyWindowWidth(window, animated: true) }
+            guard let window else { return }
+            // Defer to the next runloop tick so the resize animation runs AFTER
+            // the Home⇄detail content swap settles. Entering a project happens
+            // async (after an await) so it was already clean; Back is synchronous
+            // and, run inline, would be preempted mid-swap and snap without
+            // animating. Deferring makes both directions animate identically.
+            DispatchQueue.main.async { applyWindowWidth(window, animated: true) }
         }
         // Hide the window's Record/Permissions/… toolbar while the editor
         // overlay is up, so its controls can't sit behind the editor's own bar.
@@ -199,7 +206,17 @@ struct ContentView: View {
             if f.size.width > vis.size.width { f.size.width = vis.size.width }
             f.origin.x = min(max(f.origin.x, vis.minX), vis.maxX - f.size.width)
         }
-        window.setFrame(f, display: true, animate: animated)
+        guard animated else {
+            window.setFrame(f, display: true, animate: false)
+            return
+        }
+        // Explicit animation context → smooth, consistent easing in BOTH
+        // directions (grow on open, shrink on Back).
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.28
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            window.animator().setFrame(f, display: true)
+        }
     }
 
     /// Open the annotation editor for a step (loads its raw screenshot). If the
