@@ -23,6 +23,9 @@ struct ReportView: View {
     @FocusState private var focus: String?
     /// The step pending a delete confirmation, if any.
     @State private var deleteStepTarget: ProjectStep?
+    /// The insert index for a pending in-place screenshot — drives the capture
+    /// mode sheet (auto/window/screen/area) before the pill is armed.
+    @State private var screenshotInsertAt: InsertIndex?
     /// Drives edge auto-scroll while a step is being dragged.
     @State private var autoScroller = AutoScroller()
 
@@ -84,6 +87,13 @@ struct ReportView: View {
         } message: {
             Text("This removes the step and its screenshot. This can't be undone.")
         }
+        .sheet(item: $screenshotInsertAt) { insert in
+            RecordSheet(projectPath: opened.dir, coordinator: capture) { target in
+                // The window hides, the pill shows, and the next real click
+                // records one screenshot inserted at this index.
+                Task { await capture.captureSingle(projectPath: opened.dir, insertAt: insert.value, target: target) }
+            }
+        }
     }
 
     /// Merge is offered only for a shot step followed by another shot step (the
@@ -114,9 +124,9 @@ struct ReportView: View {
             guard let data = try? Data(contentsOf: url) else { return }
             Task { await model.importImageStep(data: data, atIndex: index) }
         case .screenshot:
-            // Arm a single in-place capture: the window hides, the pill shows,
-            // and the next click records one screenshot inserted here.
-            Task { await capture.captureSingle(projectPath: opened.dir, insertAt: index) }
+            // Let the user pick how the shot is framed (auto/window/screen/area)
+            // before arming; the sheet's onChoose arms the single-shot capture.
+            screenshotInsertAt = InsertIndex(value: index)
         }
     }
 
@@ -174,6 +184,14 @@ struct ReportView: View {
 /// a text block or a note/caution/warning callout at this position.
 /// What an insert zone can add at its position.
 private enum InsertChoice { case text, image, screenshot, callout(CalloutKind) }
+
+/// Identifiable wrapper so a manifest insert index can drive a `.sheet(item:)`
+/// (0 is a valid index, so a bare `Int?` can't distinguish "insert at 0" from
+/// "no sheet").
+private struct InsertIndex: Identifiable {
+    let value: Int
+    var id: Int { value }
+}
 
 private struct InsertZone: View {
     let onInsert: (InsertChoice) -> Void

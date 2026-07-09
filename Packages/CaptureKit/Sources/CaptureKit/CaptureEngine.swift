@@ -165,7 +165,12 @@ public actor CaptureEngine {
             status: s.paused ? .paused : .recording,
             projectPath: s.projectPath,
             projectTitle: s.projectTitle,
-            stepCount: s.stepCount
+            // Steps captured in THIS session (0 at the start). `stepCount` is the
+            // filename counter — seeded past existing shots on disk — so it would
+            // report the project's running total (a fresh single-shot pill would
+            // read "4" on a 4-step project). addedStepIds is appended only on a
+            // committed step, so its count is the true session progress.
+            stepCount: s.addedStepIds.count
         )
     }
 
@@ -222,7 +227,11 @@ public actor CaptureEngine {
     /// The hotkey is deliberately NOT registered (it can't carry an insert
     /// index and wouldn't auto-stop).
     @discardableResult
-    public func captureSingle(projectPath: String, insertAt: Int) async throws -> CaptureState {
+    public func captureSingle(
+        projectPath: String,
+        insertAt: Int,
+        target: CaptureTarget = CaptureTarget(mode: .auto)
+    ) async throws -> CaptureState {
         guard session == nil else { throw EngineError.recordingInProgress }
         let opened = try await store.openProject(at: projectPath)
         // Re-check after the await (TOCTOU): another start could have raced in.
@@ -237,7 +246,7 @@ public actor CaptureEngine {
             projectPath: opened.dir,
             projectTitle: opened.manifest.title,
             stepCount: seedStepCounter(projectDir: opened.dir, manifestCount: existing),
-            target: CaptureTarget(mode: .auto),
+            target: target,
             stepCountAtStart: existing,
             createdThisSession: false,
             single: .init(insertAt: at)
@@ -250,7 +259,7 @@ public actor CaptureEngine {
         }
         eventsCont.yield(.recordingChanged(true))
         emitState()
-        log.notice("single-shot capture armed [gen \(self.generation, privacy: .public)] insertAt=\(at, privacy: .public)")
+        log.notice("single-shot capture armed [gen \(self.generation, privacy: .public)] insertAt=\(at, privacy: .public) mode=\(String(describing: target.mode), privacy: .public)")
         return state()
     }
 
@@ -437,12 +446,18 @@ public actor CaptureEngine {
 
         // 1. Single-shot
         if session?.single != nil {
+            // `fired` is an in-flight guard so a second click during the capture
+            // doesn't enqueue a second shot. It's provisional: if THIS capture
+            // produces no step (a window-activation click, own-app/own-window
+            // suppression, or a failed grab), enqueueCapture re-arms it so the
+            // user's next real click captures instead of the pill vanishing with
+            // nothing inserted.
             if session?.single?.fired == true { return }
             session?.single?.fired = true
             var opts = CaptureOptions()
             opts.insertAt = session?.single?.insertAt
             opts.elementTask = elementTask
-            enqueueCapture(trigger: .click, point: point, button: button, opts: opts, thenStop: true)
+            enqueueCapture(trigger: .click, point: point, button: button, opts: opts, singleShot: true)
             return
         }
 
@@ -550,23 +565,41 @@ public actor CaptureEngine {
         point: CGPoint?,
         button: MouseButton,
         opts: CaptureOptions,
-        thenStop: Bool = false
+        singleShot: Bool = false
     ) {
         let prev = queueTail
         queueTail = Task { [weak self] in
             await prev?.value
             guard let self else { return }
+            var captured = false
             do {
-                _ = try await self.captureStep(trigger: trigger, point: point, button: button, opts: opts)
+                captured = try await self.captureStep(trigger: trigger, point: point, button: button, opts: opts) != nil
             } catch {
                 await self.reportCaptureError(error)
             }
-            if thenStop {
-                // Fire-and-forget, exactly as Windows: stop() drains the queue
-                // that CONTAINS this task — awaiting it here would deadlock.
-                Task { await self.stop() }
+            if singleShot {
+                if captured {
+                    // Fire-and-forget, exactly as Windows: stop() drains the queue
+                    // that CONTAINS this task — awaiting it here would deadlock.
+                    Task { await self.stop() }
+                } else {
+                    // The click produced no step (window-activation click,
+                    // own-app/own-window suppression, or a failed grab). Don't
+                    // burn the single-shot on it — re-arm so the next real click
+                    // captures, rather than the pill vanishing empty-handed.
+                    await self.rearmSingleShot()
+                }
             }
         }
+    }
+
+    /// Re-arm a single-shot whose triggering click produced no step, so the
+    /// user's next real click captures. No-op once the session is gone (a
+    /// stop/discard mid-capture leaves nothing to re-arm).
+    private func rearmSingleShot() {
+        guard session?.single != nil else { return }
+        session?.single?.fired = false
+        log.notice("single-shot re-armed — the last click captured nothing")
     }
 
     private func reportCaptureError(_ error: Error) {

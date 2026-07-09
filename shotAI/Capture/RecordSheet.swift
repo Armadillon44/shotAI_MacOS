@@ -3,13 +3,21 @@ import ShotModel
 import SwiftUI
 
 /// Pre-recording target chooser: auto / window / screen / area, mirroring the
-/// Windows capture modes. The chosen target persists into the manifest's
-/// captureSettings and recording starts on confirm.
+/// Windows capture modes. In the default (recording) mode the chosen target
+/// persists into the manifest's captureSettings and recording starts on confirm.
+/// When `onChoose` is set (the report's "insert one screenshot here" flow) it
+/// instead hands the chosen target back and dismisses — no recording, no
+/// persisted settings.
 struct RecordSheet: View {
     let projectPath: String
     var createdThisSession = false
     let coordinator: CaptureCoordinator
+    /// Single-shot mode: hand the chosen target to this closure instead of
+    /// starting a full recording. nil = normal record-and-persist behavior.
+    var onChoose: ((CaptureTarget) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+
+    private var singleShot: Bool { onChoose != nil }
 
     @State private var mode: CaptureMode = .auto
     @State private var targets = CaptureTargets(windows: [], monitors: [])
@@ -20,9 +28,11 @@ struct RecordSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Record steps")
+            Text(singleShot ? "Insert a screenshot" : "Record steps")
                 .font(.title2.bold())
-            Text("Every click captures a screenshot step. ⌘⇧S captures without clicking. Use the floating pill to pause or stop.")
+            Text(singleShot
+                ? "This window hides and a floating pill appears. Your next click captures ONE screenshot, inserted here. A click that only brings a window forward won't count — click again to capture."
+                : "Every click captures a screenshot step. ⌘⇧S captures without clicking. Use the floating pill to pause or stop.")
                 .foregroundStyle(.secondary)
 
             Picker("Capture", selection: $mode) {
@@ -53,7 +63,7 @@ struct RecordSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
-                Button("Start Recording") { start() }
+                Button(singleShot ? "Arm Capture" : "Start Recording") { start() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canStart || starting)
             }
@@ -130,6 +140,13 @@ struct RecordSheet: View {
             target.area = selectedArea
         case .auto:
             break
+        }
+        // Single-shot: hand the target back to the caller (which arms one capture)
+        // and dismiss — no recording session, no persisted captureSettings.
+        if let onChoose {
+            onChoose(target)
+            dismiss()
+            return
         }
         starting = true
         Task {
