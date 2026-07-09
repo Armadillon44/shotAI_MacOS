@@ -248,13 +248,13 @@ private struct StepRow: View {
                     .background(CalloutBox.palette(callout).background)
                     .clipShape(Circle())
                     .overlay(Circle().stroke(CalloutBox.palette(callout).border))
+            } else if let number {
+                NumberBadge(number: number, stepId: step.id, focus: focus) { pos in
+                    Task { await model.moveStep(id: step.id, toPosition: pos) }
+                }
             } else {
-                Text(number.map(String.init) ?? "")
-                    .font(.system(size: 14, weight: .semibold).monospacedDigit())
-                    .frame(width: 32, height: 32)
-                    .background(number != nil ? Palette.accent : Palette.hair2)
-                    .foregroundStyle(Palette.onAccent)
-                    .clipShape(Circle())
+                // Defensive: a non-callout step should always have a number.
+                Circle().fill(Palette.hair2).frame(width: 32, height: 32)
             }
         }
     }
@@ -430,6 +430,52 @@ struct InlineEditable: View {
     private func commit() {
         editing = false
         if draft != text { onCommit(draft) } // skip a write when nothing changed
+    }
+}
+
+/// The step-number badge. Click it to type a new position; on commit the step
+/// moves there and every step renumbers in turn. Uses the report's shared focus
+/// (like the inline text fields) so a click elsewhere commits it. Esc cancels.
+private struct NumberBadge: View {
+    let number: Int
+    let stepId: String
+    var focus: FocusState<String?>.Binding
+    let onCommit: (Int) -> Void
+
+    @State private var editing = false
+    @State private var draft = ""
+    private var fieldID: String { "num:\(stepId)" }
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Palette.accent)
+            if editing {
+                TextField("", text: $draft)
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 26)
+                    .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(Palette.onAccent)
+                    .focused(focus, equals: fieldID)
+                    .onKeyPress(.return, phases: .down) { _ in focus.wrappedValue = nil; return .handled }
+                    .onExitCommand { draft = String(number); focus.wrappedValue = nil }
+                    .onChange(of: focus.wrappedValue) { _, current in if current != fieldID { commit() } }
+                    .onAppear { draft = String(number); DispatchQueue.main.async { focus.wrappedValue = fieldID } }
+            } else {
+                Text(String(number))
+                    .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(Palette.onAccent)
+                    .contentShape(Rectangle())
+                    .onTapGesture { draft = String(number); editing = true }
+            }
+        }
+        .frame(width: 32, height: 32)
+        .help("Click to change this step's position")
+    }
+
+    private func commit() {
+        editing = false
+        if let n = Int(draft.trimmingCharacters(in: .whitespaces)), n != number { onCommit(n) }
     }
 }
 
