@@ -24,6 +24,10 @@ final class AreaSelectController {
                 window.orderFrontRegardless()
                 window.makeKey()
             }
+            // The caller hid the report window (and may have deactivated us), so
+            // activate so the overlay is key — Esc works and the crosshair drag
+            // starts on the FIRST click (paired with OverlayView.acceptsFirstMouse).
+            if !windows.isEmpty { NSApp.activate(ignoringOtherApps: true) }
             if windows.isEmpty { finish(nil) }
         }
     }
@@ -98,6 +102,10 @@ private final class OverlayView: NSView {
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
+    // Receive the click that activates the overlay AS the drag-start, instead of
+    // it being swallowed just to bring the window forward (the "first empty
+    // click" the user hit).
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

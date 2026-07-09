@@ -247,7 +247,16 @@ final class CaptureCoordinator {
             // by the previous one (show() also resets the pill's own copy).
             lastError = nil
             let main = mainWindow
-            if !noHide { main?.orderOut(nil) }
+            if !noHide {
+                main?.orderOut(nil)
+                // Relinquish frontmost. With our window hidden we'd otherwise stay
+                // the active app, and the engine's own-app-frontmost guard would
+                // swallow the user's FIRST capture click (they had to click once to
+                // "wake" the target, then again to capture). The pill is a
+                // non-activating panel shown via orderFrontRegardless, so it stays
+                // visible after we deactivate.
+                NSApp.deactivate()
+            }
             pill?.show(state: state, near: main)
         } else {
             pill?.hide()

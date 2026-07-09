@@ -117,6 +117,12 @@ public protocol ActiveWindowProviding: Sendable {
     /// The frontmost app's front window (title needs Screen Recording). nil
     /// when nothing qualifies (e.g. our own content-protected windows).
     func activeWindow() async -> WindowSnapshot?
+    /// The frontmost (top-of-z-order) non-own window CONTAINING a global
+    /// top-left point. Unlike activeWindow(), this is timing-independent: a
+    /// click on an INACTIVE window doesn't update the frontmost app
+    /// synchronously, but the window under the cursor is already correct. nil
+    /// when nothing (our own windows / the desktop) is under the point.
+    func windowAt(_ point: CGPoint) async -> WindowSnapshot?
     /// Pickable windows for the 'window' chooser.
     func listWindows() async -> [WindowInfo]
     /// Re-resolve the picked window each step: by id, then pid+title, then pid.
