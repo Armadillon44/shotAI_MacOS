@@ -403,6 +403,44 @@ import ShotModel
         h.cleanup()
     }
 
+    @Test func immediateCaptureInsertsClicklessStepAtIndex() async throws {
+        let h = try EngineHarness()
+        for id in ["a", "b"] {
+            try await h.store.addStep(
+                at: h.projectDir, ProjectStep(id: id, order: 0, screenshot: "", trigger: .hotkey))
+        }
+        let target = CaptureTarget(mode: .screen, monitorId: Int(EngineHarness.display.id))
+        let step = try await h.engine.captureImmediate(projectPath: h.projectDir, insertAt: 1, target: target)
+        #expect(step != nil)
+        #expect(step?.click == nil)        // manual capture — no click marker
+        #expect(step?.trigger == .hotkey)
+        let steps = try h.readSteps()
+        #expect(steps.count == 3)
+        #expect(steps[1].id == step?.id)   // inserted at index 1
+        #expect(steps.map(\.order) == [1, 2, 3])
+        // No pill/recording session lingers: a normal recording can start after.
+        #expect(await h.engine.state().status == .idle)
+        try await h.engine.start(projectPath: h.projectDir, attachHook: false)
+        _ = await h.engine.stop()
+        h.cleanup()
+    }
+
+    @Test func recordingInsertsStepsAtChosenPositionInOrder() async throws {
+        let h = try EngineHarness()
+        for id in ["a", "b", "c"] {
+            try await h.store.addStep(
+                at: h.projectDir, ProjectStep(id: id, order: 0, screenshot: "s", trigger: .hotkey))
+        }
+        // "Capture steps here" at index 1: captured steps land at 1, 2, … in order.
+        try await h.engine.start(projectPath: h.projectDir, attachHook: false, insertAt: 1)
+        let s1 = try await h.engine.captureStep(trigger: .hotkey, point: nil)
+        let s2 = try await h.engine.captureStep(trigger: .hotkey, point: nil)
+        _ = await h.engine.stop()
+        let ids = try h.readSteps().map(\.id)
+        #expect(ids == ["a", s1?.id, s2?.id, "b", "c"].compactMap { $0 })
+        h.cleanup()
+    }
+
     @Test func downscaleContract() {
         // <2px passthrough
         let tiny = makeImage(width: 1, height: 1)

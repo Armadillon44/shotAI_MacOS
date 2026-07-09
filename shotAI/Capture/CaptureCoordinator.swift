@@ -45,13 +45,16 @@ final class CaptureCoordinator {
 
     /// Start recording into a project. Returns false when blocked on the
     /// Screen Recording permission (the wizard is shown instead).
+    /// Start recording. `insertAt` (the report's "Capture steps here" flow) lands
+    /// the captured steps at that manifest index, in order; nil appends.
     @discardableResult
     func record(
         projectPath: String,
         target: CaptureTarget,
-        createdThisSession: Bool = false
+        createdThisSession: Bool = false,
+        insertAt: Int? = nil
     ) async -> Bool {
-        Log.capture.notice("record requested — mode \(target.mode.rawValue, privacy: .public)")
+        Log.capture.notice("record requested — mode \(target.mode.rawValue, privacy: .public) insertAt=\(String(describing: insertAt), privacy: .public)")
         guard CapturePermission.screenRecording.isGranted() else {
             CapturePermission.screenRecording.request()
             Log.capture.info("Screen Recording not granted — showing permissions wizard")
@@ -63,7 +66,8 @@ final class CaptureCoordinator {
             try await engine.start(
                 projectPath: projectPath,
                 target: target,
-                createdThisSession: createdThisSession
+                createdThisSession: createdThisSession,
+                insertAt: insertAt
             )
             Log.capture.notice("Recording started — mode \(target.mode.rawValue, privacy: .public)")
             return true
@@ -74,30 +78,58 @@ final class CaptureCoordinator {
         }
     }
 
-    /// Arm a single in-place capture: the next real click records ONE screenshot,
-    /// inserts it at `insertAt`, and auto-stops. Same permission gate + pill /
-    /// window-hide takeover as `record` (driven by the engine's recordingChanged).
-    /// `target` picks how that click is framed (auto/window/screen/area) — a
-    /// one-off; unlike `record` it does NOT persist to the project's settings.
+    /// Classic area screenshot inserted at `insertAt`: hide the report window (so
+    /// the user can see what they're dragging out), let them select a region,
+    /// then capture and insert it immediately — no pill, no click to wait for.
     @discardableResult
-    func captureSingle(
-        projectPath: String,
-        insertAt: Int,
-        target: CaptureTarget = CaptureTarget(mode: .auto)
-    ) async -> Bool {
-        Log.capture.notice("captureSingle requested insertAt=\(insertAt, privacy: .public) mode=\(target.mode.rawValue, privacy: .public)")
+    func captureAreaNow(projectPath: String, insertAt: Int) async -> Bool {
+        Log.capture.notice("captureAreaNow insertAt=\(insertAt, privacy: .public)")
         guard CapturePermission.screenRecording.isGranted() else {
             CapturePermission.screenRecording.request()
             Log.capture.info("Screen Recording not granted — showing permissions wizard")
             showWizard = true
             return false
         }
+        let main = mainWindow
+        main?.orderOut(nil)
+        defer {
+            main?.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+        }
+        guard let rect = await areaSelect.selectArea() else {
+            Log.capture.info("captureAreaNow cancelled")
+            return false
+        }
+        let target = CaptureTarget(
+            mode: .area,
+            area: ShotModel.Rect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height))
+        return await runImmediate(projectPath: projectPath, insertAt: insertAt, target: target)
+    }
+
+    /// Immediate window/screen capture inserted at `insertAt`: the caller has
+    /// already chosen the target, so grab and insert it now. No window-hiding —
+    /// the screenshotter's content filter already excludes our own windows.
+    @discardableResult
+    func captureTargetNow(projectPath: String, insertAt: Int, target: CaptureTarget) async -> Bool {
+        Log.capture.notice("captureTargetNow mode=\(target.mode.rawValue, privacy: .public) insertAt=\(insertAt, privacy: .public)")
+        guard CapturePermission.screenRecording.isGranted() else {
+            CapturePermission.screenRecording.request()
+            Log.capture.info("Screen Recording not granted — showing permissions wizard")
+            showWizard = true
+            return false
+        }
+        return await runImmediate(projectPath: projectPath, insertAt: insertAt, target: target)
+    }
+
+    private func runImmediate(projectPath: String, insertAt: Int, target: CaptureTarget) async -> Bool {
         do {
-            try await engine.captureSingle(projectPath: projectPath, insertAt: insertAt, target: target)
-            return true
+            let step = try await engine.captureImmediate(
+                projectPath: projectPath, insertAt: insertAt, target: target)
+            if step == nil { Log.capture.error("immediate capture produced no step") }
+            return step != nil
         } catch {
             lastError = error.localizedDescription
-            Log.capture.error("captureSingle failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+            Log.capture.error("captureImmediate failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
             return false
         }
     }

@@ -56,6 +56,11 @@ public actor CaptureEngine {
         var createdThisSession: Bool
         var addedStepIds: [String] = []
         var single: Single?
+        /// A recording that inserts into the report at a fixed spot (the report's
+        /// "Capture steps here" flow). Each captured step lands at
+        /// `insertBase + addedStepIds.count`, so they keep their order at the
+        /// chosen index. nil = append to the end (normal recording).
+        var insertBase: Int? = nil
 
         struct Single {
             var insertAt: Int
@@ -179,7 +184,8 @@ public actor CaptureEngine {
         projectPath: String,
         attachHook: Bool = true,
         target: CaptureTarget = CaptureTarget(mode: .auto),
-        createdThisSession: Bool = false
+        createdThisSession: Bool = false,
+        insertAt: Int? = nil
     ) async throws -> CaptureState {
         if let s = session {
             if s.projectPath == projectPath { return state() } // idempotent re-start
@@ -204,7 +210,8 @@ public actor CaptureEngine {
             target: target,
             stepCountAtStart: existing,
             createdThisSession: createdThisSession,
-            single: nil
+            single: nil,
+            insertBase: insertAt.map { max(0, min($0, existing)) }
         )
         if attachHook {
             // A trigger-attach failure (e.g. the event tap can't be created)
@@ -219,13 +226,21 @@ public actor CaptureEngine {
         }
         eventsCont.yield(.recordingChanged(true))
         emitState()
-        log.notice("session started [gen \(self.generation, privacy: .public)] createdThisSession=\(createdThisSession, privacy: .public) mode=\(String(describing: target.mode), privacy: .public) existingSteps=\(existing, privacy: .public)")
+        log.notice("session started [gen \(self.generation, privacy: .public)] createdThisSession=\(createdThisSession, privacy: .public) mode=\(String(describing: target.mode), privacy: .public) existingSteps=\(existing, privacy: .public) insertAt=\(String(describing: insertAt), privacy: .public)")
         return state()
     }
 
     /// Arm a one-shot capture that inserts at a manifest index and auto-stops.
     /// The hotkey is deliberately NOT registered (it can't carry an insert
     /// index and wouldn't auto-stop).
+    ///
+    /// NOTE: currently unused by the macOS UI — the report's "insert a screenshot
+    /// here" flow was reworked to `captureImmediate` (area/window/screen, no
+    /// click) plus "Capture steps…" (`start(insertAt:)`). Retained as a tested
+    /// engine capability that mirrors the Windows single-shot insert; slated for
+    /// removal with its supporting machinery (`Session.Single`, the handleMouseDown
+    /// branch, the enqueueCapture single-shot arm, `rearmSingleShot`) if it stays
+    /// unsurfaced.
     @discardableResult
     public func captureSingle(
         projectPath: String,
@@ -261,6 +276,92 @@ public actor CaptureEngine {
         emitState()
         log.notice("single-shot capture armed [gen \(self.generation, privacy: .public)] insertAt=\(at, privacy: .public) mode=\(String(describing: target.mode), privacy: .public)")
         return state()
+    }
+
+    /// Capture ONE frame right now (no click, no pill) for the given target and
+    /// insert it at `insertAt`. This is the report's "insert a screenshot here"
+    /// flow for area/window/screen: the caller has already picked the region /
+    /// window / monitor, so there's nothing to wait for. Our own windows are
+    /// excluded from the frame by the screenshotter's content filter, so the
+    /// report window need not be hidden (the area flow hides it only so the user
+    /// can see what they're selecting). Returns nil on a soft grab failure.
+    @discardableResult
+    public func captureImmediate(
+        projectPath: String,
+        insertAt: Int,
+        target: CaptureTarget
+    ) async throws -> ProjectStep? {
+        guard session == nil else { throw EngineError.recordingInProgress }
+        let opened = try await store.openProject(at: projectPath)
+        // Re-check after the await (TOCTOU): another start could have raced in.
+        guard session == nil else { throw EngineError.recordingInProgress }
+        let shotsDir = try confinedShotsPath(projectDir: opened.dir, rel: "shots")
+        try FileManager.default.createDirectory(
+            atPath: shotsDir, withIntermediateDirectories: true)
+        let existing = opened.manifest.steps.count
+        let at = max(0, min(insertAt, existing))
+        generation += 1
+        let gen = generation
+        // Install a lightweight session purely so grab() can read the target.
+        // No triggers and no recordingChanged, so no pill appears; the defer
+        // always tears it down so a later capture/recording isn't blocked — even
+        // on a thrown PNG write.
+        session = Session(
+            projectPath: opened.dir,
+            projectTitle: opened.manifest.title,
+            stepCount: seedStepCounter(projectDir: opened.dir, manifestCount: existing),
+            target: target,
+            stepCountAtStart: existing,
+            createdThisSession: false,
+            single: nil
+        )
+        defer { if generation == gen { session = nil } }
+        log.notice("immediate capture requested [gen \(gen, privacy: .public)] mode=\(String(describing: target.mode), privacy: .public) at=\(at, privacy: .public)")
+
+        // point=nil / active=nil: explicit modes (area/window/screen) resolve
+        // from the target alone; there is no click to frame around.
+        guard let grabbed = await grab(point: nil, button: .left, opts: CaptureOptions(), active: nil) else {
+            log.error("immediate capture: grab returned no frame")
+            eventsCont.yield(.error("A screenshot could not be captured. Re-check Screen Recording permission in System Settings."))
+            return nil
+        }
+        // A stop()/discard() can't race here (no triggers), but guard anyway so
+        // a torn-down session never commits a bogus step.
+        guard generation == gen else { return nil }
+
+        session?.stepCount += 1
+        let order = session?.stepCount ?? 0
+        let filename = CaptureConstants.shotFilename(order: order)
+        // Re-confine at the write itself (symlink-swap defense), exclusive create.
+        let dest = try confinedShotsPath(projectDir: opened.dir, rel: "shots/\(filename)")
+        try grabbed.prepared.png.write(
+            to: URL(fileURLWithPath: dest), options: .withoutOverwriting)
+
+        // Window metadata only for window mode (from the chosen target — the
+        // frontmost app is us, so activeWindow() would be wrong here).
+        let window: CapturedWindow? = target.mode == .window
+            ? target.window.map { CapturedWindow(app: "", title: $0.title, pid: $0.pid, bounds: nil) }
+            : nil
+        let step = ProjectStep(
+            id: UUID().uuidString.lowercased(),
+            order: order,
+            screenshot: "shots/\(filename)",
+            trigger: .hotkey, // click-less manual capture — no click marker
+            click: nil,
+            monitor: CapturedMonitor(
+                id: Int(grabbed.display.id),
+                bounds: rect(from: grabbed.display.frame),
+                scaleFactor: grabbed.display.pixelScale
+            ),
+            window: window,
+            element: .unavailable,
+            caption: buildManualCaption(mode: target.mode, windowTitle: target.window?.title),
+            note: ""
+        )
+        try await store.insertStep(at: opened.dir, step, atIndex: at)
+        log.notice("immediate capture inserted [id \(step.id, privacy: .public)] order=\(order, privacy: .public) at=\(at, privacy: .public)")
+        eventsCont.yield(.stepAdded(step))
+        return step
     }
 
     @discardableResult
@@ -788,8 +889,14 @@ public actor CaptureEngine {
             note: ""
         )
 
-        if let insertAt = opts.insertAt {
-            try await store.insertStep(at: projectDir, step, atIndex: insertAt)
+        // Insert index: an explicit opts.insertAt (single-shot) wins; otherwise a
+        // recording bound to a fixed spot (insertBase) advances one slot per step
+        // already captured this session, so a "Capture steps here" run lands its
+        // steps in order at the chosen index. No base → append (normal recording).
+        let insertIndex: Int? = opts.insertAt
+            ?? session?.insertBase.map { $0 + (session?.addedStepIds.count ?? 0) }
+        if let insertIndex {
+            try await store.insertStep(at: projectDir, step, atIndex: insertIndex)
         } else {
             try await store.addStep(at: projectDir, step)
         }
