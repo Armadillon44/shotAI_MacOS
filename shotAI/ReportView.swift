@@ -23,9 +23,10 @@ struct ReportView: View {
     @FocusState private var focus: String?
     /// The step pending a delete confirmation, if any.
     @State private var deleteStepTarget: ProjectStep?
-    /// The insert index for a pending in-place screenshot — drives the capture
-    /// mode sheet (auto/window/screen/area) before the pill is armed.
-    @State private var screenshotInsertAt: InsertIndex?
+    /// A pending immediate window/screen capture — drives the target-picker sheet.
+    @State private var immediatePick: ImmediatePick?
+    /// A pending "Capture steps here" recording — drives the record sheet.
+    @State private var captureStepsAt: InsertIndex?
     /// Drives edge auto-scroll while a step is being dragged.
     @State private var autoScroller = AutoScroller()
 
@@ -87,12 +88,14 @@ struct ReportView: View {
         } message: {
             Text("This removes the step and its screenshot. This can't be undone.")
         }
-        .sheet(item: $screenshotInsertAt) { insert in
-            RecordSheet(projectPath: opened.dir, coordinator: capture) { target in
-                // The window hides, the pill shows, and the next real click
-                // records one screenshot inserted at this index.
-                Task { await capture.captureSingle(projectPath: opened.dir, insertAt: insert.value, target: target) }
-            }
+        .sheet(item: $immediatePick) { pick in
+            ImmediateCaptureSheet(
+                projectPath: opened.dir, insertAt: pick.index, mode: pick.mode,
+                coordinator: capture
+            ) { Task { await model.refresh() } } // updatedAt changed → resort list
+        }
+        .sheet(item: $captureStepsAt) { at in
+            RecordSheet(projectPath: opened.dir, coordinator: capture, insertAt: at.value)
         }
     }
 
@@ -104,9 +107,10 @@ struct ReportView: View {
         return cur.kind != .text && next.kind != .text && !next.screenshot.isEmpty
     }
 
-    /// Route an insert-zone choice: text/callout add immediately; image opens a
-    /// modal open panel (SwiftUI's .fileImporter is unreliable when triggered
-    /// from inside a Menu action — the menu's event loop swallows it).
+    /// Route an insert-zone choice. Text/callout add immediately. Image opens a
+    /// modal open panel (SwiftUI's .fileImporter is unreliable from inside a Menu
+    /// action — the menu's event loop swallows it). Area captures right away;
+    /// window/screen open a target picker; "Capture steps" starts a recording.
     private func handleInsert(_ choice: InsertChoice, at index: Int) {
         switch choice {
         case .text: Task { await model.addTextStep(atIndex: index) }
@@ -123,10 +127,18 @@ struct ReportView: View {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             guard let data = try? Data(contentsOf: url) else { return }
             Task { await model.importImageStep(data: data, atIndex: index) }
-        case .screenshot:
-            // Let the user pick how the shot is framed (auto/window/screen/area)
-            // before arming; the sheet's onChoose arms the single-shot capture.
-            screenshotInsertAt = InsertIndex(value: index)
+        case .captureArea:
+            // Classic screenshot: drag out a region and capture it immediately.
+            Task {
+                _ = await capture.captureAreaNow(projectPath: opened.dir, insertAt: index)
+                await model.refresh() // updatedAt changed → resort the Home list
+            }
+        case .captureWindow:
+            immediatePick = ImmediatePick(index: index, mode: .window)
+        case .captureScreen:
+            immediatePick = ImmediatePick(index: index, mode: .screen)
+        case .captureSteps:
+            captureStepsAt = InsertIndex(value: index)
         }
     }
 
@@ -183,7 +195,14 @@ struct ReportView: View {
 /// the accent on hover to signal it's clickable. Clicking opens a menu to insert
 /// a text block or a note/caution/warning callout at this position.
 /// What an insert zone can add at its position.
-private enum InsertChoice { case text, image, screenshot, callout(CalloutKind) }
+private enum InsertChoice {
+    case text, image
+    case captureArea          // classic drag-a-region screenshot, captured now
+    case captureWindow        // pick a window → captured now
+    case captureScreen        // pick a screen → captured now
+    case captureSteps         // start a recording that inserts here
+    case callout(CalloutKind)
+}
 
 /// Identifiable wrapper so a manifest insert index can drive a `.sheet(item:)`
 /// (0 is a valid index, so a bare `Int?` can't distinguish "insert at 0" from
@@ -191,6 +210,13 @@ private enum InsertChoice { case text, image, screenshot, callout(CalloutKind) }
 private struct InsertIndex: Identifiable {
     let value: Int
     var id: Int { value }
+}
+
+/// A pending immediate capture that needs a target picker (window or screen).
+private struct ImmediatePick: Identifiable {
+    let index: Int
+    let mode: CaptureMode
+    var id: String { "\(mode.rawValue)#\(index)" }
 }
 
 private struct InsertZone: View {
@@ -204,10 +230,15 @@ private struct InsertZone: View {
         HStack(spacing: 10) {
             line
             Menu {
-                Button("Text block") { onInsert(.text) }
+                Menu("Screenshot") {
+                    Button("Capture area…") { onInsert(.captureArea) }
+                    Button("Capture a window…") { onInsert(.captureWindow) }
+                    Button("Capture the screen…") { onInsert(.captureScreen) }
+                }
+                Button("Capture steps…") { onInsert(.captureSteps) }
                 Button("Image…") { onInsert(.image) }
-                Button("Screenshot…") { onInsert(.screenshot) }
                 Divider()
+                Button("Text block") { onInsert(.text) }
                 Button("Note") { onInsert(.callout(.note)) }
                 Button("Caution") { onInsert(.callout(.caution)) }
                 Button("Warning") { onInsert(.callout(.warning)) }
@@ -369,6 +400,18 @@ private struct StepRow: View {
         return number.map { "Step \($0)" } ?? "Step"
     }
 
+    /// The "App — Title" context line under a screenshot. Tolerates either half
+    /// being empty (immediate window captures carry a title but no app name) and
+    /// collapses to nil when both are blank, so no stray "—" ever shows.
+    private func windowLine(_ window: CapturedWindow) -> String? {
+        switch (window.app.isEmpty, window.title.isEmpty) {
+        case (true, true): return nil
+        case (false, true): return window.app
+        case (true, false): return window.title
+        case (false, false): return "\(window.app) — \(window.title)"
+        }
+    }
+
     @ViewBuilder private var badge: some View {
         if let callout = step.callout, ReportPresentation.isCalloutStep(step) {
             Text(ReportPresentation.calloutGlyph(callout))
@@ -426,8 +469,8 @@ private struct StepRow: View {
                 .font(.system(size: 12.5))
                 .foregroundStyle(Palette.ink2)
         }
-        if let window = step.window {
-            Text(window.title.isEmpty ? window.app : "\(window.app) — \(window.title)")
+        if let window = step.window, let line = windowLine(window) {
+            Text(line)
                 .font(.caption)
                 .foregroundStyle(Palette.ink3)
                 .lineLimit(1)

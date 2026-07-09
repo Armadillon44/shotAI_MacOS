@@ -3,21 +3,19 @@ import ShotModel
 import SwiftUI
 
 /// Pre-recording target chooser: auto / window / screen / area, mirroring the
-/// Windows capture modes. In the default (recording) mode the chosen target
-/// persists into the manifest's captureSettings and recording starts on confirm.
-/// When `onChoose` is set (the report's "insert one screenshot here" flow) it
-/// instead hands the chosen target back and dismisses — no recording, no
-/// persisted settings.
+/// Windows capture modes. The chosen target persists into the manifest's
+/// captureSettings and recording starts on confirm. `insertAt` (the report's
+/// "Capture steps here" flow) lands the captured steps at that manifest index,
+/// in order; nil appends to the end.
 struct RecordSheet: View {
     let projectPath: String
     var createdThisSession = false
     let coordinator: CaptureCoordinator
-    /// Single-shot mode: hand the chosen target to this closure instead of
-    /// starting a full recording. nil = normal record-and-persist behavior.
-    var onChoose: ((CaptureTarget) -> Void)? = nil
+    /// Insert captured steps at this report index instead of appending.
+    var insertAt: Int? = nil
     @Environment(\.dismiss) private var dismiss
 
-    private var singleShot: Bool { onChoose != nil }
+    private var insertingHere: Bool { insertAt != nil }
 
     @State private var mode: CaptureMode = .auto
     @State private var targets = CaptureTargets(windows: [], monitors: [])
@@ -28,10 +26,10 @@ struct RecordSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(singleShot ? "Insert a screenshot" : "Record steps")
+            Text(insertingHere ? "Capture steps here" : "Record steps")
                 .font(.title2.bold())
-            Text(singleShot
-                ? "This window hides and a floating pill appears. Your next click captures ONE screenshot, inserted here. A click that only brings a window forward won't count — click again to capture."
+            Text(insertingHere
+                ? "This window hides and a floating pill appears. Every click captures a screenshot step, inserted at this spot in order. ⌘⇧S captures without clicking. Use the pill to pause or stop when you're done."
                 : "Every click captures a screenshot step. ⌘⇧S captures without clicking. Use the floating pill to pause or stop.")
                 .foregroundStyle(.secondary)
 
@@ -63,7 +61,7 @@ struct RecordSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
-                Button(singleShot ? "Arm Capture" : "Start Recording") { start() }
+                Button(insertingHere ? "Start Capturing Here" : "Start Recording") { start() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canStart || starting)
             }
@@ -141,19 +139,13 @@ struct RecordSheet: View {
         case .auto:
             break
         }
-        // Single-shot: hand the target back to the caller (which arms one capture)
-        // and dismiss — no recording session, no persisted captureSettings.
-        if let onChoose {
-            onChoose(target)
-            dismiss()
-            return
-        }
         starting = true
         Task {
             let started = await coordinator.record(
                 projectPath: projectPath,
                 target: target,
-                createdThisSession: createdThisSession
+                createdThisSession: createdThisSession,
+                insertAt: insertAt
             )
             starting = false
             if started { dismiss() }

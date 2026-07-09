@@ -49,3 +49,17 @@ public func buildClickCaption(
 public func buildHotkeyCaption(windowTitle: String?) -> String {
     "Capture: \(windowTitle ?? "screen")"
 }
+
+/// Caption for a click-less "insert a screenshot here" capture (area / window /
+/// screen). No clicked element, so it just names what was captured; the user
+/// edits it inline as needed.
+public func buildManualCaption(mode: CaptureMode, windowTitle: String?) -> String {
+    switch mode {
+    case .area: return "Area screenshot"
+    case .screen: return "Screen screenshot"
+    case .window:
+        if let t = windowTitle, !t.isEmpty { return "Screenshot of \(t)" }
+        return "Window screenshot"
+    case .auto: return buildHotkeyCaption(windowTitle: windowTitle)
+    }
+}
