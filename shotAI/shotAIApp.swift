@@ -70,6 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         .terminateNow
     }
 
+    /// macOS 14+ handshake for state restoration. Our windows are marked
+    /// non-restorable (we size/route them ourselves), so nothing is actually
+    /// restored — this just satisfies the requirement and silences the launch
+    /// warning without opting into resurrecting a blank window after a crash.
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.app.notice("Application did finish launching")
     }

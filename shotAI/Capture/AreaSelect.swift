@@ -66,6 +66,7 @@ private final class OverlayWindow: NSWindow {
         isMovable = false
         sharingType = .none
         isReleasedWhenClosed = false
+        isRestorable = false // never resurrect a blank overlay on relaunch
         ignoresMouseEvents = false
         let view = OverlayView(frame: NSRect(origin: .zero, size: screen.frame.size))
         view.onFinish = { [weak self] viewRect in
