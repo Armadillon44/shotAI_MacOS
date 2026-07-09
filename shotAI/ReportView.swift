@@ -393,6 +393,28 @@ private struct StepRow: View {
                 .foregroundStyle(Palette.ink3)
                 .lineLimit(1)
         }
+        // Auto-suggest merging a right-click (which likely opened a menu) into
+        // the next step (which captured the menu + selection).
+        if step.click?.button == .right, canMergeNext {
+            mergeSuggestBanner
+        }
+    }
+
+    private var mergeSuggestBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.triangle.merge")
+                .foregroundStyle(Palette.accentInk)
+            Text("This right-click likely opened a menu — merge it into the next step.")
+                .font(.callout)
+                .foregroundStyle(Palette.accentInk)
+            Spacer(minLength: 8)
+            Button("Merge ↓") { Task { await model.mergeIntoNext(id: step.id) } }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(10)
+        .background(Palette.accentTint)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.accent.opacity(0.4)))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

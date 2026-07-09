@@ -291,12 +291,29 @@ final class AppModel {
             errorMessage = "Couldn't load the next step's screenshot to merge into."
             return
         }
-        // next's own annotations + this step's click carried in as a marker.
+        // next's own annotations + this step's click carried in as a marker,
+        // its GLOBAL coords mapped into the kept step's image space (both clicks
+        // are on the same monitor, so global maps exactly — origin recovered from
+        // the kept click; fall back to the dropped step's own image coords).
         var merged = next.annotations
-        if let c = current.click {
+        if let dc = current.click {
+            let mx: Double, my: Double
+            if let kc = next.click {
+                let ks = kc.imageScale ?? 1
+                let originX = kc.global.x - kc.image.x / ks
+                let originY = kc.global.y - kc.image.y / ks
+                mx = (dc.global.x - originX) * ks
+                my = (dc.global.y - originY) * ks
+            } else {
+                mx = dc.image.x
+                my = dc.image.y
+            }
+            let cw = Double(cg.width), ch = Double(cg.height)
             merged.append(.marker(MarkerAnnotation(
-                id: "merge-\(current.id)", x: c.image.x, y: c.image.y,
-                color: AnnotationStyle.markerColor(for: current), radius: c.radius)))
+                id: "merge-\(current.id)",
+                x: min(max(mx, 0), max(0, cw - 1)),
+                y: min(max(my, 0), max(0, ch - 1)),
+                color: AnnotationStyle.markerColor(for: current), radius: dc.radius)))
         }
         let keepMarker: Flatten.Marker? = next.click.map { c in
             Flatten.Marker(x: c.image.x, y: c.image.y,
@@ -308,11 +325,25 @@ final class AppModel {
             patch.annotations = merged
             patch.crop = .set(next.crop)
             patch.markerBaked = true
+            // Combine the two steps' text (dropped → kept), dropping empties.
+            let cap = Self.joinText(current.caption, next.caption, " → ")
+            if !cap.isEmpty { patch.caption = cap }
+            let bod = Self.joinText(current.body, next.body, "\n\n")
+            if !bod.isEmpty { patch.body = bod }
+            let nte = Self.joinText(current.note, next.note, "\n\n")
+            if !nte.isEmpty { patch.note = nte }
             try await store.mergeSteps(at: opened.dir, keepId: next.id, dropId: current.id, patch: patch, flattenedPng: png)
             await afterEdit()
         } catch {
             errorMessage = error.localizedDescription
             Log.store.error("mergeIntoNext failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
+    }
+
+    /// Join two text fields (dropped → kept), trimming and dropping empties.
+    private static func joinText(_ a: String?, _ b: String?, _ separator: String) -> String {
+        [a, b].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: separator)
     }
 }
