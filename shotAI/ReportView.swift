@@ -641,7 +641,7 @@ extension Color {
     // Strong: owned via ReportView's @State and released when the report goes
     // away. A weak ref could clear unexpectedly and strand auto-scroll.
     var scrollView: NSScrollView? {
-        didSet { if scrollView != nil { Log.ui.notice("auto-scroll: scroll view resolved") } }
+        didSet { if scrollView != nil { Log.ui.debug("auto-scroll: scroll view resolved") } }
     }
     private var timer: DispatchSourceTimer?
     private var hoverCount = 0
@@ -654,7 +654,7 @@ extension Color {
         let before = hoverCount
         hoverCount = max(0, hoverCount + (active ? 1 : -1))
         if hoverCount > 0, before == 0 {
-            Log.ui.notice("auto-scroll: drag active — starting timer")
+            Log.ui.debug("auto-scroll: drag active — starting timer")
             start()
         } else if hoverCount == 0, before > 0 {
             stop()
@@ -687,7 +687,7 @@ extension Color {
 
     private func tick() {
         guard let sv = scrollView, let win = sv.window else {
-            if !loggedTick { loggedTick = true; Log.ui.notice("auto-scroll: tick but no scroll view/window") }
+            if !loggedTick { loggedTick = true; Log.ui.debug("auto-scroll: tick but no scroll view/window") }
             return
         }
         let mouse = NSEvent.mouseLocation // screen coords, origin bottom-left
@@ -703,7 +703,7 @@ extension Color {
         }
         if !loggedTick {
             loggedTick = true
-            Log.ui.notice("auto-scroll: first tick mouseY=\(Int(mouse.y), privacy: .public) svMinY=\(Int(onScreen.minY), privacy: .public) svMaxY=\(Int(onScreen.maxY), privacy: .public) dy=\(Int(dy), privacy: .public)")
+            Log.ui.debug("auto-scroll: first tick mouseY=\(Int(mouse.y), privacy: .public) svMinY=\(Int(onScreen.minY), privacy: .public) svMaxY=\(Int(onScreen.maxY), privacy: .public) dy=\(Int(dy), privacy: .public)")
         }
         guard dy != 0 else { return }
         let clip = sv.contentView
@@ -714,7 +714,7 @@ extension Color {
         let newY = min(max(0, oldY + dy), maxY)
         if !loggedScroll {
             loggedScroll = true
-            Log.ui.notice("auto-scroll: apply oldY=\(Int(oldY), privacy: .public) newY=\(Int(newY), privacy: .public) docH=\(Int(docH), privacy: .public) clipH=\(Int(clipH), privacy: .public)")
+            Log.ui.debug("auto-scroll: apply oldY=\(Int(oldY), privacy: .public) newY=\(Int(newY), privacy: .public) docH=\(Int(docH), privacy: .public) clipH=\(Int(clipH), privacy: .public)")
         }
         guard newY != oldY else { return }
         var origin = clip.bounds.origin
