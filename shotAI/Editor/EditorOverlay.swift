@@ -71,7 +71,11 @@ struct EditorOverlay: View {
     }
 
     private func toolButton(_ tool: EditorModel.Tool, _ icon: String, _ label: String) -> some View {
-        Button { model.tool = tool } label: {
+        // Clear the selection when switching tools: the selection chrome only
+        // shows in Select, and otherwise the color/width controls (which apply to
+        // the selection AND set the new-shape default) would silently mutate a
+        // now-invisible shape.
+        Button { model.selectedID = nil; model.tool = tool } label: {
             Image(systemName: icon)
                 .font(.system(size: 15))
                 .frame(width: 36, height: 30)
@@ -374,11 +378,20 @@ struct EditorOverlay: View {
                         model.resizeSelected(orig, to: normalized(CGPoint(x: d.origRect.minX, y: d.origRect.minY), curImg))
                     }
                 case .moveCrop:
-                    let dx = curImg.x - d.startImg.x, dy = curImg.y - d.startImg.y
+                    // Clamp the OFFSET (not the corners) so the crop keeps its
+                    // size and stays fully in-image; an intersection clamp would
+                    // shrink it against an edge instead of sliding it.
+                    let img = model.imageSize
+                    let dx = min(max(curImg.x - d.startImg.x, -d.origRect.minX), img.width - d.origRect.maxX)
+                    let dy = min(max(curImg.y - d.startImg.y, -d.origRect.minY), img.height - d.origRect.maxY)
                     model.setCrop(d.origRect.offsetBy(dx: dx, dy: dy))
                 case .resizeCrop:
                     if let fc = d.fixedCorner {
-                        let r = normalized(fc, curImg)
+                        // Guard on the CLAMPED rect: over-dragging a flush-edge
+                        // corner into the letterbox collapses the clamped extent,
+                        // and setCrop nils a <1px crop — so only commit a valid one
+                        // and keep the last good crop otherwise.
+                        let r = model.clampedToImage(normalized(fc, curImg))
                         if r.width >= 1, r.height >= 1 { model.setCrop(r) }
                     }
                 case .none:
