@@ -217,4 +217,28 @@ final class AppModel {
             Log.store.error("moveStep failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
     }
+
+    /// Move a numbered step to a new display position (1-based over the numbered,
+    /// i.e. non-callout, steps — matching the badge). It lands adjacent to the
+    /// step currently at that position; everything renumbers in turn. Callout
+    /// steps (unnumbered) keep their place.
+    func moveStep(id: String, toPosition position: Int) async {
+        guard let opened else { return }
+        let steps = opened.manifest.steps
+        let numbered = steps.filter { !ReportPresentation.isCalloutStep($0) }.map(\.id)
+        guard let cur = numbered.firstIndex(of: id) else { return } // only numbered steps have a position
+        let currentPos = cur + 1
+        let target = max(1, min(position, numbered.count))
+        guard target != currentPos else { return }
+        let targetId = numbered[target - 1]
+        var order = steps.map(\.id)
+        order.removeAll { $0 == id }
+        guard let ti = order.firstIndex(of: targetId) else { return }
+        order.insert(id, at: target > currentPos ? ti + 1 : ti) // after when moving down, before when up
+        do { try await store.reorderSteps(at: opened.dir, orderedIds: order); await afterEdit() }
+        catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("moveStep(toPosition) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
 }
