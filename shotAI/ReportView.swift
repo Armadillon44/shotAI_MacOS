@@ -19,6 +19,8 @@ struct ReportView: View {
     /// The id of the field currently being edited — a single shared focus across
     /// all inline fields so a background click can dismiss whichever is active.
     @FocusState private var focus: String?
+    /// The step pending a delete confirmation, if any.
+    @State private var deleteStepTarget: ProjectStep?
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
@@ -30,7 +32,11 @@ struct ReportView: View {
                 intro
                 ForEach(Array(steps.enumerated()), id: \.element.id) { pair in
                     InsertZone { callout in Task { await model.addTextStep(callout: callout, atIndex: pair.offset) } }
-                    StepRow(step: pair.element, number: numbers[pair.element.id], projectDir: opened.dir, focus: $focus, onEdit: onEdit)
+                    StepRow(
+                        step: pair.element, number: numbers[pair.element.id], projectDir: opened.dir,
+                        focus: $focus, index: pair.offset, total: steps.count,
+                        onEdit: onEdit, onRequestDelete: { deleteStepTarget = pair.element }
+                    )
                 }
                 if steps.isEmpty {
                     Text("No steps yet — record a process, or add a text block below.")
@@ -50,6 +56,19 @@ struct ReportView: View {
             .onTapGesture { focus = nil }
         }
         .background(Palette.surface)
+        .confirmationDialog(
+            "Delete this step?",
+            isPresented: Binding(get: { deleteStepTarget != nil }, set: { if !$0 { deleteStepTarget = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let t = deleteStepTarget { Task { await model.deleteStep(id: t.id) } }
+                deleteStepTarget = nil
+            }
+            Button("Cancel", role: .cancel) { deleteStepTarget = nil }
+        } message: {
+            Text("This removes the step and its screenshot. This can't be undone.")
+        }
     }
 
     private var header: some View {
@@ -172,7 +191,10 @@ private struct StepRow: View {
     let number: Int?
     let projectDir: String
     var focus: FocusState<String?>.Binding
+    let index: Int
+    let total: Int
     let onEdit: (ProjectStep) -> Void
+    let onRequestDelete: () -> Void
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -190,8 +212,30 @@ private struct StepRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            stepMenu
         }
         .padding(.vertical, 6)
+    }
+
+    /// Per-step actions: reorder (move up/down) and delete.
+    private var stepMenu: some View {
+        Menu {
+            Button("Move up") { Task { await model.moveStep(id: step.id, by: -1) } }
+                .disabled(index == 0)
+            Button("Move down") { Task { await model.moveStep(id: step.id, by: 1) } }
+                .disabled(index >= total - 1)
+            Divider()
+            Button("Delete step", role: .destructive) { onRequestDelete() }
+        } label: {
+            Image(systemName: "ellipsis")
+                .foregroundStyle(Palette.ink3)
+                .frame(width: 24, height: 28)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Step actions")
     }
 
     /// Left rail: the step number for numbered steps, a type glyph for callouts.
