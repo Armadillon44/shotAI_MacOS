@@ -21,8 +21,11 @@ struct ShotAIApp: App {
             ContentView()
                 .environment(model)
                 .environment(capture)
-                .frame(minWidth: 900, minHeight: 600)
+                // Low floor so the Home can sit narrow; ContentView drives the
+                // actual width per surface (narrow Home ⇄ wide project detail).
+                .frame(minWidth: 680, minHeight: 560)
         }
+        .defaultSize(width: WindowLayout.home, height: 760)
         .commands {
             // Guarantee ⌘Q / the Quit menu always work, even while a `.sheet`
             // (the Record chooser) is presented — SwiftUI otherwise vetoes
