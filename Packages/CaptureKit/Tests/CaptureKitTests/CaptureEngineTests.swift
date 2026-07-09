@@ -374,6 +374,35 @@ import ShotModel
         h.cleanup()
     }
 
+    @Test func singleShotSurvivesANonCapturingClick() async throws {
+        let h = try EngineHarness()
+        for id in ["a", "b"] {
+            try await h.store.addStep(
+                at: h.projectDir, ProjectStep(id: id, order: 0, screenshot: "", trigger: .hotkey))
+        }
+        try await h.engine.captureSingle(projectPath: h.projectDir, insertAt: 1)
+        // Pill shows 0 captured this session, not the project's running total.
+        #expect(await h.engine.state().stepCount == 0)
+
+        // A click that passes the mousedown own-window gate but yields no step
+        // (here: frontmost is our own app, e.g. a window-activation click) must
+        // NOT consume the armed shot — the session stays live, nothing inserted.
+        h.ownWindows.frontmostIsOwn = true
+        await h.tap(CGPoint(x: 500, y: 300), .left)
+        #expect(await h.engine.state().status == .recording) // still armed
+        #expect(try h.readSteps().count == 2)                // nothing inserted
+        #expect(await h.engine.state().stepCount == 0)
+
+        // The next real click captures once and auto-stops.
+        h.ownWindows.frontmostIsOwn = false
+        await h.tap(CGPoint(x: 500, y: 300), .left)
+        _ = await eventually { await h.engine.state().status == .idle }
+        let steps = try h.readSteps()
+        #expect(steps.count == 3)
+        #expect(steps[1].trigger == .click) // inserted at index 1
+        h.cleanup()
+    }
+
     @Test func downscaleContract() {
         // <2px passthrough
         let tiny = makeImage(width: 1, height: 1)
