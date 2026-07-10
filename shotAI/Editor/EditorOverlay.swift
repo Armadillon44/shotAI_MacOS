@@ -33,7 +33,14 @@ struct EditorOverlay: View {
     @State private var editingText = ""
     @FocusState private var textFocused: Bool
 
+    /// When a crop is set, show ONLY the cropped region fit-to-view (matching the
+    /// report + export). Cleared to adjust the crop on the full image.
+    @State private var viewCropped = false
+
+    /// Drawing accent (rose) — for the annotations + their selection chrome.
     private let accent = Color(hex: AnnotationStyle.accent)
+    /// App brand (violet) — for the editor chrome (active tool, tints).
+    private let brand = Palette.accent
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,6 +54,8 @@ struct EditorOverlay: View {
         }
         .background(.ultraThickMaterial)
         .ignoresSafeArea(edges: [.horizontal, .bottom])
+        // Open into the cropped view if the step already has a saved crop.
+        .onAppear { viewCropped = model.crop != nil }
         .alert("Couldn't save this step", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }
@@ -65,7 +74,7 @@ struct EditorOverlay: View {
             toolButton(.box, "rectangle", "Box")
             toolButton(.arrow, "arrow.up.right", "Arrow")
             toolButton(.redact, "eye.slash", "Redact")
-            toolButton(.number, "number", "Number")
+            toolButton(.number, "number", "Step Number")
             toolButton(.marker, "target", "Marker")
             toolButton(.text, "textformat", "Text")
             toolButton(.crop, "crop", "Crop")
@@ -74,18 +83,22 @@ struct EditorOverlay: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 8)
         .frame(width: 56)
+        .background(brand.opacity(0.08)) // subtle violet wash over the material
         .background(.thinMaterial)
     }
 
     private func toolButton(_ tool: EditorModel.Tool, _ icon: String, _ label: String) -> some View {
-        // Clear the selection when switching tools: the selection chrome only
-        // shows in Select, and otherwise the color/size controls (which apply to
-        // the selection AND set the new-shape default) would silently mutate a
-        // now-invisible shape.
-        Button {
+        let active = model.tool == tool
+        return Button {
+            // Clear the selection when switching tools: the selection chrome only
+            // shows in Select, and otherwise the color/size controls (which apply
+            // to the selection AND set the new-shape default) would silently
+            // mutate a now-invisible shape. Commit any open text first.
             if editingTextID != nil { commitText() }
             model.selectedID = nil
             model.tool = tool
+            // Picking Crop shows the full image so the crop box can be adjusted.
+            if tool == .crop { viewCropped = false }
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 15))
@@ -93,8 +106,8 @@ struct EditorOverlay: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(model.tool == tool ? accent.opacity(0.18) : Color.clear)
-        .foregroundStyle(model.tool == tool ? accent : Color.primary)
+        .background(active ? brand : Color.clear) // solid violet chip when active
+        .foregroundStyle(active ? Color.white : Color.primary)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .help(label)
     }
@@ -102,19 +115,27 @@ struct EditorOverlay: View {
     // MARK: - Top bar (contextual properties + editing actions)
 
     private var topBar: some View {
+        // Centered options, FIXED height so the canvas never shifts as the
+        // contextual controls appear/disappear.
         HStack(spacing: 12) {
+            Spacer(minLength: 12)
             propertiesBar
-            Spacer()
             if model.selectedID != nil {
                 Button(role: .destructive) { model.deleteSelected() } label: {
                     Label("Delete", systemImage: "trash")
                 }
             }
             if model.crop != nil {
-                Button("Clear crop") { model.crop = nil }
+                Button(viewCropped ? "Show full" : "Fit to crop") { viewCropped.toggle() }
+                Button("Clear crop") { model.crop = nil; viewCropped = false }
             }
+            Spacer(minLength: 12)
         }
-        .padding(12)
+        .padding(.horizontal, 12)
+        .frame(height: 46)
+        .frame(maxWidth: .infinity)
+        .background(brand.opacity(0.10)) // subtle violet band
+        .background(.thinMaterial)
     }
 
     @ViewBuilder private var propertiesBar: some View {
@@ -147,6 +168,16 @@ struct EditorOverlay: View {
             }
             .pickerStyle(.segmented).fixedSize()
             .onChange(of: model.redactMode) { model.applyStyleToSelected() }
+            // Mosaic strength (bigger block = coarser = more obfuscation). Only
+            // for Blur; the floor is minRedactBlock so text can't stay legible.
+            if model.redactMode == .pixelate {
+                HStack(spacing: 4) {
+                    Image(systemName: "circle.grid.3x3.fill").foregroundStyle(.secondary)
+                    Slider(value: redactBlockBinding,
+                           in: Double(AnnotationStyle.minRedactBlock) ... 60).frame(width: 110)
+                }
+                .help("Blur strength")
+            }
         }
     }
 
@@ -186,6 +217,15 @@ struct EditorOverlay: View {
             set: { s in
                 model.fontSize = s
                 model.setSelectedFontSize(s)
+            })
+    }
+
+    private var redactBlockBinding: Binding<Double> {
+        Binding(
+            get: { max(Double(AnnotationStyle.minRedactBlock), model.redactBlock) },
+            set: { v in
+                model.redactBlock = v
+                model.applyStyleToSelected()
             })
     }
 
@@ -249,22 +289,27 @@ struct EditorOverlay: View {
         .clipped()
     }
 
-    private struct Fit { var s: CGFloat; var ox: CGFloat; var oy: CGFloat; var dw: CGFloat; var dh: CGFloat }
+    // srx/sry = origin (image px) of the SHOWN rect (the crop when viewCropped,
+    // else the whole image), which is fit-to-view and centered.
+    private struct Fit { var s: CGFloat; var ox: CGFloat; var oy: CGFloat; var dw: CGFloat; var dh: CGFloat; var srx: CGFloat; var sry: CGFloat }
 
     private func fit(_ size: CGSize) -> Fit {
-        let s = min(size.width / model.imageSize.width, size.height / model.imageSize.height)
-        let dw = model.imageSize.width * s, dh = model.imageSize.height * s
-        return Fit(s: s, ox: (size.width - dw) / 2, oy: (size.height - dh) / 2, dw: dw, dh: dh)
+        let sr = (viewCropped ? cropCGRect() : nil) ?? CGRect(origin: .zero, size: model.imageSize)
+        let s = min(size.width / sr.width, size.height / sr.height)
+        let dw = sr.width * s, dh = sr.height * s
+        return Fit(s: s, ox: (size.width - dw) / 2, oy: (size.height - dh) / 2,
+                   dw: dw, dh: dh, srx: sr.minX, sry: sr.minY)
     }
 
     private func toImage(_ p: CGPoint, _ f: Fit) -> CGPoint {
-        CGPoint(x: (p.x - f.ox) / f.s, y: (p.y - f.oy) / f.s)
+        CGPoint(x: f.srx + (p.x - f.ox) / f.s, y: f.sry + (p.y - f.oy) / f.s)
     }
     private func toDisplay(_ r: CGRect, _ f: Fit) -> CGRect {
-        CGRect(x: f.ox + r.minX * f.s, y: f.oy + r.minY * f.s, width: r.width * f.s, height: r.height * f.s)
+        CGRect(x: f.ox + (r.minX - f.srx) * f.s, y: f.oy + (r.minY - f.sry) * f.s,
+               width: r.width * f.s, height: r.height * f.s)
     }
     private func toDisplay(_ p: CGPoint, _ f: Fit) -> CGPoint {
-        CGPoint(x: f.ox + p.x * f.s, y: f.oy + p.y * f.s)
+        CGPoint(x: f.ox + (p.x - f.srx) * f.s, y: f.oy + (p.y - f.sry) * f.s)
     }
 
     private func cropCGRect() -> CGRect? {
@@ -277,7 +322,9 @@ struct EditorOverlay: View {
     }
 
     private func draw(_ ctx: GraphicsContext, _ f: Fit) {
-        let imageRect = CGRect(x: f.ox, y: f.oy, width: f.dw, height: f.dh)
+        // Full image at its display rect — in viewCropped mode this extends past
+        // the viewport (only the crop region shows; the rest is clipped).
+        let imageRect = toDisplay(CGRect(origin: .zero, size: model.imageSize), f)
         ctx.draw(ctx.resolve(Image(decorative: model.rawImage, scale: 1)), in: imageRect)
 
         for a in model.annotations { drawAnnotationPreview(ctx, a, f) }
@@ -319,8 +366,9 @@ struct EditorOverlay: View {
             ctx.stroke(Path(ellipseIn: box), with: .color(color), lineWidth: max(2, radius * 0.22))
         }
 
-        // Crop: dim outside; corner handles in the Crop tool for resizing.
-        if let crop = cropCGRect() {
+        // Crop box + dim ONLY on the full image (viewCropped shows just the crop,
+        // so no dim/box). Corner handles in the Crop tool for resizing.
+        if !viewCropped, let crop = cropCGRect() {
             let cr = toDisplay(crop, f)
             var outside = Path(imageRect)
             outside.addRect(cr)
@@ -484,7 +532,11 @@ struct EditorOverlay: View {
                     case .createRedact:
                         if let r = draftRect, r.width >= 5, r.height >= 5 { model.addRedaction(r) }
                     case .createCrop:
-                        if let r = draftRect, r.width >= 5, r.height >= 5 { model.setCrop(r) }
+                        if let r = draftRect, r.width >= 5, r.height >= 5 {
+                            model.setCrop(r)
+                            // Once cropped, fit the view to the crop + drop to Select.
+                            if model.crop != nil { viewCropped = true; model.tool = .select }
+                        }
                     case .createArrow:
                         if let (a, b) = draftArrow, hypot(b.x - a.x, b.y - a.y) >= 5 { model.addArrow(from: a, to: b) }
                     case .placeStamp:
