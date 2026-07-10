@@ -130,8 +130,10 @@ struct EditorOverlay: View {
             if model.editingTextID != nil { commitText() }
             model.selectedID = nil
             model.tool = tool
-            // Picking Crop shows the full image (fit) so the crop box can be adjusted.
-            if tool == .crop { viewCropped = false; editorZoom = 1 }
+            // Picking Crop shows the full image so the crop box can be adjusted;
+            // keep the current zoom (matching Windows — resetting it here jumped
+            // the view jarringly).
+            if tool == .crop { viewCropped = false }
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 15))
@@ -325,6 +327,9 @@ struct EditorOverlay: View {
                 }
                 .frame(width: f.frameW, height: f.frameH)
             }
+            // Anchor to the center so zooming (which changes the content size)
+            // keeps the middle of the view stable instead of jumping to top-left.
+            .defaultScrollAnchor(.center)
             .background(Color.black.opacity(0.15))
         }
         .clipped()
@@ -370,9 +375,16 @@ struct EditorOverlay: View {
         return nil
     }
 
-    private func draw(_ ctx: GraphicsContext, _ f: Fit) {
+    private func draw(_ ctx0: GraphicsContext, _ f: Fit) {
+        var ctx = ctx0
+        // In the cropped view, clip everything to the crop rect so out-of-crop
+        // pixels don't bleed into the centered letterbox margins (keeps the
+        // preview WYSIWYG with the exported crop).
+        if viewCropped, let crop = cropCGRect() {
+            ctx.clip(to: Path(toDisplay(crop, f)))
+        }
         // Full image at its display rect — in viewCropped mode this extends past
-        // the viewport (only the crop region shows; the rest is clipped).
+        // the crop (clipped above); otherwise it fills the frame.
         let imageRect = toDisplay(CGRect(origin: .zero, size: model.imageSize), f)
         ctx.draw(ctx.resolve(Image(decorative: model.rawImage, scale: 1)), in: imageRect)
 
