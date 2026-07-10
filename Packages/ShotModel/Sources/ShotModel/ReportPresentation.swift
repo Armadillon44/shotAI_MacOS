@@ -8,7 +8,9 @@ public enum ReportPresentation {
     /// Base display box for report images (display only — export is full-res).
     public static let baseWidth: Double = 820
     public static let baseHeight: Double = 600
-    public static let zoomMin: Double = 0.5
+    /// Report zoom is IN-only: 1 = fit, never below (a legacy/hand-edited
+    /// sub-1 value is floored to 1 on read, matching Windows ZOOM_MIN).
+    public static let zoomMin: Double = 1
     public static let zoomMax: Double = 4
 
     /// High-contrast accent for markers (rose-600) and the right-click blue —
@@ -92,11 +94,14 @@ public enum ReportPresentation {
 
     public static func viewport(
         for step: ProjectStep,
-        imagePixelSize: (width: Double, height: Double)
+        imagePixelSize: (width: Double, height: Double),
+        zoomOverride: Double? = nil
     ) -> Viewport? {
         let (w, h) = imagePixelSize
         guard w > 0, h > 0 else { return nil }
-        let zoom = min(max(step.reportZoom ?? 1, zoomMin), zoomMax)
+        // zoomOverride drives the optimistic in-editor zoom before the persisted
+        // value round-trips; both are clamped to the IN-only [1, max] range.
+        let zoom = min(max(zoomOverride ?? step.reportZoom ?? 1, zoomMin), zoomMax)
         let baseScale = min(baseWidth / w, baseHeight / h, 1)
         let baseW = w * baseScale
         let baseH = h * baseScale
