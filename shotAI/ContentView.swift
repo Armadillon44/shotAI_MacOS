@@ -1,6 +1,7 @@
 import AppKit
 import CaptureKit
 import EditorKit
+import ExportKit
 import QuartzCore
 import ShotModel
 import SwiftUI
@@ -95,11 +96,29 @@ struct ContentView: View {
                     .disabled(editor.saving || editor.scanning)
                 }
             } else if model.opened != nil {
-                // In a project/report: just Back. (Record removed — the report's
-                // "＋ → Capture steps…" covers recording more steps.)
+                // In a project/report: Back + Export. (Record removed — the
+                // report's "＋ → Capture steps…" covers recording more steps.)
                 ToolbarItem(placement: .navigation) {
                     Button("Back", systemImage: "chevron.left") { model.closeToHome() }
                         .help("Back to all projects")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button("HTML Document") { export(.html) }
+                        Button("PDF") { export(.pdf) }
+                        Button("Markdown") { export(.markdown) }
+                        Divider()
+                        Button("HTML for Word / Google Docs") { export(.htmlPlain) }
+                    } label: {
+                        if model.exporting {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Export", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    .menuIndicator(.hidden)
+                    .disabled(model.exporting)
+                    .help("Export this SOP to a shareable document")
                 }
             } else {
                 // Home (project list): open another project + refresh the list.
@@ -172,6 +191,14 @@ struct ContentView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+        .alert(
+            "Export failed",
+            isPresented: Binding(get: { model.exportError != nil }, set: { if !$0 { model.exportError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.exportError ?? "")
+        }
         .task {
             await model.refresh()
             // Live-refresh the report as steps land; refresh everything when
@@ -216,6 +243,13 @@ struct ContentView: View {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             window.animator().setFrame(f, display: true)
         }
+    }
+
+    /// Kick off an export of the opened project. The heavy work (flatten + write)
+    /// runs on `AppModel`; on success it reveals the file in Finder, on failure it
+    /// sets `exportError` (shown by the alert above).
+    private func export(_ format: ExportFormat) {
+        Task { await model.exportOpened(format: format) }
     }
 
     /// Open the annotation editor for a step (loads its raw screenshot). If the

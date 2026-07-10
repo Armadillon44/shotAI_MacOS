@@ -1,0 +1,74 @@
+import Foundation
+
+/// The export formats ExportKit can produce. (Native .docx/.pptx are out of
+/// scope for now; html-plain is the "paste into Word/Docs" path.)
+public enum ExportFormat: String, CaseIterable, Sendable {
+    case html            // self-contained styled HTML, images inlined as data URIs
+    case htmlPlain = "html-plain" // semantic-only HTML for pasting into Word/Docs
+    case markdown        // .md + a sibling <stem>-images/ folder
+    case pdf             // rendered from the styled HTML (X2)
+
+    public var ext: String {
+        switch self {
+        case .html, .htmlPlain: ".html"
+        case .markdown: ".md"
+        case .pdf: ".pdf"
+        }
+    }
+
+    /// The stem suffix (html-plain writes `<base>-plain.html` so it doesn't
+    /// collide with the styled `<base>.html`).
+    public var stemSuffix: String { self == .htmlPlain ? "-plain" : "" }
+}
+
+/// The result of an export: which format + where the file landed.
+public struct ExportResult: Sendable {
+    public var format: ExportFormat
+    public var outputPath: String
+    public init(format: ExportFormat, outputPath: String) {
+        self.format = format
+        self.outputPath = outputPath
+    }
+}
+
+public enum ExportError: Error, LocalizedError, Equatable {
+    case nothingToExport
+    case renderMissing(step: String, rel: String)
+    case imageReadFailed(step: String)
+    case writeFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .nothingToExport:
+            "This project has nothing to export yet — add a step first."
+        case .renderMissing(let step, let rel):
+            "\(step)'s screenshot render is missing from disk (\(rel)). Open it in the editor and save to re-bake the render, then export again."
+        case .imageReadFailed(let step):
+            "\(step)'s image could not be read."
+        case .writeFailed(let msg):
+            "Could not write the export: \(msg)"
+        }
+    }
+}
+
+/// The safe, resolved image for a shot step: an on-disk render path plus, when
+/// the report is zoomed, the pre-cropped PNG bytes (which override the path). A
+/// crop is always re-encoded PNG, so `mediaType`/`ext` flip to PNG then.
+struct ExportImage {
+    var abs: String
+    var mediaType: String // "image/png" | "image/jpeg"
+    var ext: String       // ".png" | ".jpg" | …
+    var croppedBytes: Data?
+}
+
+/// One collected export unit — mirrors the Windows ExportItem union produced by
+/// collectSteps (the single fail-closed collector all formats consume).
+enum ExportItem {
+    case shot(n: Int, caption: String, body: String, note: String, stepId: String, image: ExportImage)
+    case text(n: Int, heading: String, body: String)
+    case callout(kind: CalloutKindExport, heading: String, body: String)
+}
+
+/// The three callout kinds, re-exposed so ExportKit doesn't leak the ShotModel
+/// enum through its item type. Mapped 1:1 from ShotModel.CalloutKind.
+enum CalloutKindExport: String { case note, caution, warning }
