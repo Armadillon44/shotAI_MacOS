@@ -17,21 +17,12 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
     @Environment(CaptureCoordinator.self) private var capture
     @State private var showOpenPanel = false
-    @State private var recordSheetTarget: RecordTarget?
     /// The editor model for the step currently being annotated (Phase C), or nil.
     @State private var editor: EditorModel?
     /// Message shown when a step can't be opened for editing.
     @State private var editorError: String?
     /// The hosting window, captured once, so we can size it per surface.
     @State private var window: NSWindow?
-
-    private struct RecordTarget: Identifiable {
-        let path: String
-        /// True when the project was created just for this recording — a
-        /// discard then deletes the whole project folder.
-        var createdThisSession = false
-        var id: String { path }
-    }
 
     var body: some View {
         @Bindable var model = model
@@ -105,17 +96,12 @@ struct ContentView: View {
                         Button("Back", systemImage: "chevron.left") { model.closeToHome() }
                             .help("Back to all projects")
                     }
-                    ToolbarItem {
-                        Button("Record", systemImage: "record.circle") { startRecordFlow() }
-                            .disabled(capture.state.status != .idle)
-                            .help("Record more steps into this project")
-                    }
+                    // Record removed — the report's "＋ → Capture steps…" flow
+                    // covers recording more steps into an open project.
                 }
-                ToolbarItem {
-                    Button("Permissions", systemImage: "lock.shield") {
-                        capture.showWizard = true
-                    }
-                }
+                // Permissions moved off the toolbar; it'll live in a Settings menu
+                // (TODO). The wizard still auto-shows on first run + when a capture
+                // is blocked on Screen Recording.
                 ToolbarItem {
                     Button("Open Project…", systemImage: "folder.badge.plus") {
                         showOpenPanel = true
@@ -132,13 +118,6 @@ struct ContentView: View {
             if case .success(let url) = result {
                 Task { await model.openUserPicked(url) }
             }
-        }
-        .sheet(item: $recordSheetTarget) { target in
-            RecordSheet(
-                projectPath: target.path,
-                createdThisSession: target.createdThisSession,
-                coordinator: capture
-            )
         }
         // Overlay, NOT a `.sheet`: a presented sheet vetoes app termination
         // (⌘Q returns -128), and this wizard shows on every launch until Screen
@@ -246,20 +225,6 @@ struct ContentView: View {
             editor = m
         } else {
             editorError = "This step's screenshot (\(step.screenshot)) couldn't be opened for editing — it may be missing or corrupt."
-        }
-    }
-
-    /// Record into the opened project, or create a fresh one (which discard
-    /// then deletes entirely — the createdThisSession contract).
-    private func startRecordFlow() {
-        if let opened = model.opened {
-            recordSheetTarget = RecordTarget(path: opened.dir)
-        } else {
-            Task {
-                if let path = await model.createAndSelectProject() {
-                    recordSheetTarget = RecordTarget(path: path, createdThisSession: true)
-                }
-            }
         }
     }
 
