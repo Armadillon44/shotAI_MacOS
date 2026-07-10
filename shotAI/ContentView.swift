@@ -102,12 +102,16 @@ struct ContentView: View {
                 // Permissions moved off the toolbar; it'll live in a Settings menu
                 // (TODO). The wizard still auto-shows on first run + when a capture
                 // is blocked on Screen Recording.
-                ToolbarItem {
+                //
+                // Explicit .primaryAction (a SEMANTIC placement): default
+                // .automatic toolbar items LINGER across a conditional toolbar
+                // swap on macOS (they'd stay visible in the editor even though
+                // this else-branch isn't rendered), whereas semantic placements
+                // swap out cleanly — like Back (.navigation) does.
+                ToolbarItemGroup(placement: .primaryAction) {
                     Button("Open Project…", systemImage: "folder.badge.plus") {
                         showOpenPanel = true
                     }
-                }
-                ToolbarItem {
                     Button("Refresh", systemImage: "arrow.clockwise") {
                         Task { await model.refresh() }
                     }
