@@ -456,8 +456,12 @@ private struct StepRow: View {
             // Force a fresh figure (new @State → reload) whenever the render
             // revision or path changes, so a re-saved redaction refreshes in
             // place instead of showing the cached image until reopen.
-            StepFigure(step: step, projectDir: projectDir, relPath: rel)
-                .id("\(step.id)#\(step.renderRev ?? 0)#\(rel)")
+            StepFigure(
+                step: step, projectDir: projectDir, relPath: rel,
+                onZoom: { z in Task { await model.setReportZoom(stepId: step.id, z) } },
+                onReframe: { px, py in Task { await model.setReportPan(stepId: step.id, panX: px, panY: py) } }
+            )
+            .id("\(step.id)#\(step.renderRev ?? 0)#\(rel)")
         }
         InlineEditable(text: step.body ?? "", placeholder: "+ Add instructions", multiline: true, id: "body:\(step.id)", focus: focus) { new in
             Task { await model.editStepText(stepId: step.id, body: new) }
@@ -679,9 +683,23 @@ private struct StepFigure: View {
     let step: ProjectStep
     let projectDir: String
     let relPath: String
+    /// Set an absolute report zoom (AppModel clamps to 1…max).
+    var onZoom: (Double) -> Void = { _ in }
+    /// Persist the pan as fractions (0…1) of the scrollable range.
+    var onReframe: (Double, Double) -> Void = { _, _ in }
 
     @State private var loaded: (image: NSImage, pixelSize: (width: Double, height: Double))?
     @State private var failed = false
+    /// Live image offset while dragging (and until the persisted pan catches up),
+    /// so the pan doesn't flash back to the old value during the async save.
+    @State private var liveOffset: CGSize?
+    @State private var hovering = false
+
+    /// Effective zoom (never below fit), matching the viewport's read floor.
+    private var zoom: Double { max(1, step.reportZoom ?? 1) }
+    /// Key that changes when the persisted framing does — clears liveOffset once
+    /// the save round-trips so the two can't drift.
+    private var frameKey: String { "\(step.reportZoom ?? 1)|\(step.reportPanX ?? 0.5)|\(step.reportPanY ?? 0.5)" }
 
     var body: some View {
         Group {
@@ -702,24 +720,86 @@ private struct StepFigure: View {
         // reuses export/.render/<id>.png and only bumps renderRev, so the render
         // revision must be part of the reload key or the old image stays cached.
         .task(id: "\(relPath)#\(step.renderRev ?? 0)") { load() }
+        // Once the persisted framing catches up (or zoom changes), drop the live
+        // override so the viewport geometry is the single source of truth.
+        .onChange(of: frameKey) { liveOffset = nil }
     }
 
     private func figure(_ image: NSImage, _ pixelSize: (width: Double, height: Double), _ v: ReportPresentation.Viewport) -> some View {
-        ZStack(alignment: .topLeading) {
-            Image(nsImage: image)
-                .resizable()
-                .interpolation(.high)
-                .frame(width: v.imageWidth, height: v.imageHeight)
-            if let f = ReportPresentation.markerFraction(for: step, displayedImageSize: pixelSize) {
-                MarkerRing(colorHex: ReportPresentation.markerColorHex(for: step))
-                    .position(x: f.x * v.imageWidth, y: f.y * v.imageHeight)
+        let rangeX = v.imageWidth - v.boxWidth
+        let rangeY = v.imageHeight - v.boxHeight
+        let canPan = rangeX > 0.5 || rangeY > 0.5
+        let base = CGSize(width: v.offsetX, height: v.offsetY)
+        let shown = liveOffset ?? base
+        return ZStack(alignment: .topTrailing) {
+            // The clipped, pannable image box.
+            ZStack(alignment: .topLeading) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: v.imageWidth, height: v.imageHeight)
+                if let f = ReportPresentation.markerFraction(for: step, displayedImageSize: pixelSize) {
+                    MarkerRing(colorHex: ReportPresentation.markerColorHex(for: step))
+                        .position(x: f.x * v.imageWidth, y: f.y * v.imageHeight)
+                }
             }
+            .frame(width: v.imageWidth, height: v.imageHeight, alignment: .topLeading)
+            .offset(x: shown.width, y: shown.height)
+            .frame(width: v.boxWidth, height: v.boxHeight, alignment: .topLeading)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.hair))
+            .contentShape(Rectangle())
+            .gesture(canPan ? panGesture(base: base, rangeX: rangeX, rangeY: rangeY) : nil)
+
+            // Floating zoom controls (top-right, outside the clipped box so they
+            // don't pan). Faint until hover.
+            zoomControls
+                .padding(6)
+                .opacity(hovering ? 1 : 0.35)
         }
-        .frame(width: v.imageWidth, height: v.imageHeight, alignment: .topLeading)
-        .offset(x: v.offsetX, y: v.offsetY)
         .frame(width: v.boxWidth, height: v.boxHeight, alignment: .topLeading)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.hair))
+        .onHover { hovering = $0 }
+    }
+
+    private var zoomControls: some View {
+        HStack(spacing: 2) {
+            ctlButton("plus.magnifyingglass", "Zoom in") { onZoom(zoom * 1.25) }
+            ctlButton("minus.magnifyingglass", "Zoom out", disabled: zoom <= 1) { onZoom(zoom / 1.25) }
+            ctlButton("arrow.counterclockwise", "Reset zoom", disabled: zoom == 1) { onZoom(1) }
+        }
+        .padding(4)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Palette.hair))
+    }
+
+    private func ctlButton(_ icon: String, _ help: String, disabled: Bool = false, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 11)).frame(width: 22, height: 20).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .foregroundStyle(disabled ? Color.secondary.opacity(0.4) : Color.primary)
+        .help(help)
+    }
+
+    private func panGesture(base: CGSize, rangeX: Double, rangeY: Double) -> some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { value in
+                liveOffset = clampedOffset(base: base, translation: value.translation, rangeX: rangeX, rangeY: rangeY)
+            }
+            .onEnded { value in
+                let off = clampedOffset(base: base, translation: value.translation, rangeX: rangeX, rangeY: rangeY)
+                liveOffset = off
+                onReframe(rangeX > 0 ? -off.width / rangeX : 0.5,
+                          rangeY > 0 ? -off.height / rangeY : 0.5)
+            }
+    }
+
+    /// Offset is ≤ 0 and ≥ -range on each axis (0 = flush left/top, -range = flush
+    /// right/bottom), so the image can't be dragged past its edges.
+    private func clampedOffset(base: CGSize, translation: CGSize, rangeX: Double, rangeY: Double) -> CGSize {
+        CGSize(width: min(0, max(-rangeX, base.width + translation.width)),
+               height: min(0, max(-rangeY, base.height + translation.height)))
     }
 
     private func load() {

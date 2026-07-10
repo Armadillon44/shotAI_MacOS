@@ -206,6 +206,36 @@ final class AppModel {
         }
     }
 
+    // MARK: - Report display zoom/pan (R3 — per-step, display-only)
+
+    /// Set a step's report zoom (clamped 1…max; 1 = fit). Display-only: the patch
+    /// doesn't touch annotations/crop, so updateStep leaves the baked render alone.
+    func setReportZoom(stepId: String, _ zoom: Double) async {
+        guard let dir = opened?.dir else { return }
+        var patch = StepPatch()
+        patch.reportZoom = min(max(zoom, 1), ReportPresentation.zoomMax)
+        await applyDisplayPatch(dir: dir, stepId: stepId, patch: patch, what: "setReportZoom")
+    }
+
+    /// Set a step's report pan (fractions 0…1 of the scrollable range; 0.5 = center).
+    func setReportPan(stepId: String, panX: Double, panY: Double) async {
+        guard let dir = opened?.dir else { return }
+        var patch = StepPatch()
+        patch.reportPanX = min(max(panX, 0), 1)
+        patch.reportPanY = min(max(panY, 0), 1)
+        await applyDisplayPatch(dir: dir, stepId: stepId, patch: patch, what: "setReportPan")
+    }
+
+    private func applyDisplayPatch(dir: String, stepId: String, patch: StepPatch, what: String) async {
+        do {
+            _ = try await store.updateStep(at: dir, stepId: stepId, patch: patch, flattenedPng: nil)
+            await reloadOnly() // display-only → don't clear a pending merge-undo
+        } catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("\(what, privacy: .public) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
     // MARK: - Report structure (R2: delete / reorder)
 
     /// Delete one step (and its screenshot/render), then re-render + re-list.
