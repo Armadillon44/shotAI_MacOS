@@ -775,10 +775,10 @@ private struct StepFigure: View {
     }
 
     private var zoomControls: some View {
-        HStack(spacing: 2) {
-            ctlButton("plus.magnifyingglass", "Zoom in", disabled: zoom >= ReportPresentation.zoomMax) { applyZoom(zoom * 1.25) }
-            ctlButton("minus.magnifyingglass", "Zoom out", disabled: zoom <= 1) { applyZoom(zoom / 1.25) }
-            ctlButton("arrow.counterclockwise", "Reset zoom", disabled: zoom == 1) { applyZoom(1) }
+        VStack(spacing: 3) {
+            CtlButton(icon: "plus.magnifyingglass", help: "Zoom in", disabled: zoom >= ReportPresentation.zoomMax) { applyZoom(zoom * 1.25) }
+            CtlButton(icon: "minus.magnifyingglass", help: "Zoom out", disabled: zoom <= 1) { applyZoom(zoom / 1.25) }
+            CtlButton(icon: "arrow.counterclockwise", help: "Reset zoom", disabled: zoom == 1) { applyZoom(1) }
         }
         .padding(4)
         .background(.ultraThinMaterial, in: Capsule())
@@ -795,15 +795,6 @@ private struct StepFigure: View {
         onZoom(z)
     }
 
-    private func ctlButton(_ icon: String, _ help: String, disabled: Bool = false, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon).font(.system(size: 11)).frame(width: 22, height: 20).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        .foregroundStyle(disabled ? Color.secondary.opacity(0.4) : Color.primary)
-        .help(help)
-    }
 
     private func panGesture(shown: CGSize, rangeX: Double, rangeY: Double) -> some Gesture {
         DragGesture(minimumDistance: 2)
@@ -847,6 +838,34 @@ private struct StepFigure: View {
         // stored-PNG pixel space.
         let size = (width: Double(cg.width), height: Double(cg.height))
         loaded = (NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)), size)
+    }
+}
+
+/// A report zoom control button: highlights with the brand accent on hover when
+/// enabled; stays dimmed and inert when disabled.
+private struct CtlButton: View {
+    let icon: String
+    let help: String
+    var disabled = false
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 30, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .foregroundStyle(disabled ? Color.secondary.opacity(0.4) : (hover ? Palette.accent : Color.primary))
+        .background(
+            (hover && !disabled ? Palette.accent.opacity(0.16) : Color.clear),
+            in: RoundedRectangle(cornerRadius: 6)
+        )
+        .onHover { hover = $0 }
+        .help(help)
     }
 }
 
