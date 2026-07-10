@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import EditorKit
 import Foundation
@@ -13,7 +14,7 @@ import ShotModel
 @MainActor
 @Observable
 final class EditorModel {
-    enum Tool: String, CaseIterable { case select, box, arrow, redact, crop }
+    enum Tool: String, CaseIterable { case select, box, arrow, redact, number, marker, text, crop }
 
     let step: ProjectStep
     let projectDir: String
@@ -32,6 +33,8 @@ final class EditorModel {
     /// Stroke width for new shapes + applied to the selection (seeded to the
     /// image-scaled default in init).
     var strokeWidth: Double = Double(AnnotationStyle.defaultStrokeWidth)
+    /// Font size for new text + applied to the selected text (seeded in init).
+    var fontSize: Double = 28
     var selectedID: String?
     var scanning = false
     var saving = false
@@ -64,6 +67,8 @@ final class EditorModel {
         // very large image's default can't sit above the slider's range.
         self.strokeWidth = min(40, Double(AnnotationStyle.defaultStrokeWidth(
             width: imageSize.width, height: imageSize.height)))
+        self.fontSize = Double(AnnotationStyle.defaultFontSize(
+            width: imageSize.width, height: imageSize.height))
         Log.editor.info("editor opened step \(step.id, privacy: .public) raw=\(cg.width, privacy: .public)x\(cg.height, privacy: .public)")
     }
 
@@ -127,6 +132,42 @@ final class EditorModel {
         tool = .select
     }
 
+    /// Add a numbered stamp centered at `point`. The number is (existing stamps)+1
+    /// — free labels, NOT tied to step order, and NOT renumbered on delete
+    /// (matching Windows). Fill = current color; digits white.
+    func addStamp(at point: CGPoint) {
+        let n = annotations.reduce(0) { if case .stamp = $1 { return $0 + 1 }; return $0 } + 1
+        let radius = Double(AnnotationStyle.defaultStampRadius(width: imageSize.width, height: imageSize.height))
+        let id = newAnnotationID()
+        annotations.append(.stamp(StampAnnotation(
+            id: id, x: point.x, y: point.y, n: n, radius: radius,
+            fill: strokeColor, textColor: "#ffffff")))
+        selectedID = id
+        tool = .select
+    }
+
+    /// Add a movable click-register ring centered at `point` (radius derived from
+    /// the image at draw time — only center + color are stored).
+    func addMarker(at point: CGPoint) {
+        let id = newAnnotationID()
+        annotations.append(.marker(MarkerAnnotation(
+            id: id, x: point.x, y: point.y, color: strokeColor, radius: nil)))
+        selectedID = id
+        tool = .select
+    }
+
+    /// Add an (initially empty) text label at `point`; the overlay opens the
+    /// inline editor. Empty text is dropped on commit/save.
+    @discardableResult
+    func addText(at point: CGPoint) -> String {
+        let id = newAnnotationID()
+        annotations.append(.text(TextAnnotation(
+            id: id, x: point.x, y: point.y, text: "", fontSize: fontSize, fill: strokeColor)))
+        selectedID = id
+        tool = .select
+        return id
+    }
+
     // MARK: - Selection & editing (all editable shape types)
 
     private var selectedIndex: Int? {
@@ -135,8 +176,7 @@ final class EditorModel {
     }
 
     /// Bounding rect (image px) of an editable annotation — for hit-testing,
-    /// selection handles, and resize. nil for types E1 doesn't edit yet
-    /// (stamp / marker / text stay preview-only until E2).
+    /// selection handles, and resize. nil only for unknown/unsupported types.
     func bounds(of a: Annotation) -> CGRect? {
         switch a {
         case .rect(let r): return CGRect(x: r.x, y: r.y, width: r.width, height: r.height)
@@ -145,8 +185,27 @@ final class EditorModel {
             return normalizedPositive(CGRect(
                 x: ar.points[0], y: ar.points[1],
                 width: ar.points[2] - ar.points[0], height: ar.points[3] - ar.points[1]))
-        default: return nil
+        case .stamp(let s):
+            return CGRect(x: s.x - s.radius, y: s.y - s.radius, width: s.radius * 2, height: s.radius * 2)
+        case .marker(let m):
+            let r = m.radius ?? Double(AnnotationStyle.clickMarkerRadius(width: imageSize.width, height: imageSize.height))
+            return CGRect(x: m.x - r, y: m.y - r, width: r * 2, height: r * 2)
+        case .text(let t):
+            return textBounds(t)
+        default:
+            return nil
         }
+    }
+
+    /// Measured bounding box of a text label (image px), top-left at (x,y). Uses
+    /// Helvetica to match Flatten's baked font; an empty label gets a small
+    /// clickable box so it can still be selected.
+    func textBounds(_ t: TextAnnotation) -> CGRect {
+        let font = NSFont(name: "Helvetica", size: t.fontSize) ?? NSFont.systemFont(ofSize: t.fontSize)
+        let measured = (t.text.isEmpty ? "Text" : t.text) as NSString
+        let size = measured.size(withAttributes: [.font: font])
+        return CGRect(x: t.x, y: t.y,
+                      width: max(size.width, t.fontSize), height: max(size.height, t.fontSize))
     }
 
     func boundsOfSelected() -> CGRect? {
@@ -160,14 +219,31 @@ final class EditorModel {
         return annotations[i]
     }
 
-    /// Whether the selection exposes the color + stroke-width controls.
+    /// Whether the selection has a user-editable color (drives the color picker).
     var selectedIsColorable: Bool {
+        switch selected { case .rect, .arrow, .stamp, .marker, .text: return true; default: return false }
+    }
+
+    /// Whether the selection uses the stroke-width slider (box/arrow only).
+    var selectedHasStrokeWidth: Bool {
         switch selected { case .rect, .arrow: return true; default: return false }
     }
 
     var selectedIsBlur: Bool {
         if case .blur = selected { return true }
         return false
+    }
+
+    var selectedIsText: Bool {
+        if case .text = selected { return true }
+        return false
+    }
+
+    /// Text is sized via the font slider, not corner handles; everything else
+    /// gets a resize handle.
+    var selectedIsResizable: Bool {
+        guard selectedID != nil, !selectedIsText else { return false }
+        return boundsOfSelected() != nil
     }
 
     /// Select the topmost editable annotation under `point` (image px), syncing
@@ -179,6 +255,9 @@ final class EditorModel {
             case .rect(let r): strokeColor = r.stroke; strokeWidth = r.strokeWidth
             case .arrow(let ar): strokeColor = ar.stroke; strokeWidth = ar.strokeWidth
             case .blur(let b): redactMode = b.mode; redactBlock = b.blockSize
+            case .stamp(let s): strokeColor = s.fill
+            case .marker(let m): strokeColor = m.color
+            case .text(let t): strokeColor = t.fill; fontSize = t.fontSize
             default: break
             }
             return
@@ -188,16 +267,29 @@ final class EditorModel {
 
     private func hitTest(_ a: Annotation, _ p: CGPoint) -> Bool {
         switch a {
-        case .rect, .blur:
+        case .rect, .blur, .text:
             return bounds(of: a)?.contains(p) ?? false
         case .arrow(let ar) where ar.points.count == 4:
             let d = distanceToSegment(p,
                 CGPoint(x: ar.points[0], y: ar.points[1]),
                 CGPoint(x: ar.points[2], y: ar.points[3]))
             return d <= max(ar.strokeWidth, 10) // fat hit band so thin arrows are grabbable
+        case .stamp(let s):
+            return hypot(p.x - s.x, p.y - s.y) <= s.radius
+        case .marker(let m):
+            let r = m.radius ?? Double(AnnotationStyle.clickMarkerRadius(width: imageSize.width, height: imageSize.height))
+            return hypot(p.x - m.x, p.y - m.y) <= r
         default:
             return false
         }
+    }
+
+    /// Topmost text label under `point` — for double-click-to-edit.
+    func textAt(_ point: CGPoint) -> TextAnnotation? {
+        for a in annotations.reversed() {
+            if case .text(let t) = a, textBounds(t).contains(point) { return t }
+        }
+        return nil
     }
 
     /// Translate the selected annotation by (dx, dy), starting from `original`
@@ -222,8 +314,32 @@ final class EditorModel {
         switch annotations[i] {
         case .rect(var r): r.stroke = hex; annotations[i] = .rect(r)
         case .arrow(var ar): ar.stroke = hex; annotations[i] = .arrow(ar)
+        case .stamp(var s): s.fill = hex; annotations[i] = .stamp(s)
+        case .marker(var m): m.color = hex; annotations[i] = .marker(m)
+        case .text(var t): t.fill = hex; annotations[i] = .text(t)
         default: break
         }
+    }
+
+    func setSelectedFontSize(_ size: Double) {
+        guard let i = selectedIndex, case .text(var t) = annotations[i] else { return }
+        t.fontSize = size
+        annotations[i] = .text(t)
+    }
+
+    /// Set a text label's content (inline editor commit). Empty text is left for
+    /// the caller to drop.
+    func setTextContent(id: String, _ text: String) {
+        guard let i = annotations.firstIndex(where: { $0.id == id }),
+              case .text(var t) = annotations[i] else { return }
+        t.text = text
+        annotations[i] = .text(t)
+    }
+
+    /// Remove a specific annotation by id (used to drop an empty text on commit).
+    func deleteAnnotation(id: String) {
+        annotations.removeAll { $0.id == id }
+        if selectedID == id { selectedID = nil }
     }
 
     func setSelectedStrokeWidth(_ w: Double) {
@@ -264,6 +380,9 @@ final class EditorModel {
         case .arrow(var ar) where ar.points.count == 4:
             ar.points = [ar.points[0] + dx, ar.points[1] + dy, ar.points[2] + dx, ar.points[3] + dy]
             return .arrow(ar)
+        case .stamp(var s): s.x += dx; s.y += dy; return .stamp(s)
+        case .marker(var m): m.x += dx; m.y += dy; return .marker(m)
+        case .text(var t): t.x += dx; t.y += dy; return .text(t)
         default: return a
         }
     }
@@ -281,7 +400,12 @@ final class EditorModel {
         case .arrow(var ar) where ar.points.count == 4:
             ar.points = [mapX(ar.points[0]), mapY(ar.points[1]), mapX(ar.points[2]), mapY(ar.points[3])]
             return .arrow(ar)
-        default: return a
+        case .stamp(var s):
+            // keepRatio: grow/shrink the circle from its (unchanged) center.
+            s.radius = max(4, max(nb.width, nb.height) / 2); return .stamp(s)
+        case .marker(var m):
+            m.radius = max(4, max(nb.width, nb.height) / 2); return .marker(m)
+        default: return a // text isn't handle-resized
         }
     }
 
