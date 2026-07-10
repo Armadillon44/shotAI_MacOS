@@ -32,14 +32,38 @@ struct EditorOverlay: View {
     // focus flag is view-only.
     @FocusState private var textFocused: Bool
 
+    /// Points→pixels for this display (2 on Retina). Used so "100%" means actual
+    /// size (1 image pixel : 1 device pixel), not 1 image px : 1 point.
+    @Environment(\.displayScale) private var displayScale
+
     /// When a crop is set, show ONLY the cropped region fit-to-view (matching the
     /// report + export). Cleared to adjust the crop on the full image.
     @State private var viewCropped = false
 
-    /// Editor zoom multiplier on the fit-to-view scale (1 = whole image fits).
-    /// The canvas scrolls when a zoomed image exceeds the viewport.
-    @State private var editorZoom: CGFloat = 1
-    private func setZoom(_ z: CGFloat) { editorZoom = min(8, max(0.5, z)) }
+    /// Editor zoom. `.fit` fits the shown rect to the viewport (the DEFAULT, and
+    /// re-fits on resize); `.absolute(z)` is a true scale where z = points per
+    /// image pixel (so 1.0 = a real 100%, 1 image px : 1 pt). The canvas scrolls
+    /// when the content exceeds the viewport.
+    enum ZoomMode: Equatable { case fit; case absolute(CGFloat) }
+    @State private var zoomMode: ZoomMode = .fit
+    /// Latest canvas viewport, tracked so the zoom cluster (outside the canvas
+    /// GeometryReader) can compute the fit scale + the true % label.
+    @State private var viewportSize: CGSize = .zero
+
+    /// Fit-to-viewport scale for the currently-shown rect (points per image px).
+    private func fitScale(_ viewport: CGSize) -> CGFloat {
+        let sr = shownRect
+        guard viewport.width > 0, viewport.height > 0, sr.width > 0, sr.height > 0 else { return 1 }
+        return min(viewport.width / sr.width, viewport.height / sr.height)
+    }
+    /// Current ABSOLUTE display scale (1.0 = true 100%).
+    private var currentScale: CGFloat {
+        switch zoomMode {
+        case .fit: return fitScale(viewportSize)
+        case .absolute(let z): return z
+        }
+    }
+    private func setAbsoluteZoom(_ z: CGFloat) { zoomMode = .absolute(min(8, max(0.1, z))) }
 
     /// Live redaction-mosaic tiles, cached by region+block (a plain class so its
     /// mutation during the Canvas draw doesn't touch SwiftUI state).
@@ -96,19 +120,27 @@ struct EditorOverlay: View {
         .background(.thinMaterial)
     }
 
-    /// Zoom −/reset/+ pinned at the rail base (Windows layout). Scroll to pan.
+    /// Zoom −/label/+ pinned at the rail base. The label shows the TRUE scale;
+    /// clicking it snaps to a real 100% (1:1), or back to Fit if already there.
+    /// Scroll to pan.
     private var zoomCluster: some View {
-        VStack(spacing: 2) {
-            zoomButton("plus.magnifyingglass", "Zoom in") { setZoom(editorZoom * 1.25) }
-            Button { editorZoom = 1 } label: {
-                Text("\(Int((editorZoom * 100).rounded()))%")
+        // True 100% (actual size) = 1 image px : 1 device px → s = 1/displayScale.
+        let hundred = 1 / displayScale
+        let percent = Int((currentScale * displayScale * 100).rounded())
+        return VStack(spacing: 2) {
+            zoomButton("plus.magnifyingglass", "Zoom in") { setAbsoluteZoom(currentScale * 1.25) }
+            Button {
+                // Snap to actual-size 100%, or back to Fit if already there.
+                zoomMode = (percent == 100) ? .fit : .absolute(hundred)
+            } label: {
+                Text("\(percent)%")
                     .font(.system(size: 10, weight: .medium))
                     .frame(width: 40)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("Reset zoom to 100%")
-            zoomButton("minus.magnifyingglass", "Zoom out") { setZoom(editorZoom / 1.25) }
+            .help("Toggle 100% / Fit")
+            zoomButton("minus.magnifyingglass", "Zoom out") { setAbsoluteZoom(currentScale / 1.25) }
         }
     }
 
@@ -161,8 +193,8 @@ struct EditorOverlay: View {
                 }
             }
             if model.crop != nil {
-                Button(viewCropped ? "Show full" : "Fit to crop") { viewCropped.toggle(); editorZoom = 1 }
-                Button("Clear crop") { model.crop = nil; viewCropped = false; editorZoom = 1 }
+                Button(viewCropped ? "Show full" : "Fit to crop") { viewCropped.toggle(); zoomMode = .fit }
+                Button("Clear crop") { model.crop = nil; viewCropped = false; zoomMode = .fit }
             }
             Spacer(minLength: 12)
         }
@@ -331,6 +363,9 @@ struct EditorOverlay: View {
             // keeps the middle of the view stable instead of jumping to top-left.
             .defaultScrollAnchor(.center)
             .background(Color.black.opacity(0.15))
+            // Track the viewport so the zoom cluster can compute the fit scale +
+            // the true % label from outside this GeometryReader.
+            .onChange(of: geo.size, initial: true) { _, s in viewportSize = s }
         }
         .clipped()
     }
@@ -345,10 +380,20 @@ struct EditorOverlay: View {
         var frameW: CGFloat; var frameH: CGFloat
     }
 
+    /// The image region currently shown: the crop in viewCropped mode, else the
+    /// whole image.
+    private var shownRect: CGRect {
+        (viewCropped ? cropCGRect() : nil) ?? CGRect(origin: .zero, size: model.imageSize)
+    }
+
     private func fit(_ viewport: CGSize) -> Fit {
-        let sr = (viewCropped ? cropCGRect() : nil) ?? CGRect(origin: .zero, size: model.imageSize)
-        let base = min(viewport.width / sr.width, viewport.height / sr.height)
-        let s = base * editorZoom
+        let sr = shownRect
+        // Absolute scale: .fit → fit the shown rect; .absolute → that true scale.
+        let s: CGFloat
+        switch zoomMode {
+        case .fit: s = fitScale(viewport)
+        case .absolute(let z): s = z
+        }
         let dw = sr.width * s, dh = sr.height * s
         let frameW = max(dw, viewport.width), frameH = max(dh, viewport.height)
         return Fit(s: s, ox: (frameW - dw) / 2, oy: (frameH - dh) / 2,
@@ -608,7 +653,7 @@ struct EditorOverlay: View {
                         if let r = draftRect, r.width >= 5, r.height >= 5 {
                             model.setCrop(r)
                             // Once cropped, fit the view to the crop + drop to Select.
-                            if model.crop != nil { viewCropped = true; editorZoom = 1; model.tool = .select }
+                            if model.crop != nil { viewCropped = true; zoomMode = .fit; model.tool = .select }
                         }
                     case .createArrow:
                         if let (a, b) = draftArrow, hypot(b.x - a.x, b.y - a.y) >= 5 { model.addArrow(from: a, to: b) }
