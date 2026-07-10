@@ -54,6 +54,12 @@ struct ShotAIApp: App {
                 }
             }
         }
+
+        // Native Settings window (shotAI ▸ Settings… / ⌘,) — houses Permissions
+        // (which the toolbar shield used to open) + General.
+        Settings {
+            SettingsView()
+        }
     }
 }
 

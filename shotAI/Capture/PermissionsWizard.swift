@@ -1,48 +1,20 @@
+import AppKit
 import CaptureKit
 import SwiftUI
 
-/// First-run permissions wizard. Polls the non-prompting preflights every
-/// second so the list auto-updates when the user flips a toggle in System
-/// Settings. Screen Recording is the only hard requirement; Accessibility is
-/// recommended (element captions fail soft); Input Monitoring is a remedy
-/// step (a listen-only mouse tap usually needs no grant).
-struct PermissionsWizardView: View {
-    /// Called to close the wizard. Presented as an in-window overlay (not a
-    /// `.sheet`) — a SwiftUI sheet vetoes app termination while it's up, and
-    /// this wizard is shown on every launch until Screen Recording is granted,
-    /// which made the app unquittable except by Force Quit.
-    var onClose: () -> Void
+/// The live-updating list of capture permissions (Screen Recording required;
+/// Accessibility recommended; Input Monitoring a remedy step). Polls the
+/// non-prompting preflights every second so it reflects a change made in System
+/// Settings without a relaunch. Shared by the first-run wizard and the Settings
+/// window so the two can't drift.
+struct PermissionStatusList: View {
     @State private var granted: [CapturePermission: Bool] = [:]
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    private var screenRecordingGranted: Bool {
-        granted[.screenRecording] ?? false
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Permissions for recording")
-                .font(.title2.bold())
-            Text("shotAI captures a screenshot of each step as you click. macOS requires your explicit permission for that.")
-                .foregroundStyle(.secondary)
-
-            ForEach(CapturePermission.allCases, id: \.self) { permission in
-                permissionRow(permission)
-            }
-
-            Text("If a toggle is already on but recording still fails, macOS may require relaunching the app after granting.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            HStack {
-                Spacer()
-                Button("Relaunch shotAI") { relaunch() }
-                Button(screenRecordingGranted ? "Done" : "Continue anyway") { onClose() }
-                    .keyboardShortcut(.defaultAction)
-            }
+        VStack(spacing: 10) {
+            ForEach(CapturePermission.allCases, id: \.self) { permissionRow($0) }
         }
-        .padding(24)
-        .frame(width: 560)
         .onAppear(perform: refresh)
         .onReceive(timer) { _ in refresh() }
     }
@@ -88,12 +60,15 @@ struct PermissionsWizardView: View {
             granted[permission] = permission.isGranted()
         }
     }
+}
 
-    private func relaunch() {
-        // Spawn a detached shell that waits for THIS instance to fully exit,
-        // then opens a single fresh instance. `open -n` launched a second copy
-        // immediately and raced NSApp.terminate — leaving two instances. No
-        // `-n` here, so once we're gone `open` starts exactly one.
+/// Relaunch the app cleanly (some TCC grants only take effect on relaunch).
+enum AppRelaunch {
+    static func now() {
+        // Spawn a detached shell that waits for THIS instance to fully exit, then
+        // opens a single fresh instance. `open -n` launched a second copy
+        // immediately and raced NSApp.terminate — leaving two instances. No `-n`
+        // here, so once we're gone `open` starts exactly one.
         let path = Bundle.main.bundlePath
         let pid = ProcessInfo.processInfo.processIdentifier
         let task = Process()
@@ -104,5 +79,40 @@ struct PermissionsWizardView: View {
         ]
         try? task.run()
         NSApp.terminate(nil)
+    }
+}
+
+/// First-run permissions wizard, shown as an in-window overlay (not a `.sheet` —
+/// a SwiftUI sheet vetoes app termination while it's up, and this shows on every
+/// launch until Screen Recording is granted, which made the app unquittable
+/// except by Force Quit).
+struct PermissionsWizardView: View {
+    var onClose: () -> Void
+    @State private var screenGranted = CapturePermission.screenRecording.isGranted()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Permissions for recording")
+                .font(.title2.bold())
+            Text("shotAI captures a screenshot of each step as you click. macOS requires your explicit permission for that.")
+                .foregroundStyle(.secondary)
+
+            PermissionStatusList()
+
+            Text("If a toggle is already on but recording still fails, macOS may require relaunching the app after granting.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button("Relaunch shotAI") { AppRelaunch.now() }
+                Button(screenGranted ? "Done" : "Continue anyway") { onClose() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 560)
+        .onReceive(timer) { _ in screenGranted = CapturePermission.screenRecording.isGranted() }
     }
 }
