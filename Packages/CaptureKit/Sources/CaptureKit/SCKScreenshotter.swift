@@ -48,7 +48,9 @@ public final class SCKScreenshotter: Screenshotter, @unchecked Sendable {
         config.width = Int((filter.contentRect.width * scale).rounded())
         config.height = Int((filter.contentRect.height * scale).rounded())
         config.captureResolution = .best
-        config.showsCursor = true
+        // Exclude the mouse pointer from step screenshots — the click marker
+        // already shows where the user clicked, and a stray cursor is noise.
+        config.showsCursor = false
         config.pixelFormat = kCVPixelFormatType_32BGRA
 
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)

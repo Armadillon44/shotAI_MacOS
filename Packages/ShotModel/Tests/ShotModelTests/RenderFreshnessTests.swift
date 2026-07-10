@@ -111,6 +111,25 @@ import Testing
         cleanup()
     }
 
+    @Test func patchClickSetsAndClears() {
+        var step = ProjectStep(id: "s", order: 1, screenshot: "shots/s.png", trigger: .click)
+        step.click = StepClick(global: Point(x: 10, y: 10), image: Point(x: 5, y: 5), button: .left)
+        // .unset leaves the click untouched.
+        applyPatchAndInvalidate(&step, StepPatch(), hasFreshPng: true)
+        #expect(step.click != nil)
+        // .set(newClick) updates it.
+        var p1 = StepPatch()
+        p1.click = .set(StepClick(global: Point(x: 1, y: 1), image: Point(x: 9, y: 9), button: .left, radius: 30))
+        applyPatchAndInvalidate(&step, p1, hasFreshPng: true)
+        #expect(step.click?.image == Point(x: 9, y: 9))
+        #expect(step.click?.radius == 30)
+        // .set(nil) removes it (the editable click marker's delete).
+        var p2 = StepPatch(); p2.click = .set(nil)
+        applyPatchAndInvalidate(&step, p2, hasFreshPng: true)
+        #expect(step.click == nil)
+        cleanup()
+    }
+
     // MARK: - mergeSteps
 
     @Test func mergeStepsKeepsOneAndRenumbers() async throws {

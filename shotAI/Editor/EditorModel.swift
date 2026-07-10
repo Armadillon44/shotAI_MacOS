@@ -16,6 +16,11 @@ import ShotModel
 final class EditorModel {
     enum Tool: String, CaseIterable { case select, box, arrow, redact, number, marker, text, crop }
 
+    /// Sentinel selection id for the step's captured click marker (the Windows
+    /// CLICK_ID pseudo-element) — it's not an annotation, so selection/edit
+    /// special-case this id.
+    static let clickID = "__click__"
+
     let step: ProjectStep
     let projectDir: String
     let rawImage: CGImage
@@ -35,6 +40,18 @@ final class EditorModel {
     var strokeWidth: Double = Double(AnnotationStyle.defaultStrokeWidth)
     /// Font size for new text + applied to the selected text (seeded in init).
     var fontSize: Double = 28
+
+    // Editable captured click marker (the __click__ pseudo-element). Seeded from
+    // step.click; nil clickPoint = the marker was removed.
+    var clickPoint: CGPoint?
+    var clickRadius: Double?
+    var markerColor: String = AnnotationStyle.accent
+
+    // Inline text editing state — lifted from the view so save() can flush it
+    // deterministically (a Save while a field is focused must not lose the text).
+    var editingTextID: String?
+    var editingText: String = ""
+
     var selectedID: String?
     var scanning = false
     var saving = false
@@ -69,6 +86,12 @@ final class EditorModel {
             width: imageSize.width, height: imageSize.height)))
         self.fontSize = Double(AnnotationStyle.defaultFontSize(
             width: imageSize.width, height: imageSize.height))
+        // Seed the editable click marker from the captured click.
+        if let c = step.click {
+            self.clickPoint = CGPoint(x: c.image.x, y: c.image.y)
+            self.clickRadius = c.radius
+        }
+        self.markerColor = AnnotationStyle.markerColor(for: step)
         Log.editor.info("editor opened step \(step.id, privacy: .public) raw=\(cg.width, privacy: .public)x\(cg.height, privacy: .public)")
     }
 
@@ -165,7 +188,52 @@ final class EditorModel {
             id: id, x: point.x, y: point.y, text: "", fontSize: fontSize, fill: strokeColor)))
         selectedID = id
         tool = .select
+        editingText = ""
+        editingTextID = id // open the inline editor
         return id
+    }
+
+    // MARK: - Inline text editing (model-owned so save() can flush it)
+
+    func beginEditingText(id: String, initial: String) {
+        editingText = initial
+        editingTextID = id
+    }
+
+    /// Commit the in-progress inline text edit; empty labels are dropped.
+    /// Idempotent, and called at the top of save() so a Save-while-focused can't
+    /// lose the typed text or persist an orphaned empty label.
+    func commitPendingText() {
+        guard let id = editingTextID else { return }
+        let text = editingText
+        editingTextID = nil
+        editingText = ""
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            deleteAnnotation(id: id)
+        } else {
+            setTextContent(id: id, text)
+        }
+    }
+
+    // MARK: - Click marker (the __click__ pseudo-element)
+
+    func clickEffectiveRadius() -> Double {
+        clickRadius ?? Double(AnnotationStyle.clickMarkerRadius(width: imageSize.width, height: imageSize.height))
+    }
+
+    func clickBounds() -> CGRect? {
+        guard let p = clickPoint else { return nil }
+        let r = clickEffectiveRadius()
+        return CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)
+    }
+
+    func setClickPoint(_ p: CGPoint) {
+        clickPoint = CGPoint(x: max(0, min(p.x, imageSize.width)), y: max(0, min(p.y, imageSize.height)))
+    }
+
+    func removeClickMarker() {
+        clickPoint = nil
+        if selectedID == Self.clickID { selectedID = nil }
     }
 
     // MARK: - Selection & editing (all editable shape types)
@@ -209,6 +277,7 @@ final class EditorModel {
     }
 
     func boundsOfSelected() -> CGRect? {
+        if selectedID == Self.clickID { return clickBounds() }
         guard let i = selectedIndex else { return nil }
         return bounds(of: annotations[i])
     }
@@ -221,7 +290,14 @@ final class EditorModel {
 
     /// Whether the selection has a user-editable color (drives the color picker).
     var selectedIsColorable: Bool {
+        if selectedID == Self.clickID { return true }
         switch selected { case .rect, .arrow, .stamp, .marker, .text: return true; default: return false }
+    }
+
+    /// A circle whose resize is radius-from-center (stamp / marker / click ring).
+    var selectedIsCircle: Bool {
+        if selectedID == Self.clickID { return true }
+        switch selected { case .stamp, .marker: return true; default: return false }
     }
 
     /// Whether the selection uses the stroke-width slider (box/arrow only).
@@ -240,8 +316,9 @@ final class EditorModel {
     }
 
     /// Text is sized via the font slider, not corner handles; everything else
-    /// gets a resize handle.
+    /// (incl. the click marker) gets a resize handle.
     var selectedIsResizable: Bool {
+        if selectedID == Self.clickID { return clickPoint != nil }
         guard selectedID != nil, !selectedIsText else { return false }
         return boundsOfSelected() != nil
     }
@@ -249,6 +326,13 @@ final class EditorModel {
     /// Select the topmost editable annotation under `point` (image px), syncing
     /// the style controls to it. Deselects if nothing editable is hit.
     func selectAnnotation(at point: CGPoint) {
+        // The click marker is drawn on top of the annotations, so hit-test it
+        // first. Sync the color picker to its color.
+        if let p = clickPoint, hypot(point.x - p.x, point.y - p.y) <= clickEffectiveRadius() {
+            selectedID = Self.clickID
+            strokeColor = markerColor
+            return
+        }
         for a in annotations.reversed() where hitTest(a, point) {
             selectedID = a.id
             switch a {
@@ -310,6 +394,7 @@ final class EditorModel {
     }
 
     func setSelectedColor(_ hex: String) {
+        if selectedID == Self.clickID { markerColor = hex; return }
         guard let i = selectedIndex else { return }
         switch annotations[i] {
         case .rect(var r): r.stroke = hex; annotations[i] = .rect(r)
@@ -317,6 +402,19 @@ final class EditorModel {
         case .stamp(var s): s.fill = hex; annotations[i] = .stamp(s)
         case .marker(var m): m.color = hex; annotations[i] = .marker(m)
         case .text(var t): t.fill = hex; annotations[i] = .text(t)
+        default: break
+        }
+    }
+
+    /// Set the radius of the selected circle (click marker / stamp / marker) — a
+    /// center-anchored resize where the handle tracks the pointer.
+    func setSelectedRadius(_ r: Double) {
+        let radius = max(4, r)
+        if selectedID == Self.clickID { clickRadius = radius; return }
+        guard let i = selectedIndex else { return }
+        switch annotations[i] {
+        case .stamp(var s): s.radius = radius; annotations[i] = .stamp(s)
+        case .marker(var m): m.radius = radius; annotations[i] = .marker(m)
         default: break
         }
     }
@@ -352,6 +450,7 @@ final class EditorModel {
     }
 
     func deleteSelected() {
+        if selectedID == Self.clickID { removeClickMarker(); return }
         guard let id = selectedID else { return }
         annotations.removeAll { $0.id == id }
         selectedID = nil
@@ -465,14 +564,20 @@ final class EditorModel {
     func save() async -> Bool {
         saving = true
         defer { saving = false }
+        // Flush any open inline text edit BEFORE snapshotting — a Save while a
+        // field is focused must not lose the typed text or bake an empty label.
+        commitPendingText()
+        // Defense-in-depth: never persist/bake an empty text label.
+        annotations.removeAll {
+            if case .text(let t) = $0 { return t.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            return false
+        }
         let stepId = step.id // captured for logging (os.Logger interpolation needs it out of self)
         Log.editor.notice("save() started for step \(stepId, privacy: .public)")
-        // Bake the step's click marker so the report/export/Claude all see the
-        // clicked spot and the report won't double-draw its overlay.
-        let marker: Flatten.Marker? = step.click.map { click in
-            Flatten.Marker(x: click.image.x, y: click.image.y,
-                           color: AnnotationStyle.markerColor(for: step),
-                           radius: click.radius.map { CGFloat($0) })
+        // Bake the (edited) click marker so the report/export/Claude see the
+        // clicked spot; nil clickPoint = the marker was removed → no bake.
+        let marker: Flatten.Marker? = clickPoint.map { p in
+            Flatten.Marker(x: p.x, y: p.y, color: markerColor, radius: clickRadius.map { CGFloat($0) })
         }
         do {
             // Flatten off the main actor — crop + mosaic + PNG encode of a
@@ -489,6 +594,15 @@ final class EditorModel {
             patch.annotations = annotations
             patch.crop = .set(crop)
             patch.markerBaked = (marker != nil)
+            patch.markerColor = markerColor
+            // Persist the click marker's edited position/radius, or remove it.
+            if let p = clickPoint, var c = step.click {
+                c.image = Point(x: p.x, y: p.y)
+                c.radius = clickRadius
+                patch.click = .set(c)
+            } else if clickPoint == nil {
+                patch.click = .set(nil) // removed
+            }
             let manifest = try await store.updateStep(at: projectDir, stepId: stepId, patch: patch, flattenedPng: png)
             let newRev = manifest.steps.first { $0.id == stepId }?.renderRev ?? 0
             Log.editor.notice("flattened render written for step \(stepId, privacy: .public) renderRev=\(newRev, privacy: .public)")

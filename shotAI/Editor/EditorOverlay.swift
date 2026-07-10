@@ -28,9 +28,8 @@ struct EditorOverlay: View {
     @State private var draftRect: CGRect?               // box/redact/crop draft (image px)
     @State private var draftArrow: (CGPoint, CGPoint)?  // arrow draft (image px)
 
-    // Inline text editing.
-    @State private var editingTextID: String?
-    @State private var editingText = ""
+    // Inline text editing (state lives in the model so Save can flush it); the
+    // focus flag is view-only.
     @FocusState private var textFocused: Bool
 
     /// When a crop is set, show ONLY the cropped region fit-to-view (matching the
@@ -94,7 +93,7 @@ struct EditorOverlay: View {
             // shows in Select, and otherwise the color/size controls (which apply
             // to the selection AND set the new-shape default) would silently
             // mutate a now-invisible shape. Commit any open text first.
-            if editingTextID != nil { commitText() }
+            if model.editingTextID != nil { commitText() }
             model.selectedID = nil
             model.tool = tool
             // Picking Crop shows the full image so the crop box can be adjusted.
@@ -255,27 +254,28 @@ struct EditorOverlay: View {
                         }
                     })
                     .onKeyPress(.escape) {
-                        if editingTextID != nil { commitText(); return .handled }
+                        if model.editingTextID != nil { commitText(); return .handled }
                         model.selectedID = nil
                         model.tool = .select
                         return .handled
                     }
                     .onKeyPress(.delete) {
-                        if editingTextID != nil { return .ignored } // let the field handle it
+                        if model.editingTextID != nil { return .ignored } // let the field handle it
                         if model.selectedID != nil { model.deleteSelected(); return .handled }
                         return .ignored
                     }
 
-                if let id = editingTextID, let t = textAnnotation(id) {
+                if let id = model.editingTextID, let t = textAnnotation(id) {
                     let p = toDisplay(CGPoint(x: t.x, y: t.y), f)
-                    TextField("Text", text: $editingText)
+                    // No horizontal padding + no font floor, so the field sits
+                    // exactly where the text bakes (no jump on commit).
+                    TextField("Text", text: $model.editingText)
                         .textFieldStyle(.plain)
-                        .font(.custom("Helvetica", size: max(11, t.fontSize * f.s)))
+                        .font(.custom("Helvetica", size: t.fontSize * f.s))
                         .foregroundStyle(Color(hex: t.fill))
                         .focused($textFocused)
                         .frame(minWidth: 30, alignment: .leading)
                         .fixedSize()
-                        .padding(.horizontal, 2)
                         .background(Color.white.opacity(0.16))
                         .overlay(RoundedRectangle(cornerRadius: 2)
                             .stroke(Color(hex: "#4f46e5"), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
@@ -354,14 +354,13 @@ struct EditorOverlay: View {
             }
         }
 
-        // Click-register marker preview — baked on save (WYSIWYG). Drawn before
-        // the crop dim so a crop that excludes it dims it.
-        if let click = model.step.click {
-            let radius = (click.radius ?? Double(AnnotationStyle.clickMarkerRadius(
-                width: model.imageSize.width, height: model.imageSize.height))) * f.s
-            let c = toDisplay(CGPoint(x: click.image.x, y: click.image.y), f)
+        // Editable click-register marker preview — baked on save (WYSIWYG).
+        // Drawn before the crop dim so a crop that excludes it dims it.
+        if let cp = model.clickPoint {
+            let radius = model.clickEffectiveRadius() * f.s
+            let c = toDisplay(cp, f)
             let box = CGRect(x: c.x - radius, y: c.y - radius, width: radius * 2, height: radius * 2)
-            let color = Color(hex: AnnotationStyle.markerColor(for: model.step))
+            let color = Color(hex: model.markerColor)
             ctx.fill(Path(ellipseIn: box), with: .color(color.opacity(0.18)))
             ctx.stroke(Path(ellipseIn: box), with: .color(color), lineWidth: max(2, radius * 0.22))
         }
@@ -429,7 +428,7 @@ struct EditorOverlay: View {
                 .font(.custom("Helvetica-Bold", size: radius * 1.15))
                 .foregroundColor(Color(hex: s.textColor))), at: c)
         case .text(let t):
-            if t.id == editingTextID { break } // shown by the inline TextField
+            if t.id == model.editingTextID { break } // shown by the inline TextField
             let at = toDisplay(CGPoint(x: t.x, y: t.y), f)
             ctx.draw(ctx.resolve(Text(t.text)
                 .font(.custom("Helvetica", size: t.fontSize * f.s))
@@ -465,10 +464,14 @@ struct EditorOverlay: View {
     // MARK: - Inline text editing
 
     private func beginEditingText(id: String, initial: String) {
-        editingText = initial
-        editingTextID = id
+        model.beginEditingText(id: id, initial: initial)
         // Focus on the next tick — setting it inline (before the field is in the
         // responder chain) misses.
+        DispatchQueue.main.async { textFocused = true }
+    }
+
+    private func focusNewText() {
+        // addText already opened the editor in the model; just take focus.
         DispatchQueue.main.async { textFocused = true }
     }
 
@@ -477,15 +480,8 @@ struct EditorOverlay: View {
     }
 
     private func commitText() {
-        guard let id = editingTextID else { return }
-        let text = editingText
-        editingTextID = nil
+        model.commitPendingText()
         textFocused = false
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            model.deleteAnnotation(id: id) // drop empty labels, matching Windows
-        } else {
-            model.setTextContent(id: id, text)
-        }
     }
 
     // MARK: - Gesture
@@ -503,11 +499,19 @@ struct EditorOverlay: View {
                 case .createArrow:
                     draftArrow = (d.startImg, curImg)
                 case .move:
-                    if let orig = d.original {
+                    if model.selectedID == EditorModel.clickID {
+                        let c0 = CGPoint(x: d.origRect.midX, y: d.origRect.midY)
+                        model.setClickPoint(CGPoint(x: c0.x + (curImg.x - d.startImg.x),
+                                                    y: c0.y + (curImg.y - d.startImg.y)))
+                    } else if let orig = d.original {
                         model.moveSelected(orig, dx: curImg.x - d.startImg.x, dy: curImg.y - d.startImg.y)
                     }
                 case .resize:
-                    if let orig = d.original {
+                    if model.selectedIsCircle {
+                        // Center-anchored radius so the handle tracks the pointer.
+                        let center = CGPoint(x: d.origRect.midX, y: d.origRect.midY)
+                        model.setSelectedRadius(max(abs(curImg.x - center.x), abs(curImg.y - center.y)))
+                    } else if let orig = d.original {
                         model.resizeSelected(orig, to: normalized(CGPoint(x: d.origRect.minX, y: d.origRect.minY), curImg))
                     }
                 case .moveCrop:
@@ -544,8 +548,8 @@ struct EditorOverlay: View {
                     case .placeMarker:
                         model.addMarker(at: d.startImg)
                     case .placeText:
-                        let id = model.addText(at: d.startImg)
-                        beginEditingText(id: id, initial: "")
+                        _ = model.addText(at: d.startImg) // opens the inline editor
+                        focusNewText()
                     default:
                         break
                     }
@@ -558,7 +562,7 @@ struct EditorOverlay: View {
 
     private func beginDrag(startImg: CGPoint, f: Fit) -> Drag {
         // A press anywhere while editing text commits the edit first.
-        if editingTextID != nil { commitText() }
+        if model.editingTextID != nil { commitText() }
         switch model.tool {
         case .box:
             return Drag(mode: .createRect, startImg: startImg, origRect: .zero)
