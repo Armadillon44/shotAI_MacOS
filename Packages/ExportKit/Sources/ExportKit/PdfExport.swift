@@ -104,7 +104,19 @@ private final class PdfLoadWaiter: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Error>?
     private var finished = false
 
-    func wait() async throws {
+    /// Await the load, failing after `timeout` so a load that never fires a
+    /// terminal callback can't wedge the export forever (which would leave the
+    /// Export menu stuck spinning). Local file:// loads effectively always fire;
+    /// this is a latent-hang backstop. The `finished` guard makes the timeout and
+    /// the real callback race-safe — whichever lands first wins, once.
+    func wait(timeout: Duration = .seconds(30)) async throws {
+        let timeoutTask = Task { @MainActor in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            complete(.failure(ExportError.writeFailed(
+                "Preparing the PDF timed out. Try the HTML or Markdown export instead.")))
+        }
+        defer { timeoutTask.cancel() }
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
             if finished { c.resume(); return }
             continuation = c

@@ -91,22 +91,52 @@ final class AppModel {
     /// Re-bake any shot whose render is missing or predates marker-baking, so the
     /// export gate only ever reads current, redaction-baked renders (with the
     /// click ring baked in — the report draws that as an overlay, but an exported
-    /// file has no overlay layer). Persists each and refreshes `opened`.
+    /// file has no overlay layer). Persists each and refreshes `opened`. Throws a
+    /// friendly, step-scoped error (and exports nothing) if a shot can't be
+    /// prepared — mirrors the Windows sop-prepare.ts flow.
     private func ensureFlattened() async throws {
         guard let opened else { return }
         let dir = opened.dir
         var changed = false
+        var shotNo = 0
         for step in opened.manifest.steps {
             if step.kind == .text { continue }              // text steps have no image
-            if step.flattened != nil, step.markerBaked == true { continue }
+            shotNo += 1
+            // Treat flattened:"" as "no render" — the SAME emptiness test the
+            // render gate and the report use (a bare `!= nil` would skip re-baking
+            // a step the gate would then read raw, dropping the click marker).
+            let hasRender = !(step.flattened ?? "").isEmpty
+            if hasRender, step.markerBaked == true { continue }
             if step.screenshot.isEmpty { continue }
-            guard let png = try flattenRender(for: step) else { continue }
-            var patch = StepPatch()
-            patch.markerBaked = true
-            _ = try await store.updateStep(at: dir, stepId: step.id, patch: patch, flattenedPng: png)
-            changed = true
+            do {
+                guard let png = try flattenRender(for: step) else {
+                    throw ExportPrepError.stepFailed(shotNo, step.caption, "its screenshot couldn't be read")
+                }
+                var patch = StepPatch()
+                patch.markerBaked = true
+                _ = try await store.updateStep(at: dir, stepId: step.id, patch: patch, flattenedPng: png)
+                changed = true
+            } catch let e as ExportPrepError {
+                throw e
+            } catch {
+                // Wrap Flatten/store errors (e.g. a redaction rounding to <1px) so
+                // the user sees which step failed rather than a raw message.
+                throw ExportPrepError.stepFailed(shotNo, step.caption, error.localizedDescription)
+            }
         }
         if changed { await reloadOpened() }
+    }
+
+    /// A step-scoped preparation failure surfaced by `ensureFlattened`.
+    private enum ExportPrepError: LocalizedError {
+        case stepFailed(Int, String, String)
+        var errorDescription: String? {
+            switch self {
+            case .stepFailed(let n, let caption, let why):
+                let name = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+                return "Step \(n) (\"\(name.isEmpty ? "untitled" : name)\") couldn't be prepared for export: \(why)"
+            }
+        }
     }
 
     /// Create a project and select it (the "record into a new project" flow).
