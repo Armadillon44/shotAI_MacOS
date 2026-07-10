@@ -36,6 +36,10 @@ struct EditorOverlay: View {
     /// report + export). Cleared to adjust the crop on the full image.
     @State private var viewCropped = false
 
+    /// Live redaction-mosaic tiles, cached by region+block (a plain class so its
+    /// mutation during the Canvas draw doesn't touch SwiftUI state).
+    @State private var mosaic = MosaicCache()
+
     /// Drawing accent (rose) — for the annotations + their selection chrome.
     private let accent = Color(hex: AnnotationStyle.accent)
     /// App brand (violet) — for the editor chrome (active tool, tints).
@@ -329,12 +333,20 @@ struct EditorOverlay: View {
 
         for a in model.annotations { drawAnnotationPreview(ctx, a, f) }
 
-        // Redaction previews (blur) — gray placeholder; the real mosaic is baked
-        // at flatten. Unselected ones get a faint dashed border.
+        // Redaction previews — LIVE: solid = opaque black; blur = the actual
+        // mosaic (downsampled tile of the underlying pixels, cached), so the user
+        // sees the real effect. A draft/uncomputable region falls back to gray.
+        // Unselected ones get a faint dashed border.
         for a in model.annotations {
             guard case .blur(let b) = a else { continue }
             let r = toDisplay(CGRect(x: b.x, y: b.y, width: b.width, height: b.height), f)
-            ctx.fill(Path(r), with: .color(.black.opacity(b.mode == .solid ? 0.85 : 0.55)))
+            if b.mode == .solid {
+                ctx.fill(Path(r), with: .color(.black))
+            } else if let tile = mosaic.tile(for: b, image: model.rawImage, imageSize: model.imageSize) {
+                ctx.draw(ctx.resolve(Image(decorative: tile, scale: 1)), in: r)
+            } else {
+                ctx.fill(Path(r), with: .color(.black.opacity(0.55)))
+            }
             if b.id != model.selectedID {
                 ctx.stroke(Path(r), with: .color(.white.opacity(0.8)),
                            style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
@@ -609,5 +621,45 @@ struct EditorOverlay: View {
 
     private func normalized(_ a: CGPoint, _ b: CGPoint) -> CGRect {
         CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x), height: abs(b.y - a.y))
+    }
+}
+
+/// Produces + caches the live pixelate-mosaic tile for a redaction region: crop
+/// the raw pixels, average-downsample to region/block (drawn back scaled-up +
+/// smoothed by the Canvas), mirroring Flatten's bake so the preview matches the
+/// saved result. Not @Observable — cached lookups happen inside the Canvas draw.
+private final class MosaicCache {
+    private var cache: [String: CGImage] = [:]
+
+    func tile(for b: BlurAnnotation, image: CGImage, imageSize: CGSize) -> CGImage? {
+        let key = "\(b.id):\(Int(b.x.rounded())):\(Int(b.y.rounded())):\(Int(b.width.rounded())):\(Int(b.height.rounded())):\(Int(b.blockSize.rounded()))"
+        if let hit = cache[key] { return hit }
+        guard let t = Self.compute(b, image, imageSize) else { return nil }
+        if cache.count > 80 { cache.removeAll(keepingCapacity: true) } // bound during drags
+        cache[key] = t
+        return t
+    }
+
+    private static func compute(_ b: BlurAnnotation, _ image: CGImage, _ imageSize: CGSize) -> CGImage? {
+        let x0 = max(0, min(b.x, imageSize.width))
+        let y0 = max(0, min(b.y, imageSize.height))
+        let x1 = max(0, min(b.x + b.width, imageSize.width))
+        let y1 = max(0, min(b.y + b.height, imageSize.height))
+        let w = Int((x1 - x0).rounded()), h = Int((y1 - y0).rounded())
+        guard w >= 1, h >= 1,
+              let region = image.cropping(to: CGRect(x: x0, y: y0, width: CGFloat(w), height: CGFloat(h)))
+        else { return nil }
+        // Match the bake: block floored at minRedactBlock so text can't stay legible.
+        let block = max(Double(AnnotationStyle.minRedactBlock), b.blockSize < 1 ? 12 : b.blockSize)
+        let sw = max(1, Int((Double(w) / block).rounded()))
+        let sh = max(1, Int((Double(h) / block).rounded()))
+        guard let small = CGContext(
+            data: nil, width: sw, height: sh, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        small.interpolationQuality = .high // averaging downsample
+        small.draw(region, in: CGRect(x: 0, y: 0, width: sw, height: sh))
+        return small.makeImage()
     }
 }
