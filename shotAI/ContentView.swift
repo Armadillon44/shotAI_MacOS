@@ -70,8 +70,12 @@ struct ContentView: View {
         // VISIBLE) so the title bar reads as functional chrome — traffic lights
         // stay native/visible, there's no blank band, and the buttons are native
         // toolbar controls. Outside the editor it shows the usual actions.
+        // Three mutually-exclusive toolbar states. Use SEMANTIC placements
+        // throughout: default .automatic items LINGER across a conditional
+        // toolbar swap on macOS, whereas semantic placements swap out cleanly.
         .toolbar {
             if let editor {
+                // Editing a step: just Cancel / Save.
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { self.editor = nil }
                         .disabled(editor.saving)
@@ -90,24 +94,16 @@ struct ContentView: View {
                     }
                     .disabled(editor.saving || editor.scanning)
                 }
-            } else {
-                if model.opened != nil {
-                    ToolbarItem(placement: .navigation) {
-                        Button("Back", systemImage: "chevron.left") { model.closeToHome() }
-                            .help("Back to all projects")
-                    }
-                    // Record removed — the report's "＋ → Capture steps…" flow
-                    // covers recording more steps into an open project.
+            } else if model.opened != nil {
+                // In a project/report: just Back. (Record removed — the report's
+                // "＋ → Capture steps…" covers recording more steps.)
+                ToolbarItem(placement: .navigation) {
+                    Button("Back", systemImage: "chevron.left") { model.closeToHome() }
+                        .help("Back to all projects")
                 }
-                // Permissions moved off the toolbar; it'll live in a Settings menu
-                // (TODO). The wizard still auto-shows on first run + when a capture
-                // is blocked on Screen Recording.
-                //
-                // Explicit .primaryAction (a SEMANTIC placement): default
-                // .automatic toolbar items LINGER across a conditional toolbar
-                // swap on macOS (they'd stay visible in the editor even though
-                // this else-branch isn't rendered), whereas semantic placements
-                // swap out cleanly — like Back (.navigation) does.
+            } else {
+                // Home (project list): open another project + refresh the list.
+                // Permissions moved off the toolbar → future Settings menu.
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button("Open Project…", systemImage: "folder.badge.plus") {
                         showOpenPanel = true
