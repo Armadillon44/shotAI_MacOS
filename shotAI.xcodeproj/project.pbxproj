@@ -10,6 +10,7 @@
 		D0D00000000000000000E003 /* ShotModel in Frameworks */ = {isa = PBXBuildFile; productRef = D0D00000000000000000E002 /* ShotModel */; };
 		D0D00000000000000000E013 /* CaptureKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D00000000000000000E012 /* CaptureKit */; };
 		D0D00000000000000000E023 /* EditorKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D00000000000000000E022 /* EditorKit */; };
+		D0D00000000000000000E033 /* ExportKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D00000000000000000E032 /* ExportKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 				D0D00000000000000000E003 /* ShotModel in Frameworks */,
 				D0D00000000000000000E013 /* CaptureKit in Frameworks */,
 				D0D00000000000000000E023 /* EditorKit in Frameworks */,
+				D0D00000000000000000E033 /* ExportKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -73,6 +75,7 @@
 				D0D00000000000000000E002 /* ShotModel */,
 				D0D00000000000000000E012 /* CaptureKit */,
 				D0D00000000000000000E022 /* EditorKit */,
+				D0D00000000000000000E032 /* ExportKit */,
 			);
 			productName = shotAI;
 			productReference = D0D00000000000000000A003 /* shotAI.app */;
@@ -105,6 +108,7 @@
 				D0D00000000000000000E001 /* XCLocalSwiftPackageReference "Packages/ShotModel" */,
 				D0D00000000000000000E011 /* XCLocalSwiftPackageReference "Packages/CaptureKit" */,
 				D0D00000000000000000E021 /* XCLocalSwiftPackageReference "Packages/EditorKit" */,
+				D0D00000000000000000E031 /* XCLocalSwiftPackageReference "Packages/ExportKit" */,
 			);
 			productRefGroup = D0D00000000000000000A004 /* Products */;
 			projectDirPath = "";
@@ -269,6 +273,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/EditorKit;
 		};
+		D0D00000000000000000E031 /* XCLocalSwiftPackageReference "Packages/ExportKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ExportKit;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -283,6 +291,10 @@
 		D0D00000000000000000E022 /* EditorKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = EditorKit;
+		};
+		D0D00000000000000000E032 /* ExportKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ExportKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

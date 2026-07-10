@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import EditorKit
+import ExportKit
 import Foundation
 import ImageIO
 import Observation
@@ -55,6 +56,57 @@ final class AppModel {
     func reloadOpened() async {
         guard let selectedPath else { return }
         opened = try? await store.openProject(at: selectedPath)
+    }
+
+    // MARK: - Export
+
+    /// True while an export (flatten + write) is in flight — drives the Export
+    /// menu's disabled/spinner state.
+    private(set) var exporting = false
+    /// Set on export failure → surfaced by ContentView's alert. Success reveals
+    /// the file in Finder instead (no alert needed).
+    var exportError: String?
+
+    /// Flatten every shot that lacks a current marker-baked render, then export
+    /// the opened project to `format` under its `export/` folder and reveal the
+    /// file in Finder. Fail-closed: if a step can't be flattened or the render
+    /// gate refuses (unbaked redaction/crop), the error is surfaced and NO partial
+    /// export is written. Mirrors the Windows flow (ensureFlattened → exportProject).
+    func exportOpened(format: ExportFormat) async {
+        guard opened != nil, !exporting else { return }
+        exporting = true
+        defer { exporting = false }
+        do {
+            try await ensureFlattened()
+            guard let fresh = opened else { return }
+            let result = try await exportProject(dir: fresh.dir, manifest: fresh.manifest, format: format)
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: result.outputPath)])
+            Log.store.notice("exported \(format.rawValue, privacy: .public) (\(fresh.manifest.steps.count, privacy: .public) steps)")
+        } catch {
+            exportError = error.localizedDescription
+            Log.store.error("export \(format.rawValue, privacy: .public) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    /// Re-bake any shot whose render is missing or predates marker-baking, so the
+    /// export gate only ever reads current, redaction-baked renders (with the
+    /// click ring baked in — the report draws that as an overlay, but an exported
+    /// file has no overlay layer). Persists each and refreshes `opened`.
+    private func ensureFlattened() async throws {
+        guard let opened else { return }
+        let dir = opened.dir
+        var changed = false
+        for step in opened.manifest.steps {
+            if step.kind == .text { continue }              // text steps have no image
+            if step.flattened != nil, step.markerBaked == true { continue }
+            if step.screenshot.isEmpty { continue }
+            guard let png = try flattenRender(for: step) else { continue }
+            var patch = StepPatch()
+            patch.markerBaked = true
+            _ = try await store.updateStep(at: dir, stepId: step.id, patch: patch, flattenedPng: png)
+            changed = true
+        }
+        if changed { await reloadOpened() }
     }
 
     /// Create a project and select it (the "record into a new project" flow).
