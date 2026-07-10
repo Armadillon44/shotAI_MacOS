@@ -33,7 +33,8 @@ public struct StepPatch: Sendable {
     public var reportZoom: Double?
     public var reportPanX: Double?
     public var reportPanY: Double?
-    public var click: StepClick?
+    /// .unset = leave; .set(nil) = remove the click marker; .set(click) = update it.
+    public var click: PatchField<StepClick?> = .unset
     /// nil = leave; non-nil = replace the whole annotation list.
     public var annotations: [Annotation]?
     /// .unset = leave; .set(nil) = clear the crop; .set(rect) = set it.
@@ -61,7 +62,7 @@ public func applyPatchAndInvalidate(_ step: inout ProjectStep, _ patch: StepPatc
     if let v = patch.reportZoom { step.reportZoom = v }
     if let v = patch.reportPanX { step.reportPanX = v }
     if let v = patch.reportPanY { step.reportPanY = v }
-    if let v = patch.click { step.click = v }
+    if case .set(let v) = patch.click { step.click = v }
     if let v = patch.annotations { step.annotations = v }
     if case .set(let v) = patch.crop { step.crop = v }
     if case .set(let v) = patch.callout { step.callout = v }
