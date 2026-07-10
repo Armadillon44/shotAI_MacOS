@@ -24,9 +24,6 @@ struct ContentView: View {
     @State private var editorError: String?
     /// The hosting window, captured once, so we can size it per surface.
     @State private var window: NSWindow?
-    /// The editor's Cancel/Save, hosted in the window title bar while editing
-    /// (native traffic lights stay visible; no blank band; buttons hit-testable).
-    @State private var editorAccessory: NSTitlebarAccessoryViewController?
 
     private struct RecordTarget: Identifiable {
         let path: String
@@ -77,71 +74,57 @@ struct ContentView: View {
             // animating. Deferring makes both directions animate identically.
             DispatchQueue.main.async { applyWindowWidth(window, animated: true) }
         }
-        // Hide the window's Record/Permissions/… toolbar while the editor
-        // overlay is up, so its controls can't sit behind the editor's own bar.
-        .toolbar(editor == nil ? .automatic : .hidden, for: .windowToolbar)
-        // While editing, host the editor's Cancel/Save in the window TITLE BAR as
-        // a trailing accessory (the native pattern): the traffic lights stay
-        // visible + AppKit-managed, the title bar reads as functional chrome (no
-        // blank band), and the buttons are properly hit-tested. Title text hidden
-        // so the bar is just [traffic lights] … [Cancel][Save]. Toolbar is hidden
-        // separately (above). All restored on close.
-        .onChange(of: editor != nil) { _, editing in
-            guard let window else { return }
-            if editing, let editorModel = editor {
-                window.titleVisibility = .hidden
-                let host = NSHostingView(rootView: EditorActionsBar(
-                    model: editorModel,
-                    onCancel: { editor = nil },
-                    onSave: {
+        // The window toolbar is the native title-bar chrome. While editing, we
+        // REPLACE its items with the editor's Cancel/Save (keeping the toolbar
+        // VISIBLE) so the title bar reads as functional chrome — traffic lights
+        // stay native/visible, there's no blank band, and the buttons are native
+        // toolbar controls. Outside the editor it shows the usual actions.
+        .toolbar {
+            if let editor {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { self.editor = nil }
+                        .disabled(editor.saving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
                         Task {
-                            if await editorModel.save() {
-                                editor = nil
-                                await model.reloadOpened()
-                                await model.refresh()
+                            if await editor.save() {
+                                self.editor = nil
+                                await model.reloadOpened() // show the flattened render
+                                await model.refresh() // updatedAt changed → resort the list
                             }
                         }
-                    }))
-                host.frame = NSRect(origin: .zero, size: host.fittingSize)
-                let vc = NSTitlebarAccessoryViewController()
-                vc.layoutAttribute = .trailing
-                vc.view = host
-                window.addTitlebarAccessoryViewController(vc)
-                editorAccessory = vc
-            } else {
-                if let vc = editorAccessory,
-                   let idx = window.titlebarAccessoryViewControllers.firstIndex(of: vc) {
-                    window.removeTitlebarAccessoryViewController(at: idx)
+                    } label: {
+                        if editor.saving { ProgressView().controlSize(.small) } else { Text("Save") }
+                    }
+                    .disabled(editor.saving || editor.scanning)
                 }
-                editorAccessory = nil
-                window.titleVisibility = .visible
-            }
-        }
-        .toolbar {
-            if model.opened != nil {
-                ToolbarItem(placement: .navigation) {
-                    Button("Back", systemImage: "chevron.left") { model.closeToHome() }
-                        .help("Back to all projects")
+            } else {
+                if model.opened != nil {
+                    ToolbarItem(placement: .navigation) {
+                        Button("Back", systemImage: "chevron.left") { model.closeToHome() }
+                            .help("Back to all projects")
+                    }
+                    ToolbarItem {
+                        Button("Record", systemImage: "record.circle") { startRecordFlow() }
+                            .disabled(capture.state.status != .idle)
+                            .help("Record more steps into this project")
+                    }
                 }
                 ToolbarItem {
-                    Button("Record", systemImage: "record.circle") { startRecordFlow() }
-                        .disabled(capture.state.status != .idle)
-                        .help("Record more steps into this project")
+                    Button("Permissions", systemImage: "lock.shield") {
+                        capture.showWizard = true
+                    }
                 }
-            }
-            ToolbarItem {
-                Button("Permissions", systemImage: "lock.shield") {
-                    capture.showWizard = true
+                ToolbarItem {
+                    Button("Open Project…", systemImage: "folder.badge.plus") {
+                        showOpenPanel = true
+                    }
                 }
-            }
-            ToolbarItem {
-                Button("Open Project…", systemImage: "folder.badge.plus") {
-                    showOpenPanel = true
-                }
-            }
-            ToolbarItem {
-                Button("Refresh", systemImage: "arrow.clockwise") {
-                    Task { await model.refresh() }
+                ToolbarItem {
+                    Button("Refresh", systemImage: "arrow.clockwise") {
+                        Task { await model.refresh() }
+                    }
                 }
             }
         }
