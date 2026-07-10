@@ -117,11 +117,13 @@ struct EditorOverlay: View {
             .buttonStyle(.borderedProminent)
             .disabled(model.saving || model.scanning)
         }
-        .padding(.vertical, 12)
-        .padding(.trailing, 12)
-        // Clear the window's traffic-light buttons (top-left) — the editor fills
-        // under the transparent title bar while open.
-        .padding(.leading, 78)
+        // Sit BELOW the ~28pt title-bar strip. With the transparent, full-size
+        // title bar the editor material fills that strip (so there's no blank
+        // band and the traffic lights live in it), but the strip is a DRAGGABLE
+        // region that swallows clicks — so the buttons must clear it or they
+        // can't be pressed. Below it, normal 12pt insets.
+        .padding(.top, 36)
+        .padding([.horizontal, .bottom], 12)
     }
 
     /// Controls contextual to the active tool / selection: color + line width for
