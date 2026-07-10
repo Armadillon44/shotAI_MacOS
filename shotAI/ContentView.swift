@@ -110,13 +110,14 @@ struct ContentView: View {
                         Divider()
                         Button("HTML for Word / Google Docs") { export(.htmlPlain) }
                     } label: {
-                        if model.exporting {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Label("Export", systemImage: "square.and.arrow.up")
-                        }
+                        // Force BOTH the word "Export" and the icon: this app's
+                        // toolbar renders image-bearing labels icon-only by default,
+                        // and macOS then auto-labels a bare square.and.arrow.up as
+                        // "Share" — unrecognizable as export. titleAndIcon fixes it.
+                        Label("Export", systemImage: "square.and.arrow.up")
+                            .labelStyle(.titleAndIcon)
                     }
-                    .menuIndicator(.hidden)
+                    .menuIndicator(.visible)
                     .disabled(model.exporting)
                     .help("Export this SOP to a shareable document")
                 }
