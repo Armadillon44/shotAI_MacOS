@@ -36,6 +36,11 @@ struct EditorOverlay: View {
     /// report + export). Cleared to adjust the crop on the full image.
     @State private var viewCropped = false
 
+    /// Editor zoom multiplier on the fit-to-view scale (1 = whole image fits).
+    /// The canvas scrolls when a zoomed image exceeds the viewport.
+    @State private var editorZoom: CGFloat = 1
+    private func setZoom(_ z: CGFloat) { editorZoom = min(8, max(0.5, z)) }
+
     /// Live redaction-mosaic tiles, cached by region+block (a plain class so its
     /// mutation during the Canvas draw doesn't touch SwiftUI state).
     @State private var mosaic = MosaicCache()
@@ -82,12 +87,37 @@ struct EditorOverlay: View {
             toolButton(.text, "textformat", "Text")
             toolButton(.crop, "crop", "Crop")
             Spacer()
+            zoomCluster
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 8)
         .frame(width: 56)
         .background(brand.opacity(0.08)) // subtle violet wash over the material
         .background(.thinMaterial)
+    }
+
+    /// Zoom −/reset/+ pinned at the rail base (Windows layout). Scroll to pan.
+    private var zoomCluster: some View {
+        VStack(spacing: 2) {
+            zoomButton("plus.magnifyingglass", "Zoom in") { setZoom(editorZoom * 1.25) }
+            Button { editorZoom = 1 } label: {
+                Text("\(Int((editorZoom * 100).rounded()))%")
+                    .font(.system(size: 10, weight: .medium))
+                    .frame(width: 40)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Reset zoom to 100%")
+            zoomButton("minus.magnifyingglass", "Zoom out") { setZoom(editorZoom / 1.25) }
+        }
+    }
+
+    private func zoomButton(_ icon: String, _ label: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 13)).frame(width: 36, height: 26).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
     }
 
     private func toolButton(_ tool: EditorModel.Tool, _ icon: String, _ label: String) -> some View {
@@ -100,8 +130,8 @@ struct EditorOverlay: View {
             if model.editingTextID != nil { commitText() }
             model.selectedID = nil
             model.tool = tool
-            // Picking Crop shows the full image so the crop box can be adjusted.
-            if tool == .crop { viewCropped = false }
+            // Picking Crop shows the full image (fit) so the crop box can be adjusted.
+            if tool == .crop { viewCropped = false; editorZoom = 1 }
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 15))
@@ -129,8 +159,8 @@ struct EditorOverlay: View {
                 }
             }
             if model.crop != nil {
-                Button(viewCropped ? "Show full" : "Fit to crop") { viewCropped.toggle() }
-                Button("Clear crop") { model.crop = nil; viewCropped = false }
+                Button(viewCropped ? "Show full" : "Fit to crop") { viewCropped.toggle(); editorZoom = 1 }
+                Button("Clear crop") { model.crop = nil; viewCropped = false; editorZoom = 1 }
             }
             Spacer(minLength: 12)
         }
@@ -245,64 +275,79 @@ struct EditorOverlay: View {
     private var canvas: some View {
         GeometryReader { geo in
             let f = fit(geo.size)
-            ZStack(alignment: .topLeading) {
-                Canvas { ctx, _ in draw(ctx, f) }
-                    .contentShape(Rectangle())
-                    .focusable() // so the canvas can receive key presses
-                    .gesture(dragGesture(f))
-                    .highPriorityGesture(SpatialTapGesture(count: 2).onEnded { value in
-                        let img = toImage(value.location, f)
-                        if let t = model.textAt(img) {
-                            model.selectedID = t.id
-                            beginEditingText(id: t.id, initial: t.text)
+            // ScrollView so a zoomed image pans (trackpad / scroll wheel). On
+            // macOS a ScrollView doesn't scroll on click-drag, so click-drag
+            // still draws/moves annotations.
+            ScrollView([.horizontal, .vertical]) {
+                ZStack(alignment: .topLeading) {
+                    Canvas { ctx, _ in draw(ctx, f) }
+                        .frame(width: f.frameW, height: f.frameH)
+                        .contentShape(Rectangle())
+                        .focusable() // so the canvas can receive key presses
+                        .gesture(dragGesture(f))
+                        .highPriorityGesture(SpatialTapGesture(count: 2).onEnded { value in
+                            let img = toImage(value.location, f)
+                            if let t = model.textAt(img) {
+                                model.selectedID = t.id
+                                beginEditingText(id: t.id, initial: t.text)
+                            }
+                        })
+                        .onKeyPress(.escape) {
+                            if model.editingTextID != nil { commitText(); return .handled }
+                            model.selectedID = nil
+                            model.tool = .select
+                            return .handled
                         }
-                    })
-                    .onKeyPress(.escape) {
-                        if model.editingTextID != nil { commitText(); return .handled }
-                        model.selectedID = nil
-                        model.tool = .select
-                        return .handled
-                    }
-                    .onKeyPress(.delete) {
-                        if model.editingTextID != nil { return .ignored } // let the field handle it
-                        if model.selectedID != nil { model.deleteSelected(); return .handled }
-                        return .ignored
-                    }
+                        .onKeyPress(.delete) {
+                            if model.editingTextID != nil { return .ignored } // let the field handle it
+                            if model.selectedID != nil { model.deleteSelected(); return .handled }
+                            return .ignored
+                        }
 
-                if let id = model.editingTextID, let t = textAnnotation(id) {
-                    let p = toDisplay(CGPoint(x: t.x, y: t.y), f)
-                    // No horizontal padding + no font floor, so the field sits
-                    // exactly where the text bakes (no jump on commit).
-                    TextField("Text", text: $model.editingText)
-                        .textFieldStyle(.plain)
-                        .font(.custom("Helvetica", size: t.fontSize * f.s))
-                        .foregroundStyle(Color(hex: t.fill))
-                        .focused($textFocused)
-                        .frame(minWidth: 30, alignment: .leading)
-                        .fixedSize()
-                        .background(Color.white.opacity(0.16))
-                        .overlay(RoundedRectangle(cornerRadius: 2)
-                            .stroke(Color(hex: "#4f46e5"), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-                        .offset(x: p.x, y: p.y)
-                        .onSubmit { commitText() }
-                        .onChange(of: textFocused) { _, focused in if !focused { commitText() } }
+                    if let id = model.editingTextID, let t = textAnnotation(id) {
+                        let p = toDisplay(CGPoint(x: t.x, y: t.y), f)
+                        // No horizontal padding + no font floor, so the field sits
+                        // exactly where the text bakes (no jump on commit).
+                        TextField("Text", text: $model.editingText)
+                            .textFieldStyle(.plain)
+                            .font(.custom("Helvetica", size: t.fontSize * f.s))
+                            .foregroundStyle(Color(hex: t.fill))
+                            .focused($textFocused)
+                            .frame(minWidth: 30, alignment: .leading)
+                            .fixedSize()
+                            .background(Color.white.opacity(0.16))
+                            .overlay(RoundedRectangle(cornerRadius: 2)
+                                .stroke(Color(hex: "#4f46e5"), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                            .offset(x: p.x, y: p.y)
+                            .onSubmit { commitText() }
+                            .onChange(of: textFocused) { _, focused in if !focused { commitText() } }
+                    }
                 }
+                .frame(width: f.frameW, height: f.frameH)
             }
+            .background(Color.black.opacity(0.15))
         }
-        .background(Color.black.opacity(0.15))
         .clipped()
     }
 
     // srx/sry = origin (image px) of the SHOWN rect (the crop when viewCropped,
-    // else the whole image), which is fit-to-view and centered.
-    private struct Fit { var s: CGFloat; var ox: CGFloat; var oy: CGFloat; var dw: CGFloat; var dh: CGFloat; var srx: CGFloat; var sry: CGFloat }
+    // else the whole image). ox/oy center the (possibly zoomed) content within a
+    // frame of frameW×frameH = max(content, viewport) — so it centers when it
+    // fits and the enclosing ScrollView pans it when it doesn't.
+    private struct Fit {
+        var s: CGFloat; var ox: CGFloat; var oy: CGFloat
+        var dw: CGFloat; var dh: CGFloat; var srx: CGFloat; var sry: CGFloat
+        var frameW: CGFloat; var frameH: CGFloat
+    }
 
-    private func fit(_ size: CGSize) -> Fit {
+    private func fit(_ viewport: CGSize) -> Fit {
         let sr = (viewCropped ? cropCGRect() : nil) ?? CGRect(origin: .zero, size: model.imageSize)
-        let s = min(size.width / sr.width, size.height / sr.height)
+        let base = min(viewport.width / sr.width, viewport.height / sr.height)
+        let s = base * editorZoom
         let dw = sr.width * s, dh = sr.height * s
-        return Fit(s: s, ox: (size.width - dw) / 2, oy: (size.height - dh) / 2,
-                   dw: dw, dh: dh, srx: sr.minX, sry: sr.minY)
+        let frameW = max(dw, viewport.width), frameH = max(dh, viewport.height)
+        return Fit(s: s, ox: (frameW - dw) / 2, oy: (frameH - dh) / 2,
+                   dw: dw, dh: dh, srx: sr.minX, sry: sr.minY, frameW: frameW, frameH: frameH)
     }
 
     private func toImage(_ p: CGPoint, _ f: Fit) -> CGPoint {
@@ -551,7 +596,7 @@ struct EditorOverlay: View {
                         if let r = draftRect, r.width >= 5, r.height >= 5 {
                             model.setCrop(r)
                             // Once cropped, fit the view to the crop + drop to Select.
-                            if model.crop != nil { viewCropped = true; model.tool = .select }
+                            if model.crop != nil { viewCropped = true; editorZoom = 1; model.tool = .select }
                         }
                     case .createArrow:
                         if let (a, b) = draftArrow, hypot(b.x - a.x, b.y - a.y) >= 5 { model.addArrow(from: a, to: b) }
