@@ -24,9 +24,9 @@ struct ContentView: View {
     @State private var editorError: String?
     /// The hosting window, captured once, so we can size it per surface.
     @State private var window: NSWindow?
-    /// Material backdrop shown behind the (transparent) title bar while editing,
-    /// so the title-bar strip isn't a blank band and the traffic lights still show.
-    @State private var editorBackdrop: NSVisualEffectView?
+    /// The editor's Cancel/Save, hosted in the window title bar while editing
+    /// (native traffic lights stay visible; no blank band; buttons hit-testable).
+    @State private var editorAccessory: NSTitlebarAccessoryViewController?
 
     private struct RecordTarget: Identifiable {
         let path: String
@@ -80,31 +80,40 @@ struct ContentView: View {
         // Hide the window's Record/Permissions/… toolbar while the editor
         // overlay is up, so its controls can't sit behind the editor's own bar.
         .toolbar(editor == nil ? .automatic : .hidden, for: .windowToolbar)
-        // While editing, make the title bar transparent + title-less and fill it
-        // with a material backdrop placed BEHIND everything (incl. the traffic
-        // lights) so there's no blank title-bar band, the window buttons still
-        // show, and the editor's top-bar buttons stay clickable (they sit in the
-        // content area BELOW the title bar's drag region). macOS 14 has no
-        // `.containerBackground(for: .window)`, hence the AppKit backdrop. All
-        // restored on close so Home/report keep the normal titled chrome.
+        // While editing, host the editor's Cancel/Save in the window TITLE BAR as
+        // a trailing accessory (the native pattern): the traffic lights stay
+        // visible + AppKit-managed, the title bar reads as functional chrome (no
+        // blank band), and the buttons are properly hit-tested. Title text hidden
+        // so the bar is just [traffic lights] … [Cancel][Save]. Toolbar is hidden
+        // separately (above). All restored on close.
         .onChange(of: editor != nil) { _, editing in
             guard let window else { return }
-            if editing {
-                window.titlebarAppearsTransparent = true
+            if editing, let editorModel = editor {
                 window.titleVisibility = .hidden
-                if editorBackdrop == nil, let themeFrame = window.contentView?.superview {
-                    let fx = NSVisualEffectView(frame: themeFrame.bounds)
-                    fx.autoresizingMask = [.width, .height]
-                    fx.material = .windowBackground
-                    fx.blendingMode = .behindWindow
-                    fx.state = .active
-                    themeFrame.addSubview(fx, positioned: .below, relativeTo: nil)
-                    editorBackdrop = fx
-                }
+                let host = NSHostingView(rootView: EditorActionsBar(
+                    model: editorModel,
+                    onCancel: { editor = nil },
+                    onSave: {
+                        Task {
+                            if await editorModel.save() {
+                                editor = nil
+                                await model.reloadOpened()
+                                await model.refresh()
+                            }
+                        }
+                    }))
+                host.frame = NSRect(origin: .zero, size: host.fittingSize)
+                let vc = NSTitlebarAccessoryViewController()
+                vc.layoutAttribute = .trailing
+                vc.view = host
+                window.addTitlebarAccessoryViewController(vc)
+                editorAccessory = vc
             } else {
-                editorBackdrop?.removeFromSuperview()
-                editorBackdrop = nil
-                window.titlebarAppearsTransparent = false
+                if let vc = editorAccessory,
+                   let idx = window.titlebarAccessoryViewControllers.firstIndex(of: vc) {
+                    window.removeTitlebarAccessoryViewController(at: idx)
+                }
+                editorAccessory = nil
                 window.titleVisibility = .visible
             }
         }
@@ -168,18 +177,10 @@ struct ContentView: View {
         // sheet, so it can't veto ⌘Q.
         .overlay {
             if let editor {
-                EditorOverlay(
-                    model: editor,
-                    onCancel: { self.editor = nil },
-                    onSaved: {
-                        self.editor = nil
-                        Task {
-                            await model.reloadOpened() // show the flattened render
-                            await model.refresh() // updatedAt changed → resort the list
-                        }
-                    }
-                )
-                .transition(.opacity)
+                // Cancel/Save live in the window title bar (see the onChange
+                // accessory above); this overlay is just the editor canvas + tools.
+                EditorOverlay(model: editor)
+                    .transition(.opacity)
             }
         }
         .alert(

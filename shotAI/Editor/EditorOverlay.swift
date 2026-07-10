@@ -10,8 +10,6 @@ import SwiftUI
 /// screenshot with redaction baked into the pixels.
 struct EditorOverlay: View {
     @State var model: EditorModel
-    var onCancel: () -> Void
-    var onSaved: () -> Void
 
     // Drag state (image-px space).
     private struct Drag {
@@ -106,18 +104,8 @@ struct EditorOverlay: View {
             if model.crop != nil {
                 Button("Clear crop") { model.crop = nil }
             }
-
-            Button("Cancel", role: .cancel) { onCancel() }
-                .keyboardShortcut(.cancelAction)
-                .disabled(model.saving) // don't cancel out from under an in-flight save
-            Button {
-                Task { if await model.save() { onSaved() } }
-            } label: {
-                if model.saving { ProgressView().controlSize(.small) } else { Text("Save") }
-            }
-            .keyboardShortcut(.defaultAction)
-            .buttonStyle(.borderedProminent)
-            .disabled(model.saving || model.scanning)
+            // Cancel / Save live in the window title bar (EditorActionsBar) — the
+            // native accessory keeps the traffic lights visible + hit-testable.
         }
         .padding(12)
     }
