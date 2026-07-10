@@ -693,17 +693,25 @@ private struct StepFigure: View {
     /// Live image offset while dragging (and until the persisted pan catches up),
     /// so the pan doesn't flash back to the old value during the async save.
     @State private var liveOffset: CGSize?
+    /// The shown offset captured at drag start, so a drag composes against what's
+    /// on screen (even if a prior drag's save is still in flight) and stays stable
+    /// mid-drag. Nil except during a drag.
+    @State private var dragStart: CGSize?
+    /// Optimistic zoom applied instantly on a control tap (the persisted value
+    /// lags behind an async save+reload); cleared once the save round-trips. Lets
+    /// rapid clicks compound off the pending value instead of coalescing.
+    @State private var pendingZoom: Double?
     @State private var hovering = false
 
-    /// Effective zoom (never below fit), matching the viewport's read floor.
-    private var zoom: Double { max(1, step.reportZoom ?? 1) }
-    /// Key that changes when the persisted framing does — clears liveOffset once
-    /// the save round-trips so the two can't drift.
+    /// Effective zoom (optimistic pending, else persisted; never below fit).
+    private var zoom: Double { pendingZoom ?? max(1, step.reportZoom ?? 1) }
+    /// Key that changes when the persisted framing does — clears the live
+    /// overrides once the save round-trips so they can't drift.
     private var frameKey: String { "\(step.reportZoom ?? 1)|\(step.reportPanX ?? 0.5)|\(step.reportPanY ?? 0.5)" }
 
     var body: some View {
         Group {
-            if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize) {
+            if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom) {
                 figure(loaded.image, loaded.pixelSize, viewport)
             } else if failed {
                 Label("Image missing: \(relPath)", systemImage: "photo.badge.exclamationmark")
@@ -720,9 +728,14 @@ private struct StepFigure: View {
         // reuses export/.render/<id>.png and only bumps renderRev, so the render
         // revision must be part of the reload key or the old image stays cached.
         .task(id: "\(relPath)#\(step.renderRev ?? 0)") { load() }
-        // Once the persisted framing catches up (or zoom changes), drop the live
-        // override so the viewport geometry is the single source of truth.
-        .onChange(of: frameKey) { liveOffset = nil }
+        // Once the persisted framing round-trips, drop the live overrides so the
+        // viewport geometry is the single source of truth again. Keep pendingZoom
+        // until the persisted zoom actually matches it (so a slower save doesn't
+        // flicker the zoom back mid-click-burst).
+        .onChange(of: frameKey) {
+            liveOffset = nil
+            if let p = pendingZoom, abs((step.reportZoom ?? 1) - p) < 0.0001 { pendingZoom = nil }
+        }
     }
 
     private func figure(_ image: NSImage, _ pixelSize: (width: Double, height: Double), _ v: ReportPresentation.Viewport) -> some View {
@@ -749,7 +762,7 @@ private struct StepFigure: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.hair))
             .contentShape(Rectangle())
-            .gesture(canPan ? panGesture(base: base, rangeX: rangeX, rangeY: rangeY) : nil)
+            .gesture(canPan ? panGesture(shown: shown, rangeX: rangeX, rangeY: rangeY) : nil)
 
             // Floating zoom controls (top-right, outside the clipped box so they
             // don't pan). Faint until hover.
@@ -763,13 +776,23 @@ private struct StepFigure: View {
 
     private var zoomControls: some View {
         HStack(spacing: 2) {
-            ctlButton("plus.magnifyingglass", "Zoom in") { onZoom(zoom * 1.25) }
-            ctlButton("minus.magnifyingglass", "Zoom out", disabled: zoom <= 1) { onZoom(zoom / 1.25) }
-            ctlButton("arrow.counterclockwise", "Reset zoom", disabled: zoom == 1) { onZoom(1) }
+            ctlButton("plus.magnifyingglass", "Zoom in", disabled: zoom >= ReportPresentation.zoomMax) { applyZoom(zoom * 1.25) }
+            ctlButton("minus.magnifyingglass", "Zoom out", disabled: zoom <= 1) { applyZoom(zoom / 1.25) }
+            ctlButton("arrow.counterclockwise", "Reset zoom", disabled: zoom == 1) { applyZoom(1) }
         }
         .padding(4)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(Palette.hair))
+    }
+
+    /// Apply a zoom optimistically (instant feedback + rapid clicks compound off
+    /// the pending value), then persist. A zoom change re-frames the pan, so drop
+    /// the live pan override.
+    private func applyZoom(_ target: Double) {
+        let z = min(max(target, 1), ReportPresentation.zoomMax)
+        pendingZoom = z
+        liveOffset = nil
+        onZoom(z)
     }
 
     private func ctlButton(_ icon: String, _ help: String, disabled: Bool = false, _ action: @escaping () -> Void) -> some View {
@@ -782,14 +805,21 @@ private struct StepFigure: View {
         .help(help)
     }
 
-    private func panGesture(base: CGSize, rangeX: Double, rangeY: Double) -> some Gesture {
+    private func panGesture(shown: CGSize, rangeX: Double, rangeY: Double) -> some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
-                liveOffset = clampedOffset(base: base, translation: value.translation, rangeX: rangeX, rangeY: rangeY)
+                // Anchor to the offset shown when the drag began (captured once),
+                // so consecutive drags compose against what's on screen — not a
+                // still-persisting base — and the anchor stays stable mid-drag.
+                if dragStart == nil { dragStart = shown }
+                let start = dragStart ?? shown
+                liveOffset = clampedOffset(base: start, translation: value.translation, rangeX: rangeX, rangeY: rangeY)
             }
             .onEnded { value in
-                let off = clampedOffset(base: base, translation: value.translation, rangeX: rangeX, rangeY: rangeY)
+                let start = dragStart ?? shown
+                let off = clampedOffset(base: start, translation: value.translation, rangeX: rangeX, rangeY: rangeY)
                 liveOffset = off
+                dragStart = nil
                 onReframe(rangeX > 0 ? -off.width / rangeX : 0.5,
                           rangeY > 0 ? -off.height / rangeY : 0.5)
             }
