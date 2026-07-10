@@ -38,11 +38,13 @@ struct EditorOverlay: View {
                 canvas
             }
         }
-        // Fill the ENTIRE window (ContentView makes the title bar transparent +
-        // full-size while editing), so there's no empty title-bar band above the
-        // top bar. The top bar itself insets to clear the traffic-light buttons.
+        // Opaque material over the report (this is an overlay on ContentView),
+        // bleeding to the sides + bottom. The TOP stays below the title bar: the
+        // strip there is filled by ContentView's window backdrop (behind the
+        // traffic lights), so there's no blank band and the buttons — which sit
+        // in this content, below the title-bar drag region — stay clickable.
         .background(.ultraThickMaterial)
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: [.horizontal, .bottom])
         .alert("Couldn't save this step", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }
@@ -117,13 +119,7 @@ struct EditorOverlay: View {
             .buttonStyle(.borderedProminent)
             .disabled(model.saving || model.scanning)
         }
-        // Sit BELOW the ~28pt title-bar strip. With the transparent, full-size
-        // title bar the editor material fills that strip (so there's no blank
-        // band and the traffic lights live in it), but the strip is a DRAGGABLE
-        // region that swallows clicks — so the buttons must clear it or they
-        // can't be pressed. Below it, normal 12pt insets.
-        .padding(.top, 36)
-        .padding([.horizontal, .bottom], 12)
+        .padding(12)
     }
 
     /// Controls contextual to the active tool / selection: color + line width for

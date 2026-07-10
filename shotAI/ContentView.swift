@@ -24,6 +24,9 @@ struct ContentView: View {
     @State private var editorError: String?
     /// The hosting window, captured once, so we can size it per surface.
     @State private var window: NSWindow?
+    /// Material backdrop shown behind the (transparent) title bar while editing,
+    /// so the title-bar strip isn't a blank band and the traffic lights still show.
+    @State private var editorBackdrop: NSVisualEffectView?
 
     private struct RecordTarget: Identifiable {
         let path: String
@@ -77,20 +80,32 @@ struct ContentView: View {
         // Hide the window's Record/Permissions/… toolbar while the editor
         // overlay is up, so its controls can't sit behind the editor's own bar.
         .toolbar(editor == nil ? .automatic : .hidden, for: .windowToolbar)
-        // While editing, let the editor fill the WHOLE window (under a transparent
-        // title bar) so there's no empty title-bar band above its top bar. The
-        // editor's top bar leaves room for the traffic-light buttons. Restored on
-        // close so Home/report keep the normal titled chrome + toolbar.
+        // While editing, make the title bar transparent + title-less and fill it
+        // with a material backdrop placed BEHIND everything (incl. the traffic
+        // lights) so there's no blank title-bar band, the window buttons still
+        // show, and the editor's top-bar buttons stay clickable (they sit in the
+        // content area BELOW the title bar's drag region). macOS 14 has no
+        // `.containerBackground(for: .window)`, hence the AppKit backdrop. All
+        // restored on close so Home/report keep the normal titled chrome.
         .onChange(of: editor != nil) { _, editing in
             guard let window else { return }
             if editing {
                 window.titlebarAppearsTransparent = true
                 window.titleVisibility = .hidden
-                window.styleMask.insert(.fullSizeContentView)
+                if editorBackdrop == nil, let themeFrame = window.contentView?.superview {
+                    let fx = NSVisualEffectView(frame: themeFrame.bounds)
+                    fx.autoresizingMask = [.width, .height]
+                    fx.material = .windowBackground
+                    fx.blendingMode = .behindWindow
+                    fx.state = .active
+                    themeFrame.addSubview(fx, positioned: .below, relativeTo: nil)
+                    editorBackdrop = fx
+                }
             } else {
+                editorBackdrop?.removeFromSuperview()
+                editorBackdrop = nil
                 window.titlebarAppearsTransparent = false
                 window.titleVisibility = .visible
-                window.styleMask.remove(.fullSizeContentView)
             }
         }
         .toolbar {
