@@ -60,10 +60,12 @@ public func exportProject(
         try writeText(html, to: outputPath)
 
     case .pdf:
-        let html = try buildHtmlDoc(manifest: manifest, items: items, createdLine: createdLine)
         let stem = nextAvailableStem(exportDir: exportDir, stem: base, ext: ".pdf")
         outputPath = (exportDir as NSString).appendingPathComponent("\(stem).pdf")
-        try await htmlToPdf(dir: dir, html: html, outputPath: outputPath)
+        // Native CoreText/CG renderer — NOT WKWebView printing, which hangs the
+        // main thread in WebKit's print pagination (see PdfExport.swift).
+        try renderPdf(title: manifest.title, createdLine: createdLine,
+                      intro: manifest.intro, items: items, outputPath: outputPath)
     }
 
     return ExportResult(format: format, outputPath: outputPath)

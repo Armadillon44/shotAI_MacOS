@@ -18,5 +18,9 @@ let package = Package(
     targets: [
         .target(name: "ExportKit", dependencies: ["ShotModel"]),
         .testTarget(name: "ExportKitTests", dependencies: ["ExportKit"]),
+        // Live PDF smoke test (drives the real WKWebView + NSPrintOperation path
+        // that unit tests can't, with a watchdog that catches a hang regression):
+        //   swift run --package-path Packages/ExportKit PdfSelfTest
+        .executableTarget(name: "PdfSelfTest", dependencies: ["ExportKit", "ShotModel"]),
     ]
 )
