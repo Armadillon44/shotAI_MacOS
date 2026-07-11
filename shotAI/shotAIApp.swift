@@ -1,5 +1,6 @@
 import AppKit
 import CaptureKit
+import ExportKit
 import ShotModel
 import SwiftUI
 
@@ -39,6 +40,18 @@ struct ShotAIApp: App {
                     exit(0)
                 }
                 .keyboardShortcut("q", modifiers: .command)
+            }
+            // File ▸ Export — exports the currently-open project (disabled on Home).
+            // Same four formats as the report toolbar's Export menu.
+            CommandGroup(after: .importExport) {
+                Menu("Export") {
+                    Button("HTML Document") { Task { await model.exportOpened(format: .html) } }
+                    Button("PDF") { Task { await model.exportOpened(format: .pdf) } }
+                    Button("Markdown") { Task { await model.exportOpened(format: .markdown) } }
+                    Divider()
+                    Button("HTML for Word / Google Docs") { Task { await model.exportOpened(format: .htmlPlain) } }
+                }
+                .disabled(model.opened == nil || model.exporting)
             }
             // Troubleshooting: dump this app's recent log to a file + reveal it,
             // so a user can send it (parity with the Windows log file).

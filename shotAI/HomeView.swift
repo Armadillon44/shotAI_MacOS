@@ -1,4 +1,5 @@
 import CaptureKit
+import ExportKit
 import ShotModel
 import SwiftUI
 
@@ -239,6 +240,7 @@ struct HomeView: View {
             Menu {
                 Button("Rename") { startRename(p) }
                 Button("Reveal in Finder") { model.revealInFinder(path: p.path) }
+                exportMenu(p)
                 Divider()
                 Button("Delete", role: .destructive) { deleteTarget = p }
             } label: {
@@ -257,9 +259,24 @@ struct HomeView: View {
             Button("Open") { onOpen(p.path) }
             Button("Rename") { startRename(p) }
             Button("Reveal in Finder") { model.revealInFinder(path: p.path) }
+            exportMenu(p)
             Divider()
             Button("Delete", role: .destructive) { deleteTarget = p }
         }
+    }
+
+    /// Export submenu for a project card (⋯ + right-click). Exports by path, so it
+    /// works without opening the project first; disabled while an export runs.
+    @ViewBuilder
+    private func exportMenu(_ p: ProjectSummary) -> some View {
+        Menu("Export") {
+            Button("HTML Document") { Task { await model.export(projectPath: p.path, format: .html) } }
+            Button("PDF") { Task { await model.export(projectPath: p.path, format: .pdf) } }
+            Button("Markdown") { Task { await model.export(projectPath: p.path, format: .markdown) } }
+            Divider()
+            Button("HTML for Word / Google Docs") { Task { await model.export(projectPath: p.path, format: .htmlPlain) } }
+        }
+        .disabled(model.exporting)
     }
 
     private var emptyState: some View {
