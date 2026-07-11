@@ -47,6 +47,8 @@ Since fixed:
 - Model tests: `swift test --package-path Packages/ShotModel`
 - Capture tests (headless pipeline + geometry + captions): `swift test --package-path Packages/CaptureKit`
 - **Live capture smoke test** (drives real SCK/AX/store; needs Screen Recording): `swift run --package-path Packages/CaptureKit CaptureSelfTest` — the macOS analog of the Windows `capture-selftest.ts`; prints `[capture-test] PASS/FAIL`.
+- Export tests (HTML/Markdown/geometry/fail-closed gate): `swift test --package-path Packages/ExportKit`
+- **PDF smoke test** (drives the real CoreText/CG PDF renderer; 30s watchdog catches a hang regression): `swift run --package-path Packages/ExportKit PdfSelfTest` — prints `[pdf-test] PASS/FAIL`. NB: PDF is rendered natively (CoreText + CoreGraphics), **not** via WKWebView printing — `NSPrintOperation`+`WKWebView` spins forever in `-[WKPrintingView rectForPage:]` on the main thread and freezes the app.
 - Build app: `xcodebuild -project shotAI.xcodeproj -scheme shotAI -configuration Debug build`
 - The app's projects dir defaults to `~/shotAI Projects` (same as Windows).
 - TCC reset (only needed if grants get orphaned): `tccutil reset ScreenCapture|Accessibility|ListenEvent com.armadillon44.shotai`.
