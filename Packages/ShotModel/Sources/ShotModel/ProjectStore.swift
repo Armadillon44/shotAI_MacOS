@@ -16,6 +16,7 @@ public actor ProjectStore {
         case cannotMergeIntoSelf
         case renderPathNotConfined(String)
         case notAnImage
+        case importPathRejected(String)
 
         public var errorDescription: String? {
             switch self {
@@ -31,6 +32,8 @@ public actor ProjectStore {
                 "Refusing to write render for step \"\(id)\" — path escapes the project folder"
             case .notAnImage:
                 "That file isn't a PNG or JPEG image."
+            case .importPathRejected(let rel):
+                "The package contains an unexpected file path: \(rel)"
             }
         }
     }
@@ -206,6 +209,75 @@ public actor ProjectStore {
         settings.addRecent(dir)
         Log.store.notice("createProject: created project [id \(id, privacy: .public)]")
         return summarize(manifest, at: dir)
+    }
+
+    /// One extracted file from an imported package: a manifest-relative path plus
+    /// its bytes. The bytes are already magic-byte-validated + size-capped by the
+    /// caller (ExportKit's importPackage); this method adds path confinement.
+    public struct ImportFile: Sendable {
+        public let rel: String
+        public let bytes: Data
+        public init(rel: String, bytes: Data) {
+            self.rel = rel
+            self.bytes = bytes
+        }
+    }
+
+    /// Materialize an imported package into a NEW project folder (a fresh UUID, so
+    /// it never collides with the sender's). Files come from an UNTRUSTED zip, so
+    /// each is WHITELISTED to `shots/` or `export/.render/` (single segment) and
+    /// CONFINED (symlink-hardened) to the new folder — anything else, including a
+    /// path-traversal name, is refused. The manifest is re-stamped with the new id
+    /// and a cleared sopBackup (the sender's local revert history isn't shared).
+    /// Ported from the Windows `createProjectFromImport`.
+    public func createProjectFromImport(manifest: ProjectManifest, files: [ImportFile]) throws -> ProjectSummary {
+        let root = lexicallyResolve(absolutize(settings.projectsDir()))
+        let id = UUID().uuidString.lowercased()
+        let dir = (root as NSString).appendingPathComponent(id)
+        try fm.createDirectory(atPath: (dir as NSString).appendingPathComponent("shots"), withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: (dir as NSString).appendingPathComponent("export"), withIntermediateDirectories: true)
+
+        for f in files {
+            let rel = f.rel.replacingOccurrences(of: "\\", with: "/")
+            guard Self.isImportableImagePath(rel) else {
+                Log.store.error("SECURITY import rejected unexpected path rel=[\(rel, privacy: .private)]")
+                throw StoreError.importPathRejected(rel)
+            }
+            // Defense-in-depth against zip-slip / symlinked components.
+            guard let abs = confinePathNoSymlinks(dir: dir, rel: rel) else {
+                Log.store.error("SECURITY import path-confinement refused rel=[\(rel, privacy: .private)]")
+                throw StoreError.importPathRejected(rel)
+            }
+            try fm.createDirectory(atPath: (abs as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            // .withoutOverwriting: a duplicate entry in the zip can never clobber
+            // an already-extracted file (the dir is fresh, so this only guards the
+            // hostile-duplicate case).
+            try f.bytes.write(to: URL(fileURLWithPath: abs), options: .withoutOverwriting)
+        }
+
+        var out = manifest
+        let now = ProjectJSON.isoNow()
+        out.id = id
+        out.createdWith = "shotAI"
+        if out.createdAt.isEmpty { out.createdAt = now }
+        out.updatedAt = now
+        out.sopBackup = nil
+        try writeManifest(out, at: dir)
+        settings.addRecent(dir)
+        Log.store.notice("createProjectFromImport: created project [id \(id, privacy: .public)] files=\(files.count, privacy: .public)")
+        return summarize(out, at: dir)
+    }
+
+    /// The only two folders a package legitimately carries images in — a single
+    /// path segment deep (no traversal, no nested dirs). Shared by the importer's
+    /// pre-filter and this method's extraction guard.
+    public static func isImportableImagePath(_ rel: String) -> Bool {
+        func oneSegment(under folder: String) -> Bool {
+            guard rel.hasPrefix(folder) else { return false }
+            let tail = rel.dropFirst(folder.count)
+            return !tail.isEmpty && !tail.contains("/")
+        }
+        return oneSegment(under: "shots/") || oneSegment(under: "export/.render/")
     }
 
     /// Run a read-modify-write against a project's manifest, actor-serialized.

@@ -26,7 +26,75 @@ struct ContentView: View {
     @State private var window: NSWindow?
 
     var body: some View {
-        @Bindable var model = model
+        mainContent
+            .alert(
+                "Capture error",
+                isPresented: Binding(
+                    get: { capture.lastError != nil },
+                    set: { if !$0 { capture.lastError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(capture.lastError ?? "")
+            }
+            .alert(
+                "Can't edit this step",
+                isPresented: Binding(get: { editorError != nil }, set: { if !$0 { editorError = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(editorError ?? "")
+            }
+            .alert(
+                "Couldn't open project",
+                isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(model.errorMessage ?? "")
+            }
+            .alert(
+                "Export failed",
+                isPresented: Binding(get: { model.exportError != nil }, set: { if !$0 { model.exportError = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(model.exportError ?? "")
+            }
+            .alert(
+                "Couldn't import package",
+                isPresented: Binding(get: { model.importError != nil }, set: { if !$0 { model.importError = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(model.importError ?? "")
+            }
+            .task {
+                await model.refresh()
+                // Live-refresh the report as steps land; refresh everything when
+                // a session ends (stop or discard may even delete the project).
+                capture.onStepAdded = { _ in
+                    Task { await model.reloadOpened() }
+                }
+                capture.onRecordingEnded = {
+                    Task {
+                        await model.refresh()
+                        await model.reloadOpened()
+                    }
+                }
+                // First run: surface the wizard when the required permission is
+                // missing, before the user hits Record and wonders.
+                if !CapturePermission.screenRecording.isGranted() {
+                    capture.showWizard = true
+                }
+            }
+    }
+
+    /// The Home ⇄ detail content plus its window chrome (toolbar, overlays,
+    /// file importer). Split out from `body` — with the alerts/task chained on
+    /// top the single expression exceeded the Swift type-checker's budget.
+    @ViewBuilder private var mainContent: some View {
         // Full-window Home ⇄ detail switch (the Windows single-window model),
         // not a persistent sidebar. Opening a project shows its report; Back
         // (or closeToHome) returns to the Home card grid.
@@ -74,66 +142,7 @@ struct ContentView: View {
         // Three mutually-exclusive toolbar states. Use SEMANTIC placements
         // throughout: default .automatic items LINGER across a conditional
         // toolbar swap on macOS, whereas semantic placements swap out cleanly.
-        .toolbar {
-            if let editor {
-                // Editing a step: just Cancel / Save.
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { self.editor = nil }
-                        .disabled(editor.saving)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task {
-                            if await editor.save() {
-                                self.editor = nil
-                                await model.reloadOpened() // show the flattened render
-                                await model.refresh() // updatedAt changed → resort the list
-                            }
-                        }
-                    } label: {
-                        if editor.saving { ProgressView().controlSize(.small) } else { Text("Save") }
-                    }
-                    .disabled(editor.saving || editor.scanning)
-                }
-            } else if model.opened != nil {
-                // In a project/report: Back + Export. (Record removed — the
-                // report's "＋ → Capture steps…" covers recording more steps.)
-                ToolbarItem(placement: .navigation) {
-                    Button("Back", systemImage: "chevron.left") { model.closeToHome() }
-                        .help("Back to all projects")
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button("HTML Document") { export(.html) }
-                        Button("PDF") { export(.pdf) }
-                        Button("Markdown") { export(.markdown) }
-                        Divider()
-                        Button("HTML for Word / Google Docs") { export(.htmlPlain) }
-                    } label: {
-                        // Force BOTH the word "Export" and the icon: this app's
-                        // toolbar renders image-bearing labels icon-only by default,
-                        // and macOS then auto-labels a bare square.and.arrow.up as
-                        // "Share" — unrecognizable as export. titleAndIcon fixes it.
-                        Label("Export", systemImage: "square.and.arrow.up")
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .menuIndicator(.visible)
-                    .disabled(model.exporting)
-                    .help("Export this SOP to a shareable document")
-                }
-            } else {
-                // Home (project list): open another project + refresh the list.
-                // Permissions moved off the toolbar → future Settings menu.
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button("Open Project…", systemImage: "folder.badge.plus") {
-                        showOpenPanel = true
-                    }
-                    Button("Refresh", systemImage: "arrow.clockwise") {
-                        Task { await model.refresh() }
-                    }
-                }
-            }
-        }
+        .toolbar { windowToolbar }
         .fileImporter(isPresented: $showOpenPanel, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 Task { await model.openUserPicked(url) }
@@ -165,60 +174,6 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
-        .alert(
-            "Capture error",
-            isPresented: Binding(
-                get: { capture.lastError != nil },
-                set: { if !$0 { capture.lastError = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(capture.lastError ?? "")
-        }
-        .alert(
-            "Can't edit this step",
-            isPresented: Binding(get: { editorError != nil }, set: { if !$0 { editorError = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(editorError ?? "")
-        }
-        .alert(
-            "Couldn't open project",
-            isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.errorMessage ?? "")
-        }
-        .alert(
-            "Export failed",
-            isPresented: Binding(get: { model.exportError != nil }, set: { if !$0 { model.exportError = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.exportError ?? "")
-        }
-        .task {
-            await model.refresh()
-            // Live-refresh the report as steps land; refresh everything when
-            // a session ends (stop or discard may even delete the project).
-            capture.onStepAdded = { _ in
-                Task { await model.reloadOpened() }
-            }
-            capture.onRecordingEnded = {
-                Task {
-                    await model.refresh()
-                    await model.reloadOpened()
-                }
-            }
-            // First run: surface the wizard when the required permission is
-            // missing, before the user hits Record and wonders.
-            if !CapturePermission.screenRecording.isGranted() {
-                capture.showWizard = true
-            }
-        }
     }
 
     /// Size the window to the current surface's width (Home vs. project detail),
@@ -244,6 +199,83 @@ struct ContentView: View {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             window.animator().setFrame(f, display: true)
         }
+    }
+
+    /// The window toolbar's three mutually-exclusive states, extracted into a typed
+    /// `@ToolbarContentBuilder` so the (large, conditional) content doesn't blow the
+    /// Swift type-checker's budget when inlined in `.toolbar { … }`. Uses SEMANTIC
+    /// placements throughout: default `.automatic` items LINGER across a conditional
+    /// toolbar swap on macOS, whereas semantic placements swap out cleanly.
+    @ToolbarContentBuilder
+    private var windowToolbar: some ToolbarContent {
+        if let editor {
+            // Editing a step: just Cancel / Save.
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { self.editor = nil }
+                    .disabled(editor.saving)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button {
+                    Task {
+                        if await editor.save() {
+                            self.editor = nil
+                            await model.reloadOpened() // show the flattened render
+                            await model.refresh() // updatedAt changed → resort the list
+                        }
+                    }
+                } label: {
+                    if editor.saving { ProgressView().controlSize(.small) } else { Text("Save") }
+                }
+                .disabled(editor.saving || editor.scanning)
+            }
+        } else if model.opened != nil {
+            // In a project/report: Back + Export. (Record removed — the report's
+            // "＋ → Capture steps…" covers recording more steps.)
+            ToolbarItem(placement: .navigation) {
+                Button("Back", systemImage: "chevron.left") { model.closeToHome() }
+                    .help("Back to all projects")
+            }
+            ToolbarItem(placement: .primaryAction) { reportExportMenu }
+        } else {
+            // Home (project list): open a project, import a package, refresh.
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button("Open Project…", systemImage: "folder.badge.plus") { showOpenPanel = true }
+                Button("Import Package…", systemImage: "square.and.arrow.down") { model.promptImportPackage() }
+                    .help("Import a shotAI package (.zip)")
+                Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refresh() } }
+            }
+        }
+    }
+
+    /// The report's Export pull-down. Extracted from the `.toolbar` builder so the
+    /// (already large) conditional toolbar closure stays within the Swift
+    /// type-checker's budget — inlining the nested package submenu tipped it over.
+    @ViewBuilder private var reportExportMenu: some View {
+        Menu {
+            Button("HTML Document") { export(.html) }
+            Button("PDF") { export(.pdf) }
+            Button("Markdown") { export(.markdown) }
+            Divider()
+            Button("HTML for Word / Google Docs") { export(.htmlPlain) }
+            Divider()
+            Menu("shotAI Package (.zip)") {
+                Button("Safe — redactions permanent") {
+                    model.confirmAndExportPackageOpened(includeOriginals: false)
+                }
+                Button("Full — includes editable originals…") {
+                    model.confirmAndExportPackageOpened(includeOriginals: true)
+                }
+            }
+        } label: {
+            // Force BOTH the word "Export" and the icon: this app's toolbar renders
+            // image-bearing labels icon-only by default, and macOS then auto-labels
+            // a bare square.and.arrow.up as "Share" — unrecognizable as export.
+            Label("Export", systemImage: "square.and.arrow.up")
+                .labelStyle(.titleAndIcon)
+        }
+        .menuIndicator(.visible)
+        .disabled(model.exporting)
+        .help("Export this SOP to a shareable document")
     }
 
     /// Kick off an export of the opened project. The heavy work (flatten + write)

@@ -6,6 +6,7 @@ import Foundation
 import ImageIO
 import Observation
 import ShotModel
+import UniformTypeIdentifiers
 
 /// UI-facing state for the Phase A read-only viewer: the project list and the
 /// currently opened project. All disk work happens inside the ProjectStore
@@ -66,6 +67,8 @@ final class AppModel {
     /// Set on export failure → surfaced by ContentView's alert. Success reveals
     /// the file in Finder instead (no alert needed).
     var exportError: String?
+    /// Set on package-import failure → surfaced by a separate ContentView alert.
+    var importError: String?
 
     /// Export the currently-opened project to `format`. Thin wrapper over
     /// `export(projectPath:format:)` (used by the report toolbar + File ▸ Export).
@@ -96,6 +99,76 @@ final class AppModel {
         } catch {
             exportError = error.localizedDescription
             Log.store.error("export \(format.rawValue, privacy: .public) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    // MARK: - Shareable package (.zip)
+
+    /// Confirm (for full mode) then export a shareable package. Full mode ships the
+    /// un-redacted originals, so it gets an explicit warning first — centralized
+    /// here so every entry point (toolbar / File menu / Home ⋯) shares it.
+    func confirmAndExportPackage(projectPath: String, includeOriginals: Bool) {
+        if includeOriginals {
+            let alert = NSAlert()
+            alert.messageText = "Include original screenshots?"
+            alert.informativeText = "A full package includes the un-redacted original images so the recipient can fully re-edit the project — any redactions become recoverable. Choose Safe if redactions must stay permanent."
+            alert.addButton(withTitle: "Include Originals")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        Task { await exportPackage(projectPath: projectPath, includeOriginals: includeOriginals) }
+    }
+
+    /// Convenience for the currently-open project (toolbar + File ▸ Export).
+    func confirmAndExportPackageOpened(includeOriginals: Bool) {
+        guard let path = selectedPath ?? opened?.dir else { return }
+        confirmAndExportPackage(projectPath: path, includeOriginals: includeOriginals)
+    }
+
+    /// Flatten shots (safe mode needs current baked renders), assemble the .zip,
+    /// and reveal it in Finder. Fail-closed like the document exports.
+    func exportPackage(projectPath: String, includeOriginals: Bool) async {
+        guard !exporting else { return }
+        exporting = true
+        defer { exporting = false }
+        do {
+            let loaded = try await store.openProject(at: projectPath)
+            let manifest = try await ensureFlattened(dir: loaded.dir, manifest: loaded.manifest)
+            let result = try ExportKit.exportPackage(dir: loaded.dir, manifest: manifest, includeOriginals: includeOriginals)
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: result.outputPath)])
+            if opened?.dir == loaded.dir { await reloadOpened() }
+            Log.store.notice("exported package originals=\(includeOriginals, privacy: .public)")
+        } catch {
+            exportError = error.localizedDescription
+            Log.store.error("export package failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    /// Prompt for a .zip and import it (File ▸ Import + Home). Uses an AppKit open
+    /// panel so it works identically from a menu command or a button.
+    func promptImportPackage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.zip]
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Import"
+        panel.message = "Choose a shotAI package (.zip) to import."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task { await importPackage(from: url) }
+    }
+
+    /// Import an (untrusted) package into a fresh project, then open it.
+    func importPackage(from url: URL) async {
+        guard !exporting else { return }
+        exporting = true
+        defer { exporting = false }
+        do {
+            let summary = try await ExportKit.importPackage(zipPath: url.path, into: store)
+            await refresh()
+            await open(path: summary.path)
+            Log.store.notice("imported package → new project")
+        } catch {
+            importError = error.localizedDescription
+            Log.store.error("import package failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
     }
 

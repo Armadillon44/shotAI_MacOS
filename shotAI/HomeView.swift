@@ -275,6 +275,15 @@ struct HomeView: View {
             Button("Markdown") { Task { await model.export(projectPath: p.path, format: .markdown) } }
             Divider()
             Button("HTML for Word / Google Docs") { Task { await model.export(projectPath: p.path, format: .htmlPlain) } }
+            Divider()
+            Menu("shotAI Package (.zip)") {
+                Button("Safe — redactions permanent") {
+                    model.confirmAndExportPackage(projectPath: p.path, includeOriginals: false)
+                }
+                Button("Full — includes editable originals…") {
+                    model.confirmAndExportPackage(projectPath: p.path, includeOriginals: true)
+                }
+            }
         }
         .disabled(model.exporting)
     }
