@@ -158,17 +158,25 @@ public func importPackage(zipPath: String, into store: ProjectStore) async throw
         throw PackageError.notAPackage
     }
 
-    let entries: [ZipEntry]
+    // List metadata only — nothing is decompressed yet. We then inflate ONLY the
+    // entries we keep (marker, project.json, whitelisted images), capping the
+    // running total FIRST, so a zip bomb of junk/non-whitelisted entries can't
+    // exhaust memory (parity with the Windows streaming extraction).
+    let items: [ZipItem]
     do {
-        entries = try zipRead(data, maxEntryBytes: MAX_FILE_BYTES)
-    } catch let e as ZipError {
-        if case .entryTooLarge = e { throw PackageError.tooLarge }
+        items = try zipList(data)
+    } catch {
         throw PackageError.notAPackage
     }
-    let byName = Dictionary(entries.map { ($0.name, $0.data) }, uniquingKeysWith: { a, _ in a })
+
+    func extract(_ name: String, cap: Int) throws -> Data? {
+        guard let it = items.first(where: { $0.name == name }) else { return nil }
+        guard it.uncompressedSize <= cap else { throw PackageError.tooLarge }
+        do { return try zipExtract(data, it) } catch { throw PackageError.notAPackage }
+    }
 
     // Marker: must be present, well-formed, our format, not from the future.
-    guard let markerData = byName[PKG_MARKER] else { throw PackageError.notAPackage }
+    guard let markerData = try extract(PKG_MARKER, cap: MAX_FILE_BYTES) else { throw PackageError.notAPackage }
     guard let markerObj = try? JSONSerialization.jsonObject(with: markerData) as? [String: Any] else {
         throw PackageError.markerCorrupt
     }
@@ -176,20 +184,24 @@ public func importPackage(zipPath: String, into store: ProjectStore) async throw
     if let v = markerObj["version"] as? Int, v > PKG_VERSION { throw PackageError.tooNew }
 
     // Manifest.
-    guard let manifestData = byName["project.json"] else { throw PackageError.missingManifest }
+    guard let manifestData = try extract("project.json", cap: MAX_FILE_BYTES) else { throw PackageError.missingManifest }
     guard let manifest = try? ProjectJSON.decodeManifest(manifestData) else { throw PackageError.manifestCorrupt }
 
-    // Collect image files: whitelist folder + magic bytes + running total cap.
+    // Collect image files: whitelist folder + running total cap (checked on the
+    // DECLARED size before inflating) + per-file cap + magic bytes.
     var files: [ProjectStore.ImportFile] = []
     var total = 0
-    for entry in entries {
-        let rel = entry.name.replacingOccurrences(of: "\\", with: "/")
+    for it in items {
+        let rel = it.name.replacingOccurrences(of: "\\", with: "/")
         if rel == PKG_MARKER || rel == "project.json" { continue }
         guard ProjectStore.isImportableImagePath(rel) else { continue } // ignore anything unexpected
-        total += entry.data.count
+        guard it.uncompressedSize <= MAX_FILE_BYTES else { throw PackageError.tooLarge }
+        total += it.uncompressedSize
         guard total <= MAX_PKG_BYTES else { throw PackageError.tooLarge }
-        guard isPngOrJpeg(entry.data) else { throw PackageError.nonImage(rel) }
-        files.append(ProjectStore.ImportFile(rel: rel, bytes: entry.data))
+        let bytes: Data
+        do { bytes = try zipExtract(data, it) } catch { throw PackageError.notAPackage }
+        guard isPngOrJpeg(bytes) else { throw PackageError.nonImage(rel) }
+        files.append(ProjectStore.ImportFile(rel: rel, bytes: bytes))
     }
 
     return try await store.createProjectFromImport(manifest: manifest, files: files)
