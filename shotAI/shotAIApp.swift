@@ -50,8 +50,15 @@ struct ShotAIApp: App {
                     Button("Markdown") { Task { await model.exportOpened(format: .markdown) } }
                     Divider()
                     Button("HTML for Word / Google Docs") { Task { await model.exportOpened(format: .htmlPlain) } }
+                    Divider()
+                    Menu("shotAI Package (.zip)") {
+                        Button("Safe — redactions permanent") { model.confirmAndExportPackageOpened(includeOriginals: false) }
+                        Button("Full — includes editable originals…") { model.confirmAndExportPackageOpened(includeOriginals: true) }
+                    }
                 }
                 .disabled(model.opened == nil || model.exporting)
+                Button("Import shotAI Package…") { model.promptImportPackage() }
+                    .disabled(model.exporting)
             }
             // Troubleshooting: dump this app's recent log to a file + reveal it,
             // so a user can send it (parity with the Windows log file).
