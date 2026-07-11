@@ -55,6 +55,19 @@ final class PackageTests: XCTestCase {
         XCTAssertEqual(byName["project.json"], b)
     }
 
+    func testZipListReportsMetadataThenExtract() throws {
+        // zipList reads sizes from the directory WITHOUT decompressing; zipExtract
+        // then inflates a single chosen entry on demand (the importer's zip-bomb
+        // guard relies on this list-then-selective-extract split).
+        let payload = Data(repeating: 0x42, count: 4096)
+        let zip = zipStored([("shots/a.png", payload), ("project.json", Data("{}".utf8))])
+        let items = try zipList(zip)
+        XCTAssertEqual(Set(items.map(\.name)), ["shots/a.png", "project.json"])
+        let shot = items.first { $0.name == "shots/a.png" }!
+        XCTAssertEqual(shot.uncompressedSize, 4096)
+        XCTAssertEqual(try zipExtract(zip, shot), payload)
+    }
+
     func testZipReadsRealDeflateZip() throws {
         // A zip produced by /usr/bin/zip is DEFLATE-compressed — exercises the
         // inflate path (the format Windows' JSZip emits).

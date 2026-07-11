@@ -110,10 +110,20 @@ func zipStored(_ entries: [(name: String, data: Data)]) -> Data {
 
 // MARK: - Reader (STORED + DEFLATE)
 
-/// Parse a ZIP archive, returning its file entries (directories skipped). Every
-/// offset/length is bounds-checked; an entry whose uncompressed size exceeds
-/// `maxEntryBytes` throws. Malformed input throws rather than crashing.
-func zipRead(_ data: Data, maxEntryBytes: Int) throws -> [ZipEntry] {
+/// A listed archive entry — metadata only, no decompression yet. Splitting list
+/// from extract lets a caller inflate ONLY the entries it keeps (with a running
+/// total cap), so a zip bomb of junk/non-whitelisted entries is never inflated.
+struct ZipItem {
+    let name: String
+    let method: Int            // 0 = stored, 8 = deflate
+    let uncompressedSize: Int
+    let compressedRange: Range<Int>  // absolute indices into the source Data
+}
+
+/// Parse a ZIP's central directory into entry metadata (files only; directories
+/// skipped). Every offset/length is bounds-checked; malformed input throws rather
+/// than crashing. NO decompression happens here.
+func zipList(_ data: Data) throws -> [ZipItem] {
     let n = data.count
     guard n >= 22 else { throw ZipError.notAZip }
 
@@ -144,7 +154,7 @@ func zipRead(_ data: Data, maxEntryBytes: Int) throws -> [ZipEntry] {
         throw ZipError.corrupt("central directory out of bounds")
     }
 
-    var entries: [ZipEntry] = []
+    var items: [ZipItem] = []
     var c = cdOffset
     let cdEnd = cdOffset + cdSize
     for _ in 0..<count {
@@ -165,36 +175,54 @@ func zipRead(_ data: Data, maxEntryBytes: Int) throws -> [ZipEntry] {
 
         // Skip directory entries (and anything with a zero-length name).
         if name.isEmpty || name.hasSuffix("/") { continue }
-        guard uncompSize <= maxEntryBytes else { throw ZipError.entryTooLarge(name) }
 
-        // Read the LOCAL header (its name/extra lengths can differ from central).
+        // Resolve the data range via the LOCAL header (its name/extra lengths can
+        // differ from the central record's). Bounds-checked so zipExtract's slice
+        // is always valid.
         guard localOff >= 0, localOff + 30 <= n, u32(localOff) == sigLocal else {
             throw ZipError.corrupt("bad local header for \(name)")
         }
         let lNameLen = u16(localOff + 26)
         let lExtraLen = u16(localOff + 28)
         let dataStart = localOff + 30 + lNameLen + lExtraLen
-        guard compSize >= 0, dataStart + compSize <= n else {
+        guard compSize >= 0, uncompSize >= 0, dataStart >= 0, dataStart + compSize <= n else {
             throw ZipError.corrupt("data out of bounds for \(name)")
         }
-        let comp = data.subdata(in: (data.startIndex + dataStart)..<(data.startIndex + dataStart + compSize))
-
-        let out: Data
-        switch method {
-        case 0: // STORED
-            guard compSize == uncompSize else { throw ZipError.corrupt("stored size mismatch for \(name)") }
-            out = comp
-        case 8: // DEFLATE
-            guard let inflated = inflateRaw(comp, expected: uncompSize) else {
-                throw ZipError.corrupt("could not decompress \(name)")
-            }
-            out = inflated
-        default:
-            throw ZipError.corrupt("unsupported compression for \(name)")
-        }
-        entries.append(ZipEntry(name: name, data: out))
+        let start = data.startIndex + dataStart
+        items.append(ZipItem(name: name, method: method, uncompressedSize: uncompSize,
+                             compressedRange: start..<(start + compSize)))
     }
-    return entries
+    return items
+}
+
+/// Decompress one listed entry to bytes (STORED = copy, DEFLATE = inflate). Pass
+/// the SAME `data` that was given to `zipList`.
+func zipExtract(_ data: Data, _ item: ZipItem) throws -> Data {
+    let comp = data.subdata(in: item.compressedRange)
+    switch item.method {
+    case 0: // STORED
+        guard comp.count == item.uncompressedSize else {
+            throw ZipError.corrupt("stored size mismatch for \(item.name)")
+        }
+        return comp
+    case 8: // DEFLATE
+        guard let out = inflateRaw(comp, expected: item.uncompressedSize) else {
+            throw ZipError.corrupt("could not decompress \(item.name)")
+        }
+        return out
+    default:
+        throw ZipError.corrupt("unsupported compression for \(item.name)")
+    }
+}
+
+/// Convenience: list + extract every entry (used by tests and simple callers). An
+/// entry whose uncompressed size exceeds `maxEntryBytes` throws. Prefer
+/// zipList + selective zipExtract for untrusted input (avoids inflating junk).
+func zipRead(_ data: Data, maxEntryBytes: Int) throws -> [ZipEntry] {
+    try zipList(data).map { item in
+        guard item.uncompressedSize <= maxEntryBytes else { throw ZipError.entryTooLarge(item.name) }
+        return ZipEntry(name: item.name, data: try zipExtract(data, item))
+    }
 }
 
 /// Inflate raw DEFLATE (ZIP method 8) to a known size via Apple's Compression.
