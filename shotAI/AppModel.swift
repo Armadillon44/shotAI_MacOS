@@ -67,21 +67,32 @@ final class AppModel {
     /// the file in Finder instead (no alert needed).
     var exportError: String?
 
-    /// Flatten every shot that lacks a current marker-baked render, then export
-    /// the opened project to `format` under its `export/` folder and reveal the
-    /// file in Finder. Fail-closed: if a step can't be flattened or the render
-    /// gate refuses (unbaked redaction/crop), the error is surfaced and NO partial
-    /// export is written. Mirrors the Windows flow (ensureFlattened → exportProject).
+    /// Export the currently-opened project to `format`. Thin wrapper over
+    /// `export(projectPath:format:)` (used by the report toolbar + File ▸ Export).
     func exportOpened(format: ExportFormat) async {
-        guard opened != nil, !exporting else { return }
+        guard let path = selectedPath ?? opened?.dir else { return }
+        await export(projectPath: path, format: format)
+    }
+
+    /// Flatten every shot that lacks a current marker-baked render, then export
+    /// the project at `projectPath` to `format` under its `export/` folder and
+    /// reveal the file in Finder. Works whether or not the project is the one
+    /// currently open (the Home ⋯ menu exports by path). Fail-closed: if a step
+    /// can't be flattened or the render gate refuses (unbaked redaction/crop), the
+    /// error is surfaced and NO partial export is written. Mirrors the Windows
+    /// flow (ensureFlattened → exportProject).
+    func export(projectPath: String, format: ExportFormat) async {
+        guard !exporting else { return }
         exporting = true
         defer { exporting = false }
         do {
-            try await ensureFlattened()
-            guard let fresh = opened else { return }
-            let result = try await exportProject(dir: fresh.dir, manifest: fresh.manifest, format: format)
+            let loaded = try await store.openProject(at: projectPath)
+            let manifest = try await ensureFlattened(dir: loaded.dir, manifest: loaded.manifest)
+            let result = try await exportProject(dir: loaded.dir, manifest: manifest, format: format)
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: result.outputPath)])
-            Log.store.notice("exported \(format.rawValue, privacy: .public) (\(fresh.manifest.steps.count, privacy: .public) steps)")
+            // If we just re-flattened the project that's on screen, refresh it.
+            if opened?.dir == loaded.dir { await reloadOpened() }
+            Log.store.notice("exported \(format.rawValue, privacy: .public) (\(manifest.steps.count, privacy: .public) steps)")
         } catch {
             exportError = error.localizedDescription
             Log.store.error("export \(format.rawValue, privacy: .public) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
@@ -91,15 +102,13 @@ final class AppModel {
     /// Re-bake any shot whose render is missing or predates marker-baking, so the
     /// export gate only ever reads current, redaction-baked renders (with the
     /// click ring baked in — the report draws that as an overlay, but an exported
-    /// file has no overlay layer). Persists each and refreshes `opened`. Throws a
-    /// friendly, step-scoped error (and exports nothing) if a shot can't be
-    /// prepared — mirrors the Windows sop-prepare.ts flow.
-    private func ensureFlattened() async throws {
-        guard let opened else { return }
-        let dir = opened.dir
+    /// file has no overlay layer). Persists each and returns the fresh manifest.
+    /// Throws a friendly, step-scoped error (and exports nothing) if a shot can't
+    /// be prepared — mirrors the Windows sop-prepare.ts flow.
+    private func ensureFlattened(dir: String, manifest: ProjectManifest) async throws -> ProjectManifest {
         var changed = false
         var shotNo = 0
-        for step in opened.manifest.steps {
+        for step in manifest.steps {
             if step.kind == .text { continue }              // text steps have no image
             shotNo += 1
             // Treat flattened:"" as "no render" — the SAME emptiness test the
@@ -109,7 +118,7 @@ final class AppModel {
             if hasRender, step.markerBaked == true { continue }
             if step.screenshot.isEmpty { continue }
             do {
-                guard let png = try flattenRender(for: step) else {
+                guard let png = try flattenRender(for: step, dir: dir) else {
                     throw ExportPrepError.stepFailed(shotNo, step.caption, "its screenshot couldn't be read")
                 }
                 var patch = StepPatch()
@@ -124,7 +133,8 @@ final class AppModel {
                 throw ExportPrepError.stepFailed(shotNo, step.caption, error.localizedDescription)
             }
         }
-        if changed { await reloadOpened() }
+        guard changed else { return manifest }
+        return try await store.openProject(at: dir).manifest    // fresh: now has flattened paths
     }
 
     /// A step-scoped preparation failure surfaced by `ensureFlattened`.
@@ -474,7 +484,7 @@ final class AppModel {
         guard let m = lastMerge, let opened, m.projectDir == opened.dir else { return }
         lastMerge = nil
         do {
-            let keptPng = m.keptPre.flattened != nil ? try flattenRender(for: m.keptPre) : nil
+            let keptPng = m.keptPre.flattened != nil ? try flattenRender(for: m.keptPre, dir: opened.dir) : nil
             try await store.restoreMerge(at: opened.dir, keptPre: m.keptPre, dropped: m.dropped, dropIndex: m.dropIndex, keptPng: keptPng)
             await reloadOnly()
         } catch {
@@ -484,8 +494,8 @@ final class AppModel {
     }
 
     /// Re-bake a step's own render (raw + its annotations/crop + its click marker).
-    private func flattenRender(for step: ProjectStep) throws -> Data? {
-        guard let dir = opened?.dir, !step.screenshot.isEmpty,
+    private func flattenRender(for step: ProjectStep, dir: String) throws -> Data? {
+        guard !step.screenshot.isEmpty,
               let abs = confinePath(dir: dir, rel: step.screenshot),
               let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: abs) as CFURL, nil),
               let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
