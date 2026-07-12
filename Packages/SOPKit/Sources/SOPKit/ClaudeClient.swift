@@ -113,11 +113,7 @@ public struct ClaudeClient: Sendable {
     /// Stream a vision + structured-output request; accumulate the JSON text,
     /// track the stop reason, and decode the edit plan. Progress is reported via
     /// `onProgress`. Throws a friendly ClaudeError on refusal/cutoff/malformed.
-    func streamEditPlan(
-        apiKey: String, body: [String: Any],
-        onProgress: @Sendable (SopProgress) -> Void,
-        debugSink: (@Sendable (_ rawText: String, _ stopReason: String?, _ textDeltas: Int) -> Void)? = nil
-    ) async throws -> SopEditRaw {
+    func streamEditPlan(apiKey: String, body: [String: Any], onProgress: @Sendable (SopProgress) -> Void) async throws -> SopEditRaw {
         let req = try makeRequest(path: "/v1/messages", apiKey: apiKey, method: "POST", jsonBody: body)
         let (lines, status) = try await transport.stream(for: req)
 
@@ -133,7 +129,6 @@ public struct ClaudeClient: Sendable {
 
         var text = ""
         var chars = 0
-        var textDeltas = 0
         var lastEmit = Date.distantPast
         var stopReason: String?
 
@@ -155,7 +150,6 @@ public struct ClaudeClient: Sendable {
                     if (delta["type"] as? String) == "text_delta", let t = delta["text"] as? String {
                         text += t
                         chars += t.count
-                        textDeltas += 1
                         let now = Date()
                         if now.timeIntervalSince(lastEmit) > 0.25 {
                             lastEmit = now
@@ -172,7 +166,6 @@ public struct ClaudeClient: Sendable {
             }
         }
 
-        debugSink?(text, stopReason, textDeltas)
         if stopReason == "refusal" { throw ClaudeError.refusal }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw stopReason == "max_tokens" ? ClaudeError.cutoff : ClaudeError.noContent }
