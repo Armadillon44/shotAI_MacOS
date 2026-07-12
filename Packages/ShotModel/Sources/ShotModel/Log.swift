@@ -63,10 +63,33 @@ public enum Log {
         }
     }
 
+    // MARK: Export-log retention
+    //
+    // Runtime logging itself goes to the OS unified log store, which macOS caps
+    // and rotates on its own — the app can't make *that* grow without bound. The
+    // only unbounded disk vector shotAI owns is the export folder below, where
+    // every "Export shotAI Logs…" drops a fresh timestamped file. We prune it
+    // after each export so it can never accumulate indefinitely.
+
+    /// Keep at most this many exported log files.
+    public static let maxExportFiles = 10
+    /// Keep the exported-log folder under this combined size (bytes). 50 MB.
+    public static let maxExportBytes = 50 * 1024 * 1024
+    /// Prefix used for every exported log file (also the prune match pattern).
+    private static let exportPrefix = "shotai-"
+
+    /// The directory exported logs live in (`~/Library/Logs/shotAI/`).
+    static func exportLogDir() throws -> URL {
+        try FileManager.default
+            .url(for: .libraryDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            .appendingPathComponent("Logs/shotAI", isDirectory: true)
+    }
+
     /// Export this app's recent log entries to a text file for troubleshooting,
     /// returning the file URL (under ~/Library/Logs/shotAI/). Includes private
     /// field values — it's the user's own machine, so the export is genuinely
-    /// useful when they choose to send it.
+    /// useful when they choose to send it. Old exports are pruned afterward so
+    /// the folder stays bounded (see `pruneLogExports`).
     public static func exportRecentLog(hours: Double = 24) throws -> URL {
         let store = try OSLogStore(scope: .currentProcessIdentifier)
         let start = store.position(date: Date().addingTimeInterval(-hours * 3600))
@@ -83,15 +106,57 @@ public enum Log {
             count += 1
         }
 
-        let dir = try FileManager.default
-            .url(for: .libraryDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-            .appendingPathComponent("Logs/shotAI", isDirectory: true)
+        let dir = try exportLogDir()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let stamp = iso.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let file = dir.appendingPathComponent("shotai-\(stamp).log")
+        let file = dir.appendingPathComponent("\(exportPrefix)\(stamp).log")
         try text.write(to: file, atomically: true, encoding: .utf8)
         app.notice("Exported \(count, privacy: .public) log entries to a file")
+        pruneLogExports(in: dir)  // keep the folder bounded
         return file
+    }
+
+    /// Delete the oldest exported log files in `dir` until at most `maxFiles`
+    /// remain AND their combined size is ≤ `maxBytes`. Files are ranked by
+    /// modification date (newest kept). The single newest file is always kept —
+    /// it's the one just written and about to be revealed — even if it alone
+    /// exceeds `maxBytes`. Best-effort: a file that can't be removed is skipped,
+    /// never fatal to the export.
+    @discardableResult
+    static func pruneLogExports(in dir: URL,
+                                maxFiles: Int = maxExportFiles,
+                                maxBytes: Int = maxExportBytes) -> Int {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+        guard let items = try? fm.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else { return 0 }
+
+        // Only our own export files, newest first.
+        let logs = items
+            .filter { $0.lastPathComponent.hasPrefix(exportPrefix) && $0.pathExtension == "log" }
+            .map { url -> (url: URL, date: Date, size: Int) in
+                let v = try? url.resourceValues(forKeys: Set(keys))
+                return (url, v?.contentModificationDate ?? .distantPast, v?.fileSize ?? 0)
+            }
+            .sorted { $0.date > $1.date }
+
+        // Find how many of the newest files fit under both caps, then delete the rest.
+        var keep = 0
+        var bytes = 0
+        for (i, item) in logs.enumerated() {
+            if i == 0 || (keep < maxFiles && bytes + item.size <= maxBytes) {
+                keep += 1
+                bytes += item.size
+            } else {
+                break  // sorted newest-first: everything from here on is older → prune
+            }
+        }
+        var removed = 0
+        for item in logs.dropFirst(keep) where (try? fm.removeItem(at: item.url)) != nil {
+            removed += 1
+        }
+        if removed > 0 { app.notice("Pruned \(removed, privacy: .public) old log export(s)") }
+        return removed
     }
 
     private static func levelName(_ level: OSLogEntryLog.Level) -> String {
