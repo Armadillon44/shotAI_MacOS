@@ -14,8 +14,13 @@ final class AssemblerTests: XCTestCase {
         XCTAssertEqual(req.messages.count, 1)
         XCTAssertEqual(req.messages[0]["role"] as? String, "user")
         let content = req.messages[0]["content"] as! [[String: Any]]
-        XCTAssertEqual((content.first?["text"] as? String)?.contains("Project: Test SOP"), true)
-        XCTAssertEqual((content.first?["text"] as? String)?.contains("The 2 steps"), true)
+        // The current title is surfaced as a replaceable placeholder (Claude is
+        // asked to write a fresh descriptive `title`), so we assert the title
+        // appears alongside that framing rather than a bare "Project:" label.
+        let lead = content.first?["text"] as? String
+        XCTAssertEqual(lead?.contains("Test SOP"), true)
+        XCTAssertEqual(lead?.contains("Current project name"), true)
+        XCTAssertEqual(lead?.contains("The 2 steps"), true)
         XCTAssertEqual(content.filter { $0["type"] as? String == "image" }.count, 2)
         XCTAssertNotNil((content.last?["cache_control"]))
     }
