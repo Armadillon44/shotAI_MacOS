@@ -172,4 +172,32 @@ final class SopServiceTests: XCTestCase {
         // 1M input @ $3/MTok = $3.00; + 2500 output @ $15/MTok ≈ $0.0375.
         XCTAssertEqual(est.estCostUsd, 3.0 + 2500.0 / 1e6 * 15, accuracy: 0.0001)
     }
+
+    func testGenerateRejectsUnderProducedPlan() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        let m = try await store.openProject(at: path).manifest
+        // Model returned an intro but no usable step edits (low-effort under-produce).
+        let empty = #"{"title":"T","intro":{"heading":"H","body":"B"},"steps":[]}"#
+        let svc1 = SopService(
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: empty), 200) })),
+            keyStore: StubKeyStore())
+        do { _ = try await svc1.generate(dir: dir, manifest: m, settings: SopSettings()); XCTFail() }
+        catch { XCTAssertEqual(error as? ClaudeError, .incomplete) }
+
+        // Steps present but all blank → also incomplete.
+        let blank = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"  ","body":"","note":null,"sectionHeading":null,"sectionBody":null}]}"#
+        let svc2 = SopService(
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: blank), 200) })),
+            keyStore: StubKeyStore())
+        do { _ = try await svc2.generate(dir: dir, manifest: m, settings: SopSettings()); XCTFail() }
+        catch { XCTAssertEqual(error as? ClaudeError, .incomplete) }
+
+        // A real edit passes.
+        let good = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"Do it","body":"Click","note":null,"sectionHeading":null,"sectionBody":null}]}"#
+        let svc3 = SopService(
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: good), 200) })),
+            keyStore: StubKeyStore())
+        let plan = try await svc3.generate(dir: dir, manifest: m, settings: SopSettings())
+        XCTAssertEqual(plan.steps.first?.caption, "Do it")
+    }
 }

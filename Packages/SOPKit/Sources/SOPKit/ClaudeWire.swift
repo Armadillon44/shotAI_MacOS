@@ -79,6 +79,7 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
     case refusal               // stop_reason == refusal
     case noContent
     case malformed
+    case incomplete
     case api(status: Int, message: String?)
 
     public var errorDescription: String? {
@@ -96,6 +97,7 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         case .refusal: "Claude declined to generate this SOP (the content was flagged)."
         case .noContent: "Claude returned no SOP content."
         case .malformed: "Claude returned malformed SOP data. Please try again."
+        case .incomplete: "Claude returned an incomplete SOP — no step instructions were written. Try again, and consider raising Effort (Settings ▸ AI) — low effort sometimes under-produces."
         case .api(let status, let message): message ?? "API error (\(status))."
         }
     }
