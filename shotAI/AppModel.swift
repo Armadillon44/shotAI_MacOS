@@ -297,19 +297,28 @@ final class AppModel {
 
     /// Flatten shots (fail-closed, like export), then compute a cost estimate →
     /// sets `sopEstimate`, which drives the confirm dialog before any generation.
-    func prepareSop() async {
+    /// Runs inside `sopTask` so Cancel works during this phase too (a hung
+    /// count_tokens can otherwise leave the panel stuck busy with a dead Cancel).
+    func prepareSop() {
         guard let current = opened, !sopBusy else { return }
         guard sopSettings.enabled else { sopError = ClaudeError.disabled.errorDescription; return }
         guard apiKeyPresent else { sopError = "Add your Anthropic API key in Settings ▸ AI first."; return }
         sopBusy = true; sopError = nil; sopProgress = "Preparing…"
-        defer { sopBusy = false; sopProgress = nil }
-        do {
-            _ = try await ensureFlattened(dir: current.dir, manifest: current.manifest)
-            await reloadOpened()
-            guard let fresh = opened else { return }
-            sopEstimate = try await sopService.estimate(dir: fresh.dir, manifest: fresh.manifest, settings: sopSettings)
-        } catch {
-            sopError = error.localizedDescription
+        let dir = current.dir
+        let manifest = current.manifest
+        let settings = sopSettings
+        sopTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await self.ensureFlattened(dir: dir, manifest: manifest)
+                await self.reloadOpened()
+                guard let fresh = self.opened else { self.finishSop(error: nil); return }
+                let est = try await self.sopService.estimate(dir: fresh.dir, manifest: fresh.manifest, settings: settings)
+                self.finishSop(error: nil)
+                self.sopEstimate = est   // triggers the confirm dialog
+            } catch {
+                self.finishSop(error: Task.isCancelled ? nil : error.localizedDescription)
+            }
         }
     }
 
@@ -353,6 +362,18 @@ final class AppModel {
     func cancelSop() { sopTask?.cancel() }
     /// Dismiss the estimate confirm dialog without generating.
     func dismissSopEstimate() { sopEstimate = nil }
+
+    /// Clear all transient SOP run state (cancelling any in-flight task). Called
+    /// on navigation so one project's generation/busy state can't leak onto
+    /// another project's report (the state is global to the shared AppModel).
+    private func resetSopState() {
+        sopTask?.cancel()
+        sopTask = nil
+        sopBusy = false
+        sopProgress = nil
+        sopEstimate = nil
+        sopError = nil
+    }
 
     /// Restore the pre-AI snapshot (Revert AI edits).
     func revertSop() async {
@@ -401,6 +422,7 @@ final class AppModel {
     func open(path: String) async {
         Log.ui.info("open(path:) navigating to project detail")
         lastMerge = nil
+        resetSopState()  // don't carry a prior project's SOP run/state across
         selectedPath = path
         await openSelected()
     }
@@ -408,6 +430,7 @@ final class AppModel {
     /// Return to the Home surface (the "← Back" affordance).
     func closeToHome() {
         lastMerge = nil
+        resetSopState()  // cancel/clear any in-flight generation on navigate-away
         selectedPath = nil
         opened = nil
         errorMessage = nil

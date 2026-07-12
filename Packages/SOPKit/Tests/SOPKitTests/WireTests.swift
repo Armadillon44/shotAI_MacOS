@@ -137,6 +137,19 @@ final class ClaudeClientTests: XCTestCase {
         catch { XCTAssertEqual(error as? ClaudeError, .cutoff) }
     }
 
+    func testStreamSurfacesMidStreamErrorEvent() async {
+        // A 200 that then streams an `error` event (overloaded under load) must
+        // surface the real error, not a generic "no content".
+        let lines = [
+            #"data: {"type":"message_start"}"#,
+            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            #"data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
+        ]
+        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (lines, 200) }))
+        do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
+        catch { XCTAssertEqual(error as? ClaudeError, .overloaded) }
+    }
+
     func testStreamHttpError() async {
         let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in
             ([#"data: {"error":{"message":"boom"}}"#], 500)

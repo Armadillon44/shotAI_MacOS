@@ -141,7 +141,7 @@ struct ReportView: View {
                         }
                         if model.apiKeyPresent {
                             Button {
-                                Task { await model.prepareSop() }
+                                model.prepareSop()
                             } label: {
                                 Label(model.canRevertSop ? "Regenerate" : "Generate SOP", systemImage: "sparkles")
                             }
