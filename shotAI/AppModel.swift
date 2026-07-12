@@ -6,6 +6,7 @@ import Foundation
 import ImageIO
 import Observation
 import ShotModel
+import SOPKit
 import UniformTypeIdentifiers
 
 /// UI-facing state for the Phase A read-only viewer: the project list and the
@@ -26,6 +27,8 @@ final class AppModel {
 
     init(store: ProjectStore = ProjectStore(settings: UserDefaultsSettings())) {
         self.store = store
+        self.sopSettings = Self.loadSopSettings()
+        refreshApiKeyStatus()
     }
 
     func refresh() async {
@@ -219,6 +222,159 @@ final class AppModel {
                 let name = caption.trimmingCharacters(in: .whitespacesAndNewlines)
                 return "Step \(n) (\"\(name.isEmpty ? "untitled" : name)\") couldn't be prepared for export: \(why)"
             }
+        }
+    }
+
+    // MARK: - SOP (Claude AI generation)
+
+    /// Persisted generation settings (bound by Settings ▸ AI). Call
+    /// `saveSopSettings()` after mutating.
+    var sopSettings: SopSettings
+    /// Observable mirror of the Keychain key status (so UI re-renders on change).
+    private(set) var apiKeyPresent = false
+    private(set) var apiKeySource: ApiKeySource = .none
+    /// True while any SOP op (prepare/generate/revert) is in flight.
+    private(set) var sopBusy = false
+    /// Human-readable progress line shown while generating.
+    private(set) var sopProgress: String?
+    /// Set once a cost estimate is ready → drives the confirm dialog.
+    var sopEstimate: SopEstimate?
+    /// Surfaced by the report's alert.
+    var sopError: String?
+
+    @ObservationIgnored private let apiKeyStore: ApiKeyStore = KeychainApiKeyStore()
+    @ObservationIgnored private lazy var sopService = SopService(keyStore: apiKeyStore)
+    @ObservationIgnored private var sopTask: Task<Void, Never>?
+
+    private static let sopSettingsKey = "sopSettings.v1"
+    static func loadSopSettings() -> SopSettings {
+        guard let data = UserDefaults.standard.data(forKey: sopSettingsKey),
+              let s = try? JSONDecoder().decode(SopSettings.self, from: data) else { return DEFAULT_SOP_SETTINGS }
+        return s
+    }
+
+    /// Persist the current settings (call from the Settings tab after edits).
+    func saveSopSettings() {
+        if let data = try? JSONEncoder().encode(sopSettings) {
+            UserDefaults.standard.set(data, forKey: Self.sopSettingsKey)
+        }
+    }
+
+    /// Refresh the observable key-status mirror from the Keychain.
+    func refreshApiKeyStatus() {
+        let s = apiKeyStore.status()
+        apiKeyPresent = s.hasKey
+        apiKeySource = s.source
+    }
+
+    /// Store the key (Keychain). Returns an error message, or nil on success. The
+    /// key value never returns to the caller.
+    @discardableResult func setApiKey(_ key: String) -> String? {
+        defer { refreshApiKeyStatus() }
+        do { try apiKeyStore.set(key); return nil } catch { return error.localizedDescription }
+    }
+
+    @discardableResult func clearApiKey() -> String? {
+        defer { refreshApiKeyStatus() }
+        do { try apiKeyStore.clear(); return nil } catch { return error.localizedDescription }
+    }
+
+    /// Validate the key/model with a cheap call; returns a user-facing status line.
+    func testApiKey() async -> String {
+        do {
+            let m = try await sopService.testKey(settings: sopSettings)
+            return "Connected — the key works with \(m.rawValue)."
+        } catch { return error.localizedDescription }
+    }
+
+    /// Generate is available when SOP is on, a key exists, and there's a shot step.
+    var canGenerateSop: Bool {
+        sopSettings.enabled && apiKeyPresent
+            && (opened?.manifest.steps.contains { $0.kind != .text } ?? false)
+    }
+    /// Revert is available when an AI snapshot exists.
+    var canRevertSop: Bool { opened?.manifest.sopBackup != nil }
+
+    /// Flatten shots (fail-closed, like export), then compute a cost estimate →
+    /// sets `sopEstimate`, which drives the confirm dialog before any generation.
+    func prepareSop() async {
+        guard let current = opened, !sopBusy else { return }
+        guard sopSettings.enabled else { sopError = ClaudeError.disabled.errorDescription; return }
+        guard apiKeyPresent else { sopError = "Add your Anthropic API key in Settings ▸ AI first."; return }
+        sopBusy = true; sopError = nil; sopProgress = "Preparing…"
+        defer { sopBusy = false; sopProgress = nil }
+        do {
+            _ = try await ensureFlattened(dir: current.dir, manifest: current.manifest)
+            await reloadOpened()
+            guard let fresh = opened else { return }
+            sopEstimate = try await sopService.estimate(dir: fresh.dir, manifest: fresh.manifest, settings: sopSettings)
+        } catch {
+            sopError = error.localizedDescription
+        }
+    }
+
+    /// After the user confirms the estimate: stream the generation and apply it
+    /// inline (snapshotting for revert). Cancelable via `cancelSop()`.
+    func confirmGenerateSop() {
+        guard let current = opened, sopEstimate != nil, !sopBusy else { return }
+        sopEstimate = nil
+        sopBusy = true; sopError = nil; sopProgress = "Preparing…"
+        let dir = current.dir
+        let path = selectedPath ?? current.dir
+        let manifest = current.manifest
+        let settings = sopSettings
+        sopTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let plan = try await self.sopService.generate(dir: dir, manifest: manifest, settings: settings) { p in
+                    Task { @MainActor in self.sopProgress = Self.progressText(p) }
+                }
+                _ = try await SOPKit.applySopEdits(
+                    store: self.store, projectPath: path, plan: plan, model: settings.model, tone: settings.tone)
+                await self.reloadOpened()
+                await self.refresh()
+                self.finishSop(error: nil)
+                Log.store.notice("SOP generated (\(plan.steps.count, privacy: .public) step edits)")
+            } catch {
+                // A user cancel surfaces as a transport error; treat it as silent.
+                self.finishSop(error: Task.isCancelled ? nil : error.localizedDescription)
+            }
+        }
+    }
+
+    private func finishSop(error: String?) {
+        sopBusy = false
+        sopProgress = nil
+        sopTask = nil
+        if let error { sopError = error }
+    }
+
+    /// Cancel an in-flight generation.
+    func cancelSop() { sopTask?.cancel() }
+    /// Dismiss the estimate confirm dialog without generating.
+    func dismissSopEstimate() { sopEstimate = nil }
+
+    /// Restore the pre-AI snapshot (Revert AI edits).
+    func revertSop() async {
+        guard let current = opened, !sopBusy else { return }
+        let path = selectedPath ?? current.dir
+        sopBusy = true; sopError = nil
+        defer { sopBusy = false }
+        do {
+            _ = try await SOPKit.revertSop(store: store, projectPath: path)
+            await reloadOpened()
+            await refresh()
+        } catch {
+            sopError = error.localizedDescription
+        }
+    }
+
+    private static func progressText(_ p: SopProgress) -> String {
+        switch p {
+        case .preparing: "Preparing…"
+        case .thinking: "Claude is thinking…"
+        case .writing(let chars): "Writing the SOP… (\(chars) characters)"
+        case .done: "Finishing…"
         }
     }
 

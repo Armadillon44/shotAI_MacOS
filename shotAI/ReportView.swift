@@ -37,6 +37,7 @@ struct ReportView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
+                sopPanel
                 if model.canUndoMerge { undoMergeBanner }
                 intro
                 ForEach(Array(steps.enumerated()), id: \.element.id) { pair in
@@ -97,7 +98,74 @@ struct ReportView: View {
         .sheet(item: $captureStepsAt) { at in
             RecordSheet(projectPath: opened.dir, coordinator: capture, insertAt: at.value)
         }
+        .confirmationDialog(
+            "Generate this SOP with Claude?",
+            isPresented: Binding(get: { model.sopEstimate != nil }, set: { if !$0 { model.dismissSopEstimate() } }),
+            titleVisibility: .visible
+        ) {
+            Button("Generate") { model.confirmGenerateSop() }
+            Button("Cancel", role: .cancel) { model.dismissSopEstimate() }
+        } message: {
+            if let est = model.sopEstimate {
+                Text("Sends your redaction-baked screenshots + text (\(est.inputTokens) input tokens) to Anthropic. Estimated cost ≈ \(Self.usd(est.estCostUsd)). This rewrites every step's caption and instructions — you can revert.")
+            }
+        }
+        .alert(
+            "SOP generation failed",
+            isPresented: Binding(get: { model.sopError != nil }, set: { if !$0 { model.sopError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.sopError ?? "")
+        }
     }
+
+    /// The AI SOP panel at the top of the report: generate / regenerate / revert,
+    /// with inline progress. Hidden entirely when AI is disabled in Settings.
+    @ViewBuilder private var sopPanel: some View {
+        if model.sopSettings.enabled {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Image(systemName: "sparkles").foregroundStyle(Palette.accent)
+                    Text("AI SOP").font(.system(size: 14, weight: .semibold))
+                    Spacer()
+                    if model.sopBusy {
+                        if let p = model.sopProgress {
+                            Text(p).font(.caption).foregroundStyle(Palette.ink2)
+                        }
+                        ProgressView().controlSize(.small)
+                        Button("Cancel") { model.cancelSop() }
+                    } else {
+                        if model.canRevertSop {
+                            Button("Revert AI edits") { Task { await model.revertSop() } }
+                        }
+                        if model.apiKeyPresent {
+                            Button {
+                                Task { await model.prepareSop() }
+                            } label: {
+                                Label(model.canRevertSop ? "Regenerate" : "Generate SOP", systemImage: "sparkles")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!model.canGenerateSop)
+                        } else {
+                            SettingsLink { Text("Add API key…") }
+                        }
+                    }
+                }
+                if !model.apiKeyPresent {
+                    Text("Add your Anthropic API key in Settings ▸ AI, then Claude can turn these screenshots into a step-by-step SOP.")
+                        .font(.caption).foregroundStyle(Palette.ink3)
+                }
+            }
+            .padding(14)
+            .background(Palette.surface)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.hair))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    /// "$0.04" style — the estimate is small; two decimals is enough.
+    private static func usd(_ v: Double) -> String { String(format: "$%.2f", v) }
 
     /// Merge is offered only for a shot step followed by another shot step (the
     /// click of this step is carried onto the next step's screenshot).
