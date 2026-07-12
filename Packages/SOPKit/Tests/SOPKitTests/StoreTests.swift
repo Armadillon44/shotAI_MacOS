@@ -117,4 +117,25 @@ final class ApplyRevertTests: XCTestCase {
         do { _ = try await revertSop(store: store, projectPath: path); XCTFail() }
         catch { XCTAssertEqual(error as? SopApplyError, .nothingToRevert) }
     }
+
+    func testRevertPreservesManualAdditionsAfterGeneration() async throws {
+        let (store, path, _) = try await makeProject(shots: 2)
+        _ = try await applySopEdits(store: store, projectPath: path, plan: plan(), model: .sonnet5, tone: .professional)
+        // The user adds a callout AFTER generation (a manual, non-AI step).
+        let added = try await store.addTextStep(at: path, atIndex: nil,
+                                                heading: "Heads up", body: "keep me", callout: .warning)
+        let manualId = added.steps.last!.id
+
+        let reverted = try await revertSop(store: store, projectPath: path)
+        // AI edits are gone: section insert dropped, title + intro restored.
+        XCTAssertNil(reverted.intro)
+        XCTAssertEqual(reverted.title, "Test SOP")
+        XCTAssertNil(reverted.sopBackup)
+        XCTAssertEqual(reverted.steps.filter { $0.aiInserted == true }.count, 0)
+        XCTAssertEqual(reverted.steps[0].caption, "")            // shot reverted to original
+        // The manual callout SURVIVES the revert (this is the bug fix).
+        XCTAssertTrue(reverted.steps.contains { $0.id == manualId && $0.callout == .warning })
+        // 2 original shots + the manual callout = 3.
+        XCTAssertEqual(reverted.steps.count, 3)
+    }
 }

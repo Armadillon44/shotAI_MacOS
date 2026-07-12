@@ -78,13 +78,31 @@ public func applySopEdits(
     }
 }
 
-/// Revert Claude's inline edits: restore the pre-generation snapshot (steps +
-/// title + intro) and clear it. Throws if there's nothing to revert.
+/// Revert Claude's inline edits while PRESERVING anything the user added after
+/// generation. Rather than wholesale-restoring the snapshot (which would also
+/// wipe manually-added steps like a callout inserted post-generation), walk the
+/// CURRENT steps: drop the AI's inserted section/intro steps, restore each step
+/// that existed at snapshot time to its pre-AI text, and keep every step whose id
+/// is not in the snapshot (a manual addition) exactly where the user put it.
+/// Title + intro are restored to the snapshot. Throws if there's nothing to revert.
 @discardableResult
 public func revertSop(store: ProjectStore, projectPath: String) async throws -> ProjectManifest {
     try await store.mutate(at: projectPath) { manifest in
         guard let backup = manifest.sopBackup else { throw SopApplyError.nothingToRevert }
-        manifest.steps = backup.steps
+        var originalById: [String: ProjectStep] = [:]
+        for s in backup.steps { originalById[s.id] = s }
+
+        var next: [ProjectStep] = []
+        for step in manifest.steps {
+            if step.aiInserted == true { continue }                 // drop AI-inserted intro/sections
+            if let original = originalById[step.id] {
+                next.append(original)                               // revert AI edits to a pre-existing step
+            } else {
+                next.append(step)                                  // keep a manual post-generation addition
+            }
+        }
+
+        manifest.steps = next
         ProjectStore.renumber(&manifest.steps)
         manifest.title = backup.title
         manifest.intro = backup.intro
