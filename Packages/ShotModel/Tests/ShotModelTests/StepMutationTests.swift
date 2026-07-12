@@ -43,6 +43,39 @@ import Testing
         cleanup()
     }
 
+    @Test func setStepCalloutConvertsBothWaysAndAffectsNumbering() async throws {
+        try await store.addStep(at: projectDir, step("s1", screenshot: "shots/a.png"))
+        _ = try await store.addTextStep(at: projectDir, atIndex: nil, heading: "Aside", body: "text")
+        let mid = try readSteps()[1].id  // the plain text step
+        try await store.addStep(at: projectDir, step("s3", screenshot: "shots/c.png"))
+
+        // Before: three numbered steps (shot, plain text, shot) → 1,2,3.
+        #expect(ReportPresentation.displayNumbers(for: try readSteps()).count == 3)
+
+        // Convert the middle text step to a caution callout.
+        let m = try await store.setStepCallout(at: projectDir, stepId: mid, callout: .caution)
+        #expect(m.steps[1].callout == .caution)
+        #expect(m.steps.map(\.order) == [1, 2, 3])  // positions unchanged; order stays contiguous
+        // The callout is no longer numbered → the two shots renumber to 1,2.
+        let nums = ReportPresentation.displayNumbers(for: m.steps)
+        #expect(nums.count == 2)
+        #expect(nums[mid] == nil)
+        #expect(nums["s3"] == 2)
+
+        // Convert back to plain text → numbered again (1,2,3).
+        let m2 = try await store.setStepCallout(at: projectDir, stepId: mid, callout: nil)
+        #expect(m2.steps[1].callout == nil)
+        #expect(ReportPresentation.displayNumbers(for: m2.steps).count == 3)
+        cleanup()
+    }
+
+    @Test func setStepCalloutLeavesShotStepsUntouched() async throws {
+        try await store.addStep(at: projectDir, step("shot", screenshot: "shots/a.png"))
+        let m = try await store.setStepCallout(at: projectDir, stepId: "shot", callout: .note)
+        #expect(m.steps[0].callout == nil)  // a shot never becomes a callout
+        cleanup()
+    }
+
     @Test func insertStepClampsAndAppendsWhenNil() async throws {
         try await store.addStep(at: projectDir, step("a"))
         try await store.addStep(at: projectDir, step("b"))

@@ -365,6 +365,24 @@ public actor ProjectStore {
         }
     }
 
+    /// Convert a text step between plain text and a callout by setting (a kind) or
+    /// clearing (nil) its `callout`. Unlike `editStepText`, nil here CLEARS the
+    /// callout (→ plain text). Only text steps qualify — a shot step is left
+    /// untouched. Renumbers afterward so the visible 1..N sequence updates
+    /// (callouts are not numbered; see ReportPresentation.displayNumbers).
+    @discardableResult
+    public func setStepCallout(at projectPath: String, stepId: String, callout: CalloutKind?) throws -> ProjectManifest {
+        Log.store.info("setStepCallout [step \(stepId, privacy: .public)] -> \(callout?.rawValue ?? "text", privacy: .public)")
+        return try mutate(at: projectPath) { m in
+            guard let i = m.steps.firstIndex(where: { $0.id == stepId }) else {
+                throw StoreError.stepNotFound(stepId)
+            }
+            guard m.steps[i].kind == .text else { return }  // only text steps can be callouts
+            m.steps[i].callout = callout
+            ProjectStore.renumber(&m.steps)
+        }
+    }
+
     /// Set the SOP overview preamble (stored even when empty — the editor shows
     /// an empty, editable box; use `removeIntro` to clear it).
     @discardableResult
