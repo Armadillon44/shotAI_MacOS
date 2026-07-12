@@ -81,6 +81,48 @@ final class ClaudeClientTests: XCTestCase {
         XCTAssertEqual(raw.steps[0].caption, "Open menu")
     }
 
+    func testStreamReassemblesChunkedJSONWithThinkingAndPings() async throws {
+        // The structured-output JSON arrives split across many text_deltas, after
+        // thinking blocks, interleaved with ping/keepalive events. Reassembly must
+        // be lossless and decode to the full plan.
+        let json = #"{"title":"My SOP","intro":{"heading":"Overview","body":"Do it"},"steps":[{"stepNumber":1,"caption":"Open menu","body":"Click the menu","note":null,"sectionHeading":null,"sectionBody":null},{"stepNumber":2,"caption":"Save","body":"Click Save","note":"careful","sectionHeading":null,"sectionBody":null}]}"#
+        // Chunk into small pieces to simulate real streaming granularity.
+        var chunks: [String] = []
+        var i = json.startIndex
+        while i < json.endIndex {
+            let j = json.index(i, offsetBy: 7, limitedBy: json.endIndex) ?? json.endIndex
+            chunks.append(String(json[i..<j]))
+            i = j
+        }
+        var lines: [String] = [
+            #"event: message_start"#,
+            #"data: {"type":"message_start","message":{"id":"m"}}"#,
+            #"event: content_block_start"#,
+            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}"#,
+            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"reasoning..."}}"#,
+            #"event: ping"#,
+            #"data: {"type":"ping"}"#,
+            #"data: {"type":"content_block_stop","index":0}"#,
+            #"data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}"#,
+        ]
+        for c in chunks {
+            lines.append("data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\(jsonStringLiteral(c))}}")
+        }
+        lines.append(contentsOf: [
+            #"data: {"type":"content_block_stop","index":1}"#,
+            #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":50}}"#,
+            #"data: {"type":"message_stop"}"#,
+        ])
+
+        let sse = lines
+        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sse, 200) }))
+        let raw = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in })
+        XCTAssertEqual(raw.title, "My SOP")
+        XCTAssertEqual(raw.intro?.heading, "Overview")
+        XCTAssertEqual(raw.steps.map(\.stepNumber), [1, 2])
+        XCTAssertEqual(raw.steps[1].note, "careful")
+    }
+
     func testStreamRefusal() async {
         let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: "{}", stopReason: "refusal"), 200) }))
         do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }

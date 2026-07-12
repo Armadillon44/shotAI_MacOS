@@ -79,7 +79,15 @@ public struct SopService: Sendable {
         ]
         if p.adaptiveThinking { body["thinking"] = ["type": "adaptive"] }
 
-        let raw = try await client.streamEditPlan(apiKey: key, body: body, onProgress: onProgress)
+        // Diagnostics (local files under export/.render, best-effort): the exact
+        // request (image bytes elided) + the raw model response, so a bad
+        // generation can be inspected without re-running against the API.
+        SopDebug.writeRequest(dir: dir, body: body)
+        let debugSink: @Sendable (String, String?, Int) -> Void = { text, stop, deltas in
+            SopDebug.writeResponse(dir: dir, rawText: text, stopReason: stop, textDeltas: deltas)
+        }
+
+        let raw = try await client.streamEditPlan(apiKey: key, body: body, onProgress: onProgress, debugSink: debugSink)
         let plan = SopEditPlan(
             title: raw.title,
             intro: raw.intro.map { SopIntro(heading: $0.heading, body: $0.body) },
