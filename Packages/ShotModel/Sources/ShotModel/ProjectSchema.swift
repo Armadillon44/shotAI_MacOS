@@ -580,6 +580,26 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
             try c.encode(v, forKey: key(k))
         }
     }
+
+    /// All human-readable text in the project, concatenated for Home search:
+    /// the title, the SOP intro (heading + body), and every step's caption,
+    /// note, heading, and body. Excludes machine metadata (ids, paths, window /
+    /// element text, coordinates) — search matches what the user wrote/reads,
+    /// matching the Windows app's in-project search scope.
+    public var searchableText: String {
+        var parts: [String] = [title]
+        if let intro {
+            parts.append(intro.heading)
+            parts.append(intro.body)
+        }
+        for step in steps {
+            parts.append(step.caption)
+            parts.append(step.note)
+            if let h = step.heading { parts.append(h) }
+            if let b = step.body { parts.append(b) }
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: "\n")
+    }
 }
 
 // MARK: - Summary (list view; not persisted)
@@ -597,10 +617,17 @@ public struct ProjectSummary: Equatable, Sendable {
     /// Whether Claude has written a guide for this project — an SOP intro or any
     /// AI-inserted step. Drives the "SOP ready" / "Draft" status badge on Home.
     public var hasSop: Bool
+    /// Precomputed concatenation of the project's human-readable text (title +
+    /// SOP intro + every step's caption/note/heading/body) so Home search can
+    /// match content *inside* projects without re-reading each manifest. Built
+    /// from `ProjectManifest.searchableText` at list time (the manifest is
+    /// already parsed there, so this is free).
+    public var searchText: String
 
     public init(
         id: String, title: String, path: String,
-        createdAt: String, updatedAt: String, stepCount: Int, hasSop: Bool = false
+        createdAt: String, updatedAt: String, stepCount: Int, hasSop: Bool = false,
+        searchText: String = ""
     ) {
         self.id = id
         self.title = title
@@ -609,5 +636,6 @@ public struct ProjectSummary: Equatable, Sendable {
         self.updatedAt = updatedAt
         self.stepCount = stepCount
         self.hasSop = hasSop
+        self.searchText = searchText
     }
 }

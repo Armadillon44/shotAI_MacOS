@@ -31,6 +31,8 @@ struct HomeView: View {
     @State private var renamingPath: String?
     @State private var renameValue = ""
     @State private var deleteTarget: ProjectSummary?
+    @State private var searchQuery = ""
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -40,6 +42,8 @@ struct HomeView: View {
                 listHead
                 if model.projects.isEmpty {
                     emptyState
+                } else if filteredProjects.isEmpty {
+                    noMatchesState
                 } else {
                     projectList
                 }
@@ -49,6 +53,18 @@ struct HomeView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Palette.ground)
+        // ⌘F focuses the project search field.
+        .background {
+            Button("") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
+        // If a search change would filter out the row being renamed, SwiftUI
+        // tears down its TextField without firing onSubmit/onExitCommand and the
+        // edit is silently lost. Commit it first (same as clicking away from an
+        // open rename), so narrowing the search never drops an in-progress name.
+        .onChange(of: searchQuery) { _, _ in commitRenameIfEditing() }
         .confirmationDialog(
             deleteTarget.map { "Delete “\($0.title)”?" } ?? "",
             isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } }),
@@ -178,9 +194,10 @@ struct HomeView: View {
     // MARK: - List head (title + sort)
 
     private var listHead: some View {
-        HStack {
+        HStack(spacing: 10) {
             Text("Projects").font(.system(size: 15, weight: .semibold))
-                + Text("  ·  \(model.projects.count)").foregroundColor(Palette.ink3)
+                + Text(countSuffix).foregroundColor(Palette.ink3)
+            searchField
             Spacer()
             Text("Sort").font(.caption).foregroundStyle(Palette.ink3)
             ForEach(SortKey.allCases, id: \.self) { key in
@@ -194,6 +211,43 @@ struct HomeView: View {
             }
             .help(sortAsc ? "Ascending" : "Descending")
         }
+    }
+
+    /// Compact, capsule-style search field matching the chip aesthetic. Filters
+    /// the list by project name (case- and diacritic-insensitive).
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12))
+                .foregroundStyle(Palette.ink3)
+            TextField("Search", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($searchFocused)
+                .frame(width: 130)
+                .onExitCommand { searchQuery = ""; searchFocused = false }
+            if !searchQuery.isEmpty {
+                Button { searchQuery = ""; searchFocused = true } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Palette.ink3)
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(Palette.surface)
+        .overlay(Capsule().stroke(searchFocused ? Palette.accent : Palette.controlBd))
+        .clipShape(Capsule())
+        .help("Search project names and step content (⌘F)")
+    }
+
+    /// "· 12" normally; "· 3 of 12" while a search is narrowing the list.
+    private var countSuffix: String {
+        let total = model.projects.count
+        let shown = filteredProjects.count
+        return isSearching && shown != total ? "  ·  \(shown) of \(total)" : "  ·  \(total)"
     }
 
     // MARK: - Project list
@@ -304,10 +358,44 @@ struct HomeView: View {
         .padding(.vertical, 40)
     }
 
-    // MARK: - Sorting / grouping
+    /// Shown when a search matches none of the (non-empty) project list.
+    private var noMatchesState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 34))
+                .foregroundStyle(Palette.ink3)
+            Text("No projects match “\(searchQuery.trimmingCharacters(in: .whitespacesAndNewlines))”")
+                .font(.system(size: 15, weight: .semibold))
+                .multilineTextAlignment(.center)
+            Button("Clear search") { searchQuery = "" }
+                .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    // MARK: - Search / sorting / grouping
+
+    /// The trimmed query, or "" when the field is blank/whitespace.
+    private var trimmedQuery: String {
+        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isSearching: Bool { !trimmedQuery.isEmpty }
+
+    /// Projects narrowed by the search query. Matches the project's full text
+    /// index (title + SOP intro + every step's caption/note/heading/body), so
+    /// searching finds content *inside* projects, not just names — parity with
+    /// the Windows app. Case- and diacritic-insensitive (`localizedStandardContains`).
+    /// Sorting and date grouping both build on this, so search composes with them.
+    private var filteredProjects: [ProjectSummary] {
+        guard isSearching else { return model.projects }
+        let q = trimmedQuery
+        return model.projects.filter { $0.searchText.localizedStandardContains(q) }
+    }
 
     private var sortedProjects: [ProjectSummary] {
-        model.projects.sorted { a, b in
+        filteredProjects.sorted { a, b in
             let asc: Bool
             switch sortKey {
             case .name: asc = a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
@@ -385,6 +473,16 @@ struct HomeView: View {
         let next = renameValue
         renamingPath = nil
         Task { await model.renameProject(path: p.path, to: next) }
+    }
+
+    /// Commit an in-progress inline rename (if any) by its stored path, so the
+    /// edit survives the row being torn down (e.g. filtered out by a search
+    /// change). No-op when nothing is being renamed.
+    private func commitRenameIfEditing() {
+        guard let path = renamingPath else { return }
+        let next = renameValue
+        renamingPath = nil
+        Task { await model.renameProject(path: path, to: next) }
     }
 
     private func label(for m: CaptureMode) -> String {

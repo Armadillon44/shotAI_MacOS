@@ -123,7 +123,8 @@ public actor ProjectStore {
             createdAt: manifest.createdAt,
             updatedAt: manifest.updatedAt,
             stepCount: manifest.steps.count,
-            hasSop: manifest.intro != nil || manifest.steps.contains { $0.aiInserted == true }
+            hasSop: manifest.intro != nil || manifest.steps.contains { $0.aiInserted == true },
+            searchText: manifest.searchableText
         )
     }
 
