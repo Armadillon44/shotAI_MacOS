@@ -550,6 +550,20 @@ final class AppModel {
         }
     }
 
+    /// Convert a text step to a callout (`kind`) or back to plain text (`nil`).
+    /// The visible step numbers renumber automatically since callouts aren't
+    /// numbered.
+    func setStepCallout(stepId: String, to kind: CalloutKind?) async {
+        guard let dir = opened?.dir else { return }
+        do {
+            try await store.setStepCallout(at: dir, stepId: stepId, callout: kind)
+            await afterEdit()
+        } catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("setStepCallout failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
     // MARK: - Report display zoom/pan (R3 — per-step, display-only)
 
     /// Set a step's report zoom (clamped 1…max; 1 = fit). Display-only: the patch

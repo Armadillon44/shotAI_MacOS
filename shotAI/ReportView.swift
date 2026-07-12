@@ -428,6 +428,24 @@ private struct StepRow: View {
             if canMergeNext {
                 Button("Merge into next step") { Task { await model.mergeIntoNext(id: step.id) } }
             }
+            // Convert a text step to/from a callout. Callouts aren't numbered, so
+            // the remaining steps renumber automatically after the change.
+            if step.kind == .text {
+                Divider()
+                if step.callout == nil {
+                    Menu("Convert to callout") {
+                        ForEach(CalloutKind.allCases, id: \.self) { kind in
+                            Button(kind.rawValue.capitalized) {
+                                Task { await model.setStepCallout(stepId: step.id, to: kind) }
+                            }
+                        }
+                    }
+                } else {
+                    Button("Convert to plain text") {
+                        Task { await model.setStepCallout(stepId: step.id, to: nil) }
+                    }
+                }
+            }
             Divider()
             Button("Delete step", role: .destructive) { onRequestDelete() }
         } label: {
