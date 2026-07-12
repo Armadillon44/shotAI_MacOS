@@ -32,7 +32,9 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
     var content: [[String: Any]] = [[
         "type": "text",
         "text":
-            "Project: \(manifest.title)\n"
+            "Current project name (often an auto-generated placeholder — set `title` to a "
+            + "descriptive name for the procedure, replacing this unless it already describes "
+            + "it well): \(manifest.title)\n"
             + "The \(source.count) steps below are in order. Write one edit-plan entry "
             + "per SCREENSHOT step, setting its stepNumber to that step's number. Keep the "
             + "screenshots in this order. Redactions are already baked into the images — never "
