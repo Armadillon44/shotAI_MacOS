@@ -74,11 +74,13 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
     case permissionDenied      // 403
     case modelUnavailable      // 404
     case rateLimited           // 429
+    case overloaded            // 529 / mid-stream overloaded_error
     case connection            // transport failure
     case cutoff                // stop_reason == max_tokens
     case refusal               // stop_reason == refusal
     case noContent
     case malformed
+    case incomplete
     case api(status: Int, message: String?)
 
     public var errorDescription: String? {
@@ -91,11 +93,13 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         case .permissionDenied: "This key lacks permission for the selected model."
         case .modelUnavailable: "The selected model is unavailable for this key."
         case .rateLimited: "Rate limited — wait a moment and try again."
+        case .overloaded: "Anthropic is temporarily overloaded — wait a moment and try again."
         case .connection: "Could not reach Anthropic — check your network connection."
         case .cutoff: "The SOP was cut off at the output limit. Try again, or split the project into fewer steps."
         case .refusal: "Claude declined to generate this SOP (the content was flagged)."
         case .noContent: "Claude returned no SOP content."
         case .malformed: "Claude returned malformed SOP data. Please try again."
+        case .incomplete: "Claude returned an incomplete SOP — no step instructions were written. Try again, and consider raising Effort (Settings ▸ AI) — low effort sometimes under-produces."
         case .api(let status, let message): message ?? "API error (\(status))."
         }
     }
@@ -107,6 +111,7 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         case 403: .permissionDenied
         case 404: .modelUnavailable
         case 429: .rateLimited
+        case 529: .overloaded
         default: .api(status: status, message: message)
         }
     }

@@ -81,6 +81,48 @@ final class ClaudeClientTests: XCTestCase {
         XCTAssertEqual(raw.steps[0].caption, "Open menu")
     }
 
+    func testStreamReassemblesChunkedJSONWithThinkingAndPings() async throws {
+        // The structured-output JSON arrives split across many text_deltas, after
+        // thinking blocks, interleaved with ping/keepalive events. Reassembly must
+        // be lossless and decode to the full plan.
+        let json = #"{"title":"My SOP","intro":{"heading":"Overview","body":"Do it"},"steps":[{"stepNumber":1,"caption":"Open menu","body":"Click the menu","note":null,"sectionHeading":null,"sectionBody":null},{"stepNumber":2,"caption":"Save","body":"Click Save","note":"careful","sectionHeading":null,"sectionBody":null}]}"#
+        // Chunk into small pieces to simulate real streaming granularity.
+        var chunks: [String] = []
+        var i = json.startIndex
+        while i < json.endIndex {
+            let j = json.index(i, offsetBy: 7, limitedBy: json.endIndex) ?? json.endIndex
+            chunks.append(String(json[i..<j]))
+            i = j
+        }
+        var lines: [String] = [
+            #"event: message_start"#,
+            #"data: {"type":"message_start","message":{"id":"m"}}"#,
+            #"event: content_block_start"#,
+            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}"#,
+            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"reasoning..."}}"#,
+            #"event: ping"#,
+            #"data: {"type":"ping"}"#,
+            #"data: {"type":"content_block_stop","index":0}"#,
+            #"data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}"#,
+        ]
+        for c in chunks {
+            lines.append("data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\(jsonStringLiteral(c))}}")
+        }
+        lines.append(contentsOf: [
+            #"data: {"type":"content_block_stop","index":1}"#,
+            #"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":50}}"#,
+            #"data: {"type":"message_stop"}"#,
+        ])
+
+        let sse = lines
+        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sse, 200) }))
+        let raw = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in })
+        XCTAssertEqual(raw.title, "My SOP")
+        XCTAssertEqual(raw.intro?.heading, "Overview")
+        XCTAssertEqual(raw.steps.map(\.stepNumber), [1, 2])
+        XCTAssertEqual(raw.steps[1].note, "careful")
+    }
+
     func testStreamRefusal() async {
         let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: "{}", stopReason: "refusal"), 200) }))
         do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
@@ -93,6 +135,19 @@ final class ClaudeClientTests: XCTestCase {
         let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (lines, 200) }))
         do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
         catch { XCTAssertEqual(error as? ClaudeError, .cutoff) }
+    }
+
+    func testStreamSurfacesMidStreamErrorEvent() async {
+        // A 200 that then streams an `error` event (overloaded under load) must
+        // surface the real error, not a generic "no content".
+        let lines = [
+            #"data: {"type":"message_start"}"#,
+            #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            #"data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
+        ]
+        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (lines, 200) }))
+        do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
+        catch { XCTAssertEqual(error as? ClaudeError, .overloaded) }
     }
 
     func testStreamHttpError() async {
@@ -129,5 +184,33 @@ final class SopServiceTests: XCTestCase {
         XCTAssertEqual(est.inputTokens, 1_000_000)
         // 1M input @ $3/MTok = $3.00; + 2500 output @ $15/MTok ≈ $0.0375.
         XCTAssertEqual(est.estCostUsd, 3.0 + 2500.0 / 1e6 * 15, accuracy: 0.0001)
+    }
+
+    func testGenerateRejectsUnderProducedPlan() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        let m = try await store.openProject(at: path).manifest
+        // Model returned an intro but no usable step edits (low-effort under-produce).
+        let empty = #"{"title":"T","intro":{"heading":"H","body":"B"},"steps":[]}"#
+        let svc1 = SopService(
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: empty), 200) })),
+            keyStore: StubKeyStore())
+        do { _ = try await svc1.generate(dir: dir, manifest: m, settings: SopSettings()); XCTFail() }
+        catch { XCTAssertEqual(error as? ClaudeError, .incomplete) }
+
+        // Steps present but all blank → also incomplete.
+        let blank = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"  ","body":"","note":null,"sectionHeading":null,"sectionBody":null}]}"#
+        let svc2 = SopService(
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: blank), 200) })),
+            keyStore: StubKeyStore())
+        do { _ = try await svc2.generate(dir: dir, manifest: m, settings: SopSettings()); XCTFail() }
+        catch { XCTAssertEqual(error as? ClaudeError, .incomplete) }
+
+        // A real edit passes.
+        let good = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"Do it","body":"Click","note":null,"sectionHeading":null,"sectionBody":null}]}"#
+        let svc3 = SopService(
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: good), 200) })),
+            keyStore: StubKeyStore())
+        let plan = try await svc3.generate(dir: dir, manifest: m, settings: SopSettings())
+        XCTAssertEqual(plan.steps.first?.caption, "Do it")
     }
 }

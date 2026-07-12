@@ -76,9 +76,12 @@ struct ShotAIApp: App {
         }
 
         // Native Settings window (shotAI ▸ Settings… / ⌘,) — houses Permissions
-        // (which the toolbar shield used to open) + General.
+        // (which the toolbar shield used to open), General, and AI. The AI tab
+        // shares the same AppModel instance as the main window (key status + SOP
+        // settings stay in sync across both scenes).
         Settings {
             SettingsView()
+                .environment(model)
         }
     }
 }

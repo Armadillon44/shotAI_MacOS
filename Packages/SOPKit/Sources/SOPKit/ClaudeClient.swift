@@ -161,6 +161,16 @@ public struct ClaudeClient: Sendable {
                 if let delta = ev["delta"] as? [String: Any], let sr = delta["stop_reason"] as? String {
                     stopReason = sr
                 }
+            case "error":
+                // Anthropic can emit an error event mid-stream on a 200 connection
+                // (e.g. overloaded_error under load). Surface the real, actionable
+                // error instead of falling through to a generic "no content".
+                let err = ev["error"] as? [String: Any]
+                switch err?["type"] as? String {
+                case "overloaded_error": throw ClaudeError.overloaded
+                case "rate_limit_error": throw ClaudeError.rateLimited
+                default: throw ClaudeError.api(status: 0, message: err?["message"] as? String)
+                }
             default:
                 break
             }

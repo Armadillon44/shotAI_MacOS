@@ -87,6 +87,15 @@ public struct SopService: Sendable {
                 SopStepEdit(stepNumber: $0.stepNumber, caption: $0.caption, body: $0.body,
                             note: $0.note, sectionHeading: $0.sectionHeading, sectionBody: $0.sectionBody)
             })
+        // A project always has shot steps here (the assembler throws otherwise),
+        // so a plan with no actual step instruction means the model under-produced
+        // (common at low effort). Fail loudly instead of silently applying only an
+        // intro — the caller must NOT snapshot/apply a no-op result.
+        let wroteAnyStep = plan.steps.contains {
+            !$0.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard wroteAnyStep else { throw ClaudeError.incomplete }
         onProgress(.done)
         return plan
     }
