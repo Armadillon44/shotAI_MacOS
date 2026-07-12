@@ -29,9 +29,30 @@ struct ReportView: View {
     @State private var captureStepsAt: InsertIndex?
     /// Drives edge auto-scroll while a step is being dragged.
     @State private var autoScroller = AutoScroller()
+    /// Tab-between-fields state + the installed key-down monitor token.
+    @State private var tabNav = TabNavigator()
+    @State private var tabMonitor: Any?
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
+
+    /// Inline text fields in the order they appear, so Tab / Shift+Tab can walk
+    /// them field→field. Must mirror the ids each block assigns (intro heading/body,
+    /// then per step: shot = caption/instructions, text = heading/body, callout =
+    /// heading/body).
+    private var orderedFieldIDs: [String] {
+        var ids: [String] = []
+        if opened.manifest.intro != nil || addingIntro { ids += ["intro:h", "intro:b"] }
+        for step in steps {
+            if step.kind == .text {
+                ids += step.callout != nil ? ["ch:\(step.id)", "cb:\(step.id)"]
+                                           : ["th:\(step.id)", "tb:\(step.id)"]
+            } else {
+                ids += ["cap:\(step.id)", "body:\(step.id)"]
+            }
+        }
+        return ids
+    }
 
     var body: some View {
         ScrollView {
@@ -71,9 +92,31 @@ struct ReportView: View {
             // sits behind the content and never receives these taps).
             .contentShape(Rectangle())
             .onTapGesture { focus = nil }
+            // Tab-between-fields: keep the navigator in sync with the field order
+            // and the active field, and apply its focus-move requests.
+            .onChange(of: orderedFieldIDs) { _, v in tabNav.order = v }
+            .onChange(of: focus) { _, v in tabNav.focused = v }
+            .onChange(of: tabNav.move) { _, m in if let m { focus = m.id } }
             // Resolve the backing NSScrollView so a step drag near the top/bottom
             // edge can auto-scroll (driven per-row via autoScroller.noteHover).
             .background(ScrollProbe { autoScroller.scrollView = $0 })
+            // Learn our window so the Tab monitor can ignore sheets / other windows.
+            .background(WindowAccessor { tabNav.window = $0 })
+            .onAppear {
+                tabNav.order = orderedFieldIDs
+                tabNav.focused = focus
+                if tabMonitor == nil {
+                    tabMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                        guard event.keyCode == 48 else { return event }  // 48 = Tab
+                        let handled = tabNav.handleTab(
+                            backward: event.modifierFlags.contains(.shift), eventWindow: event.window)
+                        return handled ? nil : event
+                    }
+                }
+            }
+            .onDisappear {
+                if let m = tabMonitor { NSEvent.removeMonitor(m); tabMonitor = nil }
+            }
         }
         .background(Palette.surface)
         .confirmationDialog(
@@ -650,12 +693,63 @@ private struct CalloutBox: View {
 /// (and on Enter for single-line); Esc discards. No Save/Cancel buttons; only
 /// writes when the value changed.
 ///
+/// Drives Tab / Shift+Tab between the report's inline text fields. A key-down
+/// monitor (installed by ReportView) intercepts Tab reliably regardless of how
+/// the current field was focused (mouse click OR keyboard) — SwiftUI's
+/// `.onKeyPress(.tab)` only fires for keyboard-reached fields, so it can't be
+/// used here. The monitor is scoped to the report's own window and only acts
+/// while an inline field is being edited; it publishes the requested target into
+/// `move`, which ReportView applies to the shared FocusState.
+@Observable final class TabNavigator {
+    /// Inline field ids in visual order (kept in sync by ReportView).
+    var order: [String] = []
+    /// The id of the field currently being edited, or nil.
+    var focused: String?
+    /// The report's window — the monitor ignores Tab in any other window/sheet.
+    weak var window: NSWindow?
+    /// Set by the monitor; observed by ReportView to move focus. The token makes
+    /// each request a distinct value even when the target id repeats.
+    var move: Move?
+    struct Move: Equatable { var id: String?; var token: Int }
+    private var token = 0
+
+    /// Handle a Tab key-down. Returns true (consume the event) only when an inline
+    /// field in this report's window is being edited; otherwise the event passes
+    /// through so Tab keeps working everywhere else.
+    func handleTab(backward: Bool, eventWindow: NSWindow?) -> Bool {
+        guard let window, eventWindow === window else { return false }
+        guard let current = focused, let i = order.firstIndex(of: current) else { return false }
+        let j = backward ? i - 1 : i + 1
+        token += 1
+        move = Move(id: order.indices.contains(j) ? order[j] : nil, token: token)
+        return true
+    }
+}
+
+/// Reports the hosting NSWindow up to SwiftUI (so the Tab monitor can scope
+/// itself to the report window and ignore sheets / the Settings window).
+private struct WindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async { onResolve(v.window) }
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onResolve(nsView.window) }
+    }
+}
+
 /// Focus is driven by a SHARED `FocusState` (`focus`) keyed by this field's `id`
 /// so a background click in the report can dismiss whichever field is active
 /// (a plain macOS text field doesn't resign first responder on a dead-space
 /// click). Focus is taken on the next runloop tick — setting it synchronously as
 /// the field first appears misses (the view isn't in the responder chain yet),
 /// which is why a first click previously needed a second click to activate.
+///
+/// Tab / Shift+Tab move to the next / previous inline text field (in `reportFieldOrder`)
+/// rather than to the next macOS control, so editing flows field-to-field like a
+/// form. The target enters edit mode via the focus watcher below.
 struct InlineEditable: View {
     let text: String
     var placeholder: String
@@ -666,52 +760,49 @@ struct InlineEditable: View {
     var focus: FocusState<String?>.Binding
     var onCommit: (String) -> Void
 
-    @State private var editing = false
     @State private var draft = ""
 
+    private var active: Bool { focus.wrappedValue == id }
+
     var body: some View {
-        if editing {
-            Group {
-                if multiline {
-                    TextField(placeholder, text: $draft, axis: .vertical).lineLimit(1...12)
-                } else {
-                    TextField(placeholder, text: $draft).onSubmit { focus.wrappedValue = nil }
-                }
+        Group {
+            if multiline {
+                TextField(placeholder, text: $draft, axis: .vertical).lineLimit(1...12)
+            } else {
+                TextField(placeholder, text: $draft)
             }
-            .font(font)
-            .textFieldStyle(.roundedBorder)
-            .focused(focus, equals: id)
-            // Return finishes editing; Shift+Return inserts a newline in
-            // multi-line fields.
-            .onKeyPress(.return, phases: .down) { key in
-                if multiline && key.modifiers.contains(.shift) { return .ignored }
-                focus.wrappedValue = nil
-                return .handled
-            }
-            .onExitCommand { draft = text; focus.wrappedValue = nil } // Esc discards
-            .onChange(of: focus.wrappedValue) { _, current in
-                if current != id { commit() } // lost focus: another field, background, or Esc
-            }
-            .onAppear { draft = text; DispatchQueue.main.async { focus.wrappedValue = id } }
-        } else {
-            Button {
-                draft = text
-                editing = true
-            } label: {
-                Text(text.isEmpty ? placeholder : text)
-                    .font(font)
-                    .foregroundStyle(text.isEmpty ? Palette.ink3 : color)
-                    .italic(text.isEmpty)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Click to edit")
         }
+        // Plain style so an unfocused field reads as ordinary text; the active one
+        // gets a subtle tint + accent ring. The field is ALWAYS a real TextField
+        // (never a Button) so it always claims `id` in the shared FocusState — which
+        // is what lets Tab move focus into it (a click OR the key monitor).
+        .textFieldStyle(.plain)
+        .font(font)
+        .foregroundStyle(color)
+        .focused(focus, equals: id)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(active ? Palette.surface2 : .clear)
+        .overlay(RoundedRectangle(cornerRadius: 6)
+            .stroke(active ? Palette.accent.opacity(0.5) : .clear, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        // Return commits; Shift+Return inserts a newline in multi-line fields.
+        .onKeyPress(.return, phases: .down) { key in
+            if multiline && key.modifiers.contains(.shift) { return .ignored }
+            focus.wrappedValue = nil
+            return .handled
+        }
+        .onExitCommand { draft = text; focus.wrappedValue = nil }  // Esc discards edits
+        .onChange(of: focus.wrappedValue) { _, current in
+            if current != id { commit() }  // lost focus (blur / another field / Tab / Esc) → save
+        }
+        .onChange(of: text) { _, newText in
+            if !active { draft = newText }  // reflect store updates while not being edited
+        }
+        .onAppear { draft = text }
     }
 
     private func commit() {
-        editing = false
         if draft != text { onCommit(draft) } // skip a write when nothing changed
     }
 }
