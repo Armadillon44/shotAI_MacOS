@@ -71,8 +71,22 @@ struct ReportView: View {
                     )
                 }
                 if steps.isEmpty {
-                    Text("No steps yet — record a process, or add a text block below.")
-                        .foregroundStyle(Palette.ink3)
+                    VStack(spacing: 12) {
+                        Image(systemName: "camera.viewfinder")
+                            .font(.system(size: 29))
+                            .foregroundStyle(Palette.accent)
+                            .frame(width: 78, height: 78)
+                            .background(Circle().fill(Palette.accentTint))
+                            .accessibilityHidden(true)
+                        Text("No steps yet").font(.system(size: 15, weight: .semibold))
+                        Text("Record a process, or add a text block below to start building this guide.")
+                            .font(.callout)
+                            .foregroundStyle(Palette.ink2)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 420)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 44)
                 }
                 InsertZone { choice in handleInsert(choice, at: steps.count) } // append
                     .dropDestination(for: String.self) { ids, _ in
@@ -204,6 +218,7 @@ struct ReportView: View {
             .background(Palette.surface)
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.hair))
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .cardElevation()
         }
     }
 
@@ -408,8 +423,8 @@ private struct IntroBox: View {
         .padding(14)
         .background(Palette.surface2)
         .overlay(alignment: .leading) { Rectangle().fill(Palette.accent).frame(width: 4) }
-        .overlay { RoundedRectangle(cornerRadius: 6).stroke(Palette.hair) }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay { RoundedRectangle(cornerRadius: 8).stroke(Palette.hair) }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

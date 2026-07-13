@@ -21,10 +21,12 @@ enum Palette {
     static let accentInk   = dyn(0x4A34C9, 0xC8BDFB)
     static let onAccent    = dyn(0xFFFFFF, 0x171528)
 
-    // Ink ramp (text).
+    // Ink ramp (text). The dark `ink3` is lifted slightly from the Windows value
+    // so secondary labels (date groups, MODE/Sort, counts) don't vanish against
+    // the near-black `ground` in dark mode.
     static let ink  = dyn(0x191826, 0xECE9F7)
     static let ink2 = dyn(0x5A5772, 0xA8A4C0)
-    static let ink3 = dyn(0x918EA6, 0x726F8B)
+    static let ink3 = dyn(0x918EA6, 0x8E8AA8)
 
     // Hairlines / control borders.
     static let hair      = dyn(0xE7E4F2, 0x302C42)
@@ -39,6 +41,13 @@ enum Palette {
     /// surfaces so a text field reads as an input on an elevated card (the stock
     /// bezel blends into surface2).
     static let field    = dyn(0xFFFFFF, 0x2E2B40)
+
+    // Elevation — a soft, faintly violet-tinted shadow under cards/panels,
+    // restoring the Windows `--shadow-sm` the flat port dropped. `cardShadowHover`
+    // is the lifted state on rollover. Alpha-carrying, so kept separate from the
+    // opaque `dyn` tokens above.
+    static let cardShadow      = shadow(0x241B4D, light: 0.10, dark: 0.55)
+    static let cardShadowHover = shadow(0x241B4D, light: 0.18, dark: 0.70)
 
     // Status — semantic, kept separate from the accent.
     static let ok        = dyn(0x0E9F6E, 0x34D399)
@@ -68,6 +77,14 @@ enum Palette {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             return NSColor(rgb: isDark ? dark : light)
+        })
+    }
+
+    /// A theme-aware translucent color (for shadows), same `rgb` with a per-mode alpha.
+    private static func shadow(_ rgb: UInt32, light: Double, dark: Double) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(rgb: rgb).withAlphaComponent(isDark ? dark : light)
         })
     }
 }

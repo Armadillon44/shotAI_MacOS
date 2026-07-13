@@ -24,6 +24,8 @@ struct ContentView: View {
     @State private var editorError: String?
     /// The hosting window, captured once, so we can size it per surface.
     @State private var window: NSWindow?
+    /// Honor Reduce Motion for the overlay fades below.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         mainContent
@@ -167,6 +169,9 @@ struct ContentView: View {
                 .transition(.opacity)
             }
         }
+        // The .transition above only plays inside an animated transaction; the
+        // state is flipped by plain assignments elsewhere, so animate it here.
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: capture.showWizard)
         // Full-window editor overlay (Phase C) — presented in-window, not a
         // sheet, so it can't veto ⌘Q.
         .overlay {
@@ -177,6 +182,7 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editor != nil)
     }
 
     /// Size the window to the current surface's width (Home vs. project detail),
