@@ -859,7 +859,19 @@ public actor CaptureEngine {
                 autoTarget = await activeWindows.windowAt(point) ?? active
             }
         }
-        let autoMode: AutoMode? = mode == .auto ? captureModeFor(active: autoTarget) : nil
+        var autoMode: AutoMode? = mode == .auto ? captureModeFor(active: autoTarget) : nil
+        // A click in the top menu-bar band is on the system menu bar, which sits
+        // ABOVE every window. Framing the active window (autoMode == .window)
+        // would crop the menu bar — and the menu it opens — right out. Force a
+        // region crop around the click so the bar is captured. (windowAt can
+        // return the menu bar's own strip or a fullscreen window that "contains"
+        // the click, so this override is needed even though out-of-window clicks
+        // normally fall through to a region.)
+        if mode == .auto, autoMode == .window, let point,
+           let disp = clickDisplay, point.y <= disp.frame.minY + CaptureConstants.menuBarBand {
+            autoMode = .region
+            log.notice("grab → menu-bar band click, forcing region crop")
+        }
         log.debug("""
             grab mode=\(String(describing: mode), privacy: .public) \
             auto=\(String(describing: autoMode), privacy: .public) \

@@ -218,4 +218,28 @@ import ShotModel
         _ = await h.engine.stop()
         h.cleanup()
     }
+
+    // Clicking the top menu-bar band must NOT crop to the active window (which
+    // sits below the bar and would omit it) — it captures a region around the
+    // click so the menu bar is included.
+    @Test func autoMenuBarClickCapturesRegionNotWindow() async throws {
+        let h = try EngineHarness()
+        // Active app whose window spans the whole display incl. the top — mimics
+        // windowAt returning a menu-bar / fullscreen window that "contains" the
+        // menu-bar click. Without the band override this would crop to the full
+        // 1000x600pt window (→ 1700px wide) and omit nothing but frame the wrong
+        // thing; the override makes it a region around the click instead.
+        h.activeWindows.snapshot = WindowSnapshot(
+            app: "Safari", title: "x", pid: 1, bundleID: "com.apple.Safari",
+            bounds: CGRect(x: 0, y: 0, width: 1000, height: 600))
+        try await h.engine.start(projectPath: h.projectDir, attachHook: false)
+        // Click in the top menu-bar band (y < 40 pt).
+        let step = try await h.engine.captureStep(trigger: .click, point: CGPoint(x: 300, y: 8))
+        let dims = pngSize(try h.shotData(step!))
+        // Region crop, not the full-window crop (which would be 1000pt × 2 × 0.85
+        // = 1700px wide). The region is clamped around the click, so it's smaller.
+        #expect(dims.width < 1700)
+        _ = await h.engine.stop()
+        h.cleanup()
+    }
 }

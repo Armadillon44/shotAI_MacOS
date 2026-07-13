@@ -53,6 +53,13 @@ public enum CaptureConstants {
     public static let regionBoxWidth: CGFloat = 820
     public static let regionBoxHeight: CGFloat = 640
 
+    /// Height (points) of the top menu-bar band. A click within this band of a
+    /// display's top edge is on the system menu bar — which sits ABOVE every app
+    /// window, so auto mode must NOT crop to the active window (that omits the
+    /// bar) but capture a region around the click. Generous enough to cover
+    /// notched displays (~37 pt) plus the standard 24 pt.
+    public static let menuBarBand: CGFloat = 40
+
     /// Hard cap waiting for an element-at-point query; late results discarded.
     public static let elementQueryTimeout: TimeInterval = 0.6
 
