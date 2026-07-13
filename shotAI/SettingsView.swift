@@ -1,12 +1,12 @@
 import AppKit
+import CaptureKit
 import ShotModel
 import SOPKit
 import SwiftUI
 
 /// The app's Settings window (⌘, / shotAI ▸ Settings…). Native macOS Settings
-/// scene. Permissions is the primary tab (it replaced the toolbar shield);
-/// General shows version + the projects folder. AI / Appearance / Storage-editing
-/// tabs land later as those features do.
+/// scene. Permissions is macOS-specific (TCC grants); AI / Appearance / Capture /
+/// General mirror the Windows settings surface.
 struct SettingsView: View {
     var body: some View {
         TabView {
@@ -14,10 +14,14 @@ struct SettingsView: View {
                 .tabItem { Label("Permissions", systemImage: "lock.shield") }
             AISettings()
                 .tabItem { Label("AI", systemImage: "sparkles") }
+            AppearanceSettings()
+                .tabItem { Label("Appearance", systemImage: "paintbrush") }
+            CaptureSettings()
+                .tabItem { Label("Capture", systemImage: "camera.viewfinder") }
             GeneralSettings()
                 .tabItem { Label("General", systemImage: "gearshape") }
         }
-        .frame(width: 560, height: 460)
+        .frame(width: 560, height: 480)
     }
 }
 
@@ -130,10 +134,78 @@ private struct AISettings: View {
     }
 }
 
+private struct AppearanceSettings: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section("Theme") {
+                Picker("Theme", selection: $model.preferences.theme) {
+                    ForEach(ThemePref.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text(model.preferences.theme.blurb)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Your name") {
+                TextField("Name", text: $model.preferences.userName, prompt: Text("e.g. Jane Doe"))
+                Toggle("Include my name in exported documents", isOn: $model.preferences.includeNameInReports)
+                    .disabled(model.preferences.userName.trimmingCharacters(in: .whitespaces).isEmpty)
+                Text("When on, exports show \u{201C}Created on … by <name>\u{201D} in the footer.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: model.preferences) { model.savePreferences() }
+    }
+}
+
+private struct CaptureSettings: View {
+    @Environment(AppModel.self) private var model
+
+    private var qualityPercent: Int { Int((model.preferences.captureScale * 100).rounded()) }
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section("Screenshot quality") {
+                Slider(
+                    value: $model.preferences.captureScale,
+                    in: Double(CaptureConstants.captureScaleMin)...Double(CaptureConstants.captureScaleMax),
+                    step: 0.05
+                ) {
+                    Text("Quality")
+                } minimumValueLabel: {
+                    Text("Smaller")
+                } maximumValueLabel: {
+                    Text("Sharper")
+                }
+                LabeledContent("Scale", value: "\(qualityPercent)%")
+                Text("Each captured screenshot is downscaled to this factor. Lower = smaller files and cheaper AI, but softer text. Applies to new captures.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("While recording") {
+                Toggle("Keep the shotAI window visible during capture", isOn: $model.preferences.captureNoHide)
+                Text("Off (default) hides the window so it isn't in the shot. Turn on if you need to see shotAI while you record.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: model.preferences) { model.savePreferences() }
+    }
+}
+
 private struct GeneralSettings: View {
-    // Reads the same UserDefaults-backed value the app's ProjectStore uses, so it
-    // reflects the live projects folder without coupling to AppModel.
-    private var projectsDir: String { UserDefaultsSettings().projectsDir() }
+    @Environment(AppModel.self) private var model
+    // Local mirror so the label updates immediately after Change… — reading
+    // model.settings.projectsDir() directly registers no observation dependency
+    // (settings is a `let`, and it reads UserDefaults), so the view wouldn't
+    // otherwise re-evaluate.
+    @State private var projectsDir = ""
 
     private var appVersion: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
@@ -164,17 +236,36 @@ private struct GeneralSettings: View {
                     .lineLimit(2)
                     .truncationMode(.middle)
                 HStack {
+                    Button("Change…") { chooseProjectsFolder(current: projectsDir) }
+                        .controlSize(.small)
                     Button("Reveal in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting(
                             [URL(fileURLWithPath: projectsDir)])
                     }
                     .controlSize(.small)
                 }
+                Text("Projects are stored here (the same default as the Windows app: ~/shotAI Projects). Changing this re-lists from the new location; existing projects aren't moved.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 0)
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear { projectsDir = model.settings.projectsDir() }
+    }
+
+    private func chooseProjectsFolder(current: String) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Use Folder"
+        panel.message = "Choose a folder to store shotAI projects."
+        panel.directoryURL = URL(fileURLWithPath: current)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        projectsDir = url.path  // reflect immediately
+        Task { await model.setProjectsDir(url.path) }
     }
 }

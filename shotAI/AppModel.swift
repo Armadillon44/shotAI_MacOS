@@ -15,6 +15,7 @@ import UniformTypeIdentifiers
 @MainActor
 @Observable
 final class AppModel {
+    let settings: SettingsStore
     let store: ProjectStore
     private(set) var projects: [ProjectSummary] = []
     private(set) var opened: ProjectStore.OpenedProject?
@@ -22,12 +23,14 @@ final class AppModel {
     var errorMessage: String?
 
     var projectsDirDisplay: String {
-        (defaultProjectsDir() as NSString).abbreviatingWithTildeInPath
+        (settings.projectsDir() as NSString).abbreviatingWithTildeInPath
     }
 
-    init(store: ProjectStore = ProjectStore(settings: UserDefaultsSettings())) {
-        self.store = store
+    init(settings: SettingsStore = UserDefaultsSettings()) {
+        self.settings = settings
+        self.store = ProjectStore(settings: settings)
         self.sopSettings = Self.loadSopSettings()
+        self.preferences = Self.loadPreferences()
         refreshApiKeyStatus()
     }
 
@@ -94,7 +97,7 @@ final class AppModel {
         do {
             let loaded = try await store.openProject(at: projectPath)
             let manifest = try await ensureFlattened(dir: loaded.dir, manifest: loaded.manifest)
-            let result = try await exportProject(dir: loaded.dir, manifest: manifest, format: format)
+            let result = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline)
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: result.outputPath)])
             // If we just re-flattened the project that's on screen, refresh it.
             if opened?.dir == loaded.dir { await reloadOpened() }
@@ -258,6 +261,45 @@ final class AppModel {
         if let data = try? JSONEncoder().encode(sopSettings) {
             UserDefaults.standard.set(data, forKey: Self.sopSettingsKey)
         }
+    }
+
+    // MARK: - App preferences (theme / byline / capture)
+
+    /// Persisted app preferences (bound by Settings ▸ Appearance/Capture). Call
+    /// `savePreferences()` after mutating.
+    var preferences: AppPreferences
+
+    private static let preferencesKey = "appPreferences.v1"
+    static func loadPreferences() -> AppPreferences {
+        guard let data = UserDefaults.standard.data(forKey: preferencesKey),
+              var p = try? JSONDecoder().decode(AppPreferences.self, from: data) else { return AppPreferences() }
+        p.normalize()
+        return p
+    }
+
+    /// Normalize + persist preferences (call from the Settings tabs after edits).
+    func savePreferences() {
+        preferences.normalize()
+        if let data = try? JSONEncoder().encode(preferences) {
+            UserDefaults.standard.set(data, forKey: Self.preferencesKey)
+        }
+    }
+
+    /// Change the projects folder (Settings ▸ General). Persists the new root and
+    /// re-lists; the ProjectStore reads `settings.projectsDir()` live, so the new
+    /// location takes effect immediately.
+    func setProjectsDir(_ dir: String) async {
+        let trimmed = dir.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        settings.setProjectsDir(trimmed)
+        // Leaving the current project — tear down the same transient state
+        // closeToHome() does, so an in-flight SOP run can't outlive the switch.
+        resetSopState()
+        lastMerge = nil
+        selectedPath = nil
+        opened = nil
+        await refresh()
+        Log.store.notice("projects folder changed")
     }
 
     /// Refresh the observable key-status mirror from the Keychain.
