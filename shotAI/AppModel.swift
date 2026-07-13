@@ -526,6 +526,31 @@ final class AppModel {
         }
     }
 
+    /// Archive a project (compress its files in place) and re-list. It stays under
+    /// the Archive tab and auto-restores on open.
+    func archiveProject(path: String) async {
+        do {
+            try await store.archiveProject(at: path)
+            await refresh()
+            Log.store.notice("archiveProject succeeded")
+        } catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("archiveProject failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    /// Restore an archived project (without opening it) and re-list.
+    func unarchiveProject(path: String) async {
+        do {
+            try await store.unarchiveProject(at: path)
+            await refresh()
+            Log.store.notice("unarchiveProject succeeded")
+        } catch {
+            errorMessage = error.localizedDescription
+            Log.store.error("unarchiveProject failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
     /// Reveal a project's folder in Finder (confined to a known project path).
     func revealInFinder(path: String) {
         guard projects.contains(where: { $0.path == path }) else { return }

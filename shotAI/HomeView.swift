@@ -15,6 +15,8 @@ struct HomeView: View {
     let onOpen: (String) -> Void
 
     enum SortKey: String, CaseIterable { case name = "Name", created = "Created", modified = "Modified" }
+    /// Active projects vs. the Archive shelf — mirrors the Windows 1.1.0 tabs.
+    enum HomeTab: Hashable { case active, archive }
 
     // Create-hero state.
     @State private var title = ""
@@ -26,6 +28,7 @@ struct HomeView: View {
     @State private var busy = false
 
     // List state.
+    @State private var tab: HomeTab = .active
     @State private var sortKey: SortKey = .modified
     @State private var sortAsc = false
     @State private var renamingPath: String?
@@ -38,10 +41,11 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 brandHeader
-                hero
+                if tab == .active { hero }
+                tabsRow
                 listHead
-                if model.projects.isEmpty {
-                    emptyState
+                if tabProjects.isEmpty {
+                    tab == .archive ? AnyView(archiveEmptyState) : AnyView(emptyState)
                 } else if filteredProjects.isEmpty {
                     noMatchesState
                 } else {
@@ -196,11 +200,33 @@ struct HomeView: View {
         }
     }
 
+    // MARK: - Tabs (Projects / Archive)
+
+    /// Whether archive/restore is allowed right now — blocked while a capture
+    /// session is live so we never repack a project mid-recording.
+    private var canArchive: Bool { capture.state.status == .idle }
+
+    private var tabsRow: some View {
+        HStack(spacing: 8) {
+            ForEach([HomeTab.active, .archive], id: \.self) { t in
+                Button {
+                    guard tab != t else { return }
+                    commitRenameIfEditing()
+                    tab = t
+                } label: {
+                    Text(t == .active ? "Projects \(activeCount)" : "Archive \(archiveCount)")
+                }
+                .buttonStyle(ChipStyle(on: tab == t))
+            }
+            Spacer()
+        }
+    }
+
     // MARK: - List head (title + sort)
 
     private var listHead: some View {
         HStack(spacing: 10) {
-            Text("Projects").font(.system(size: 15, weight: .semibold))
+            Text(tab == .archive ? "Archived" : "Projects").font(.system(size: 15, weight: .semibold))
                 + Text(countSuffix).foregroundColor(Palette.ink3)
             searchField
             Spacer()
@@ -248,12 +274,19 @@ struct HomeView: View {
         .help("Search project names and step content (⌘F)")
     }
 
-    /// "· 12" normally; "· 3 of 12" while a search is narrowing the list.
+    /// Blank normally (the tab chips carry the totals); "· 3 of 12" while a
+    /// search is narrowing the current tab.
     private var countSuffix: String {
-        let total = model.projects.count
+        guard isSearching else { return "" }
+        let total = tabProjects.count
         let shown = filteredProjects.count
-        return isSearching && shown != total ? "  ·  \(shown) of \(total)" : "  ·  \(total)"
+        return shown != total ? "  ·  \(shown) of \(total)" : "  ·  \(total)"
     }
+
+    /// Totals per tab, over the full list (never narrowed by search) — shown on
+    /// the tab chips so a search on one tab doesn't change the other's count.
+    private var activeCount: Int { model.projects.filter { !$0.archived }.count }
+    private var archiveCount: Int { model.projects.filter { $0.archived }.count }
 
     // MARK: - Project list
 
@@ -289,18 +322,20 @@ struct HomeView: View {
                         StatusBadge(hasSop: p.hasSop)
                     }
                 }
-                Text("\(p.stepCount) step\(p.stepCount == 1 ? "" : "s")\(Self.metaDate(p.updatedAt).map { " · modified \($0)" } ?? "")")
+                Text("\(p.stepCount) step\(p.stepCount == 1 ? "" : "s")\(Self.metaDate(p.updatedAt).map { " · \(p.archived ? "archived" : "modified") \($0)" } ?? "")")
                     .font(.caption)
                     .foregroundStyle(Palette.ink2)
             }
             Spacer(minLength: 8)
             Button("Open") { onOpen(p.path) }
                 .buttonStyle(.borderedProminent)
+                .help(p.archived ? "Restores this project from the Archive and opens it" : "Open this project")
             Menu {
                 Button("Rename") { startRename(p) }
                 Button("Reveal in Finder") { model.revealInFinder(path: p.path) }
                 exportMenu(p)
                 Divider()
+                archiveMenuItem(p)
                 Button("Delete", role: .destructive) { deleteTarget = p }
             } label: {
                 Image(systemName: "ellipsis")
@@ -320,7 +355,20 @@ struct HomeView: View {
             Button("Reveal in Finder") { model.revealInFinder(path: p.path) }
             exportMenu(p)
             Divider()
+            archiveMenuItem(p)
             Button("Delete", role: .destructive) { deleteTarget = p }
+        }
+    }
+
+    /// Archive (when live) or Restore (when archived) — shared by the ⋯ menu and
+    /// the right-click menu. Archiving is blocked while a capture session runs.
+    @ViewBuilder
+    private func archiveMenuItem(_ p: ProjectSummary) -> some View {
+        if p.archived {
+            Button("Restore") { Task { await model.unarchiveProject(path: p.path) } }
+        } else {
+            Button("Archive") { Task { await model.archiveProject(path: p.path) } }
+                .disabled(!canArchive)
         }
     }
 
@@ -363,6 +411,23 @@ struct HomeView: View {
         .padding(.vertical, 40)
     }
 
+    /// Shown on the Archive tab when nothing has been archived yet.
+    private var archiveEmptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "archivebox")
+                .font(.system(size: 34))
+                .foregroundStyle(Palette.ink3)
+            Text("No archived projects").font(.system(size: 15, weight: .semibold))
+            Text("Archiving compresses a project's screenshots in place to save disk. Use a project's ⋯ menu to Archive it — it restores automatically when you open it.")
+                .font(.callout)
+                .foregroundStyle(Palette.ink2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
     /// Shown when a search matches none of the (non-empty) project list.
     private var noMatchesState: some View {
         VStack(spacing: 8) {
@@ -388,15 +453,21 @@ struct HomeView: View {
 
     private var isSearching: Bool { !trimmedQuery.isEmpty }
 
-    /// Projects narrowed by the search query. Matches the project's full text
-    /// index (title + SOP intro + every step's caption/note/heading/body), so
+    /// The full list scoped to the selected tab (Active vs. Archive), before any
+    /// search. Tabs partition on the project's `archived` flag.
+    private var tabProjects: [ProjectSummary] {
+        model.projects.filter { tab == .archive ? $0.archived : !$0.archived }
+    }
+
+    /// The current tab narrowed by the search query. Matches the project's full
+    /// text index (title + SOP intro + every step's caption/heading/body), so
     /// searching finds content *inside* projects, not just names — parity with
     /// the Windows app. Case- and diacritic-insensitive (`localizedStandardContains`).
     /// Sorting and date grouping both build on this, so search composes with them.
     private var filteredProjects: [ProjectSummary] {
-        guard isSearching else { return model.projects }
+        guard isSearching else { return tabProjects }
         let q = trimmedQuery
-        return model.projects.filter { $0.searchText.localizedStandardContains(q) }
+        return tabProjects.filter { $0.searchText.localizedStandardContains(q) }
     }
 
     private var sortedProjects: [ProjectSummary] {
