@@ -192,6 +192,35 @@ public actor ProjectStore {
         return summarize(manifest, at: resolved)
     }
 
+    /// Auto-archive projects untouched for at least `ageDays` days (measured by
+    /// updatedAt), intended to run once at launch. `ageDays <= 0` disables it.
+    /// Best-effort: a project that fails to archive is logged and skipped, never
+    /// aborting the sweep. Returns the number archived. Runs on the store actor.
+    @discardableResult
+    public func autoArchiveStale(ageDays: Int) -> Int {
+        guard ageDays > 0 else { return 0 }
+        let cutoff = Date().addingTimeInterval(-Double(ageDays) * 86_400)
+        var count = 0
+        for s in listProjects() where !s.archived {
+            guard let updated = Self.parseISO(s.updatedAt), updated < cutoff else { continue }
+            do {
+                _ = try archiveProject(at: s.path)
+                count += 1
+            } catch {
+                Log.store.error("autoArchive skipped [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+            }
+        }
+        if count > 0 { Log.store.notice("autoArchive: archived \(count, privacy: .public) stale project(s)") }
+        return count
+    }
+
+    private static func parseISO(_ s: String) -> Date? {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: s) { return d }
+        return ISO8601DateFormatter().date(from: s)  // no fractional seconds
+    }
+
     /// Restore an archived project without opening it (Home "Restore" action):
     /// unpack its files, clear the archived flag, and re-list it. Fail-closed;
     /// does NOT bump updatedAt (restoring isn't an edit). No-op if not archived.

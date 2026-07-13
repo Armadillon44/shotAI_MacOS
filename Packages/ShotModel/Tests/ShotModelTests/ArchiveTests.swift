@@ -132,6 +132,45 @@ import Testing
         #expect(Archive.isArchivedOnDisk(dir))
     }
 
+    // MARK: - Phase 3 (auto-archive)
+
+    @Test func clampArchiveAgeBounds() {
+        #expect(clampArchiveAge(0) == 0)      // never (off)
+        #expect(clampArchiveAge(-5) == 0)
+        #expect(clampArchiveAge(1) == 1)
+        #expect(clampArchiveAge(45) == 45)
+        #expect(clampArchiveAge(9999) == 1825)
+    }
+
+    @Test func autoArchiveStaleArchivesOnlyOldLiveProjects() async throws {
+        let root = NSTemporaryDirectory() + "shotai-sweep-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
+        func makeProj(_ id: String, updatedAt: String, archived: Bool = false) throws {
+            let dir = (root as NSString).appendingPathComponent(id)
+            try FileManager.default.createDirectory(atPath: (dir as NSString).appendingPathComponent("shots"), withIntermediateDirectories: true)
+            try Data([1, 2, 3]).write(to: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("shots/a.png")))
+            let m = ProjectManifest(id: id, title: id, createdAt: "2020-01-01T00:00:00Z",
+                                    updatedAt: updatedAt, archived: archived)
+            try ProjectJSON.encodeManifest(m).write(to: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("project.json")))
+            if archived {  // an already-archived project also has a zip on disk
+                try zipStored([("shots/a.png", Data([1]))]).write(to: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("archive.zip")))
+            }
+        }
+        try makeProj("old", updatedAt: "2020-01-01T00:00:00Z")                                  // stale → archive
+        try makeProj("recent", updatedAt: ISO8601DateFormatter().string(from: Date()))          // fresh → keep
+        try makeProj("done", updatedAt: "2020-01-01T00:00:00Z", archived: true)                 // already archived → skip
+
+        let store = ProjectStore(settings: InMemorySettings(projectsDir: root))
+        let n = await store.autoArchiveStale(ageDays: 30)
+        #expect(n == 1)  // only "old"
+        #expect(Archive.isArchivedOnDisk((root as NSString).appendingPathComponent("old")))
+        #expect(!Archive.isArchivedOnDisk((root as NSString).appendingPathComponent("recent")))
+        // ageDays 0 disables the sweep entirely.
+        let none = await store.autoArchiveStale(ageDays: 0)
+        #expect(none == 0)
+    }
+
     @Test func listProjectsMarksArchivedSummaries() async throws {
         let (root, dir) = try tempDir(); defer { try? FileManager.default.removeItem(atPath: root) }
         try writeArchivedManifest(dir, updatedAt: "2026-06-01T00:00:00Z")

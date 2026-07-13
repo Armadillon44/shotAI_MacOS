@@ -71,7 +71,7 @@ struct ContentView: View {
                 Text(model.importError ?? "")
             }
             .task {
-                await model.refresh()
+                await model.startup()  // one-time auto-archive sweep, then list
                 // Live-refresh the report as steps land; refresh everything when
                 // a session ends (stop or discard may even delete the project).
                 capture.onStepAdded = { _ in
