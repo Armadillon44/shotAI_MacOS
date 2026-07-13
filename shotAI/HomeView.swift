@@ -38,8 +38,8 @@ struct HomeView: View {
     @State private var searchQuery = ""
     @FocusState private var searchFocused: Bool
 
-    // Bulk multi-select state.
-    @State private var selecting = false
+    // Bulk multi-select state. Checkboxes are always inline on each card (no
+    // separate "select mode"); the bulk bar appears whenever something is picked.
     @State private var selection = Set<String>()
     @State private var bulkDeleteConfirm = false
 
@@ -59,10 +59,10 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 brandHeader
-                if tab == .active && !selecting { hero }
+                if tab == .active { hero }
                 tabsRow
                 listHead
-                if selecting { bulkBar }
+                if !selection.isEmpty { bulkBar }
                 if tabProjects.isEmpty {
                     tab == .archive ? AnyView(archiveEmptyState) : AnyView(emptyState)
                 } else if filteredProjects.isEmpty {
@@ -108,7 +108,7 @@ struct HomeView: View {
         ) {
             Button("Delete \(selection.count) Project\(selection.count == 1 ? "" : "s")", role: .destructive) {
                 let paths = Array(selection)
-                exitSelection()
+                clearSelection()
                 Task { await model.deleteProjects(paths: paths) }
             }
             Button("Cancel", role: .cancel) {}
@@ -131,10 +131,17 @@ struct HomeView: View {
         }
     }
 
-    /// Background refresh, skipped while the user is mid-rename or making a bulk
-    /// selection so we never yank focus or reorder rows out from under them.
+    /// Background refresh, skipped while the user is mid-rename or has an active
+    /// bulk selection so we never yank focus or reorder rows out from under them.
     private func autoRefreshUnlessBusy() {
-        guard renamingPath == nil, !selecting else { return }
+        // If the row being renamed has vanished (e.g. it was bulk-deleted/archived
+        // while its rename field was still open), its TextField tore down without
+        // firing onSubmit/onExitCommand, stranding renamingPath. Reconcile it here
+        // so a stale value can't starve the poll forever.
+        if let rp = renamingPath, !tabProjects.contains(where: { $0.path == rp }) {
+            renamingPath = nil
+        }
+        guard renamingPath == nil, selection.isEmpty else { return }
         Task { await model.autoRefresh() }
     }
 
@@ -296,15 +303,6 @@ struct HomeView: View {
                 Image(systemName: sortAsc ? "arrow.up" : "arrow.down")
             }
             .help(sortAsc ? "Ascending" : "Descending")
-            if !tabProjects.isEmpty && !selecting {
-                Button {
-                    commitRenameIfEditing()  // don't leave a half-typed rename behind
-                    selecting = true
-                } label: {
-                    Image(systemName: "checkmark.circle")
-                }
-                .help("Select multiple projects")
-            }
         }
     }
 
@@ -354,44 +352,40 @@ struct HomeView: View {
 
     // MARK: - Bulk selection bar
 
-    /// The action bar shown while multi-selecting: count, select/deselect-all, and
-    /// tab-appropriate bulk actions (Archive/Restore, Export, Delete) + Done.
+    /// The action bar shown whenever ≥1 project is checked: count, select-all /
+    /// clear, and tab-appropriate bulk actions (Archive/Restore, Export, Delete).
     private var bulkBar: some View {
         let count = selection.count
         return HStack(spacing: 10) {
             Text("\(count) selected").font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Palette.ink)
-            Button(allVisibleSelected ? "Deselect all" : "Select all") {
-                if allVisibleSelected { selection.removeAll() }
-                else { selection = Set(filteredProjects.map(\.path)) }
-            }
-            .buttonStyle(.link)
-            .disabled(filteredProjects.isEmpty)  // "Select all" must never clear the set
+            Button("Select all") { selection = Set(filteredProjects.map(\.path)) }
+                .buttonStyle(.link)
+                .disabled(filteredProjects.isEmpty || allVisibleSelected)
+            Button("Clear") { clearSelection() }
+                .buttonStyle(.link)
+                .keyboardShortcut(.cancelAction)  // Esc deselects
             Spacer()
             if tab == .active {
-                // Snapshot the paths, then leave selection mode immediately (so the
+                // Snapshot the paths, then clear the selection immediately (so the
                 // poller can resume) and run the op on the captured copy — the op
                 // owns its own final refresh(); it never reads the live selection.
                 Button {
-                    let paths = Array(selection); exitSelection()
+                    let paths = Array(selection); clearSelection()
                     Task { await model.archiveProjects(paths: paths) }
                 } label: { Label("Archive", systemImage: "archivebox") }
-                    .disabled(count == 0 || !canArchive)
+                    .disabled(!canArchive)
                     .help(canArchive ? "Archive the selected projects" : "Can't archive while recording")
                 bulkExportMenu(count: count)
             } else {
                 Button {
-                    let paths = Array(selection); exitSelection()
+                    let paths = Array(selection); clearSelection()
                     Task { await model.unarchiveProjects(paths: paths) }
                 } label: { Label("Restore", systemImage: "arrow.uturn.backward") }
-                    .disabled(count == 0)
             }
             Button(role: .destructive) { bulkDeleteConfirm = true } label: {
                 Label("Delete", systemImage: "trash")
             }
-            .disabled(count == 0)
-            Button("Done") { exitSelection() }
-                .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -418,7 +412,7 @@ struct HomeView: View {
     }
 
     private func runBulkExport(_ format: ExportFormat) {
-        let paths = Array(selection); exitSelection()
+        let paths = Array(selection); clearSelection()
         Task { await model.exportProjects(paths: paths, format: format) }
     }
 
@@ -431,9 +425,8 @@ struct HomeView: View {
         if selection.contains(p.path) { selection.remove(p.path) } else { selection.insert(p.path) }
     }
 
-    /// Leave selection mode and clear the set.
-    private func exitSelection() {
-        selecting = false
+    /// Clear the selection (hides the bulk bar).
+    private func clearSelection() {
         selection.removeAll()
     }
 
@@ -459,14 +452,17 @@ struct HomeView: View {
     private func card(_ p: ProjectSummary) -> some View {
         let isSelected = selection.contains(p.path)
         return HStack(spacing: 12) {
-            if selecting {
+            Button { toggle(p) } label: {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18))
                     .foregroundStyle(isSelected ? Palette.accent : Palette.ink3)
-                    .accessibilityLabel(isSelected ? "Selected" : "Not selected")
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .help(isSelected ? "Deselect" : "Select")
+            .accessibilityLabel(isSelected ? "Selected" : "Not selected")
             VStack(alignment: .leading, spacing: 3) {
-                if renamingPath == p.path && !selecting {
+                if renamingPath == p.path {
                     TextField("Name", text: $renameValue)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 320)
@@ -483,44 +479,38 @@ struct HomeView: View {
                     .foregroundStyle(Palette.ink2)
             }
             Spacer(minLength: 8)
-            if !selecting {
-                Button("Open") { onOpen(p.path) }
-                    .buttonStyle(.borderedProminent)
-                    .help(p.archived ? "Restores this project from the Archive and opens it" : "Open this project")
-                Menu {
-                    Button("Rename") { startRename(p) }
-                    Button("Reveal in Finder") { model.revealInFinder(path: p.path) }
-                    exportMenu(p)
-                    Divider()
-                    archiveMenuItem(p)
-                    Button("Delete", role: .destructive) { deleteTarget = p }
-                } label: {
-                    Image(systemName: "ellipsis")
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 28)
-                .help("More actions")
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(isSelected ? Palette.accentTint : Palette.surface)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSelected ? Palette.accent : Palette.hair))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .contentShape(Rectangle())
-        // In selection mode the whole row is a toggle; the gesture is installed
-        // only then, so it never intercepts Open / rename / the ⋯ menu.
-        .onTapIf(selecting) { toggle(p) }
-        .contextMenu {
-            if !selecting {
-                Button("Open") { onOpen(p.path) }
+            Button("Open") { onOpen(p.path) }
+                .buttonStyle(.borderedProminent)
+                .help(p.archived ? "Restores this project from the Archive and opens it" : "Open this project")
+            Menu {
                 Button("Rename") { startRename(p) }
                 Button("Reveal in Finder") { model.revealInFinder(path: p.path) }
                 exportMenu(p)
                 Divider()
                 archiveMenuItem(p)
                 Button("Delete", role: .destructive) { deleteTarget = p }
+            } label: {
+                Image(systemName: "ellipsis")
             }
+            .menuStyle(.borderlessButton)
+            .frame(width: 28)
+            .help("More actions")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(isSelected ? Palette.accentTint : Palette.surface)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSelected ? Palette.accent : Palette.hair))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contextMenu {
+            Button(isSelected ? "Deselect" : "Select") { toggle(p) }
+            Divider()
+            Button("Open") { onOpen(p.path) }
+            Button("Rename") { startRename(p) }
+            Button("Reveal in Finder") { model.revealInFinder(path: p.path) }
+            exportMenu(p)
+            Divider()
+            archiveMenuItem(p)
+            Button("Delete", role: .destructive) { deleteTarget = p }
         }
     }
 
@@ -741,15 +731,6 @@ struct HomeView: View {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) ?? .distantPast
-    }
-}
-
-private extension View {
-    /// Install a tap gesture only when `cond` is true. Used so the row-select tap
-    /// exists solely in selection mode and never competes with Open / rename / the
-    /// ⋯ menu in normal mode.
-    @ViewBuilder func onTapIf(_ cond: Bool, _ action: @escaping () -> Void) -> some View {
-        if cond { self.onTapGesture(perform: action) } else { self }
     }
 }
 
