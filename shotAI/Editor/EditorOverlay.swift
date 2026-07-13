@@ -704,10 +704,12 @@ struct EditorOverlay: View {
             }
             return Drag(mode: .createCrop, startImg: startImg, origRect: .zero)
         case .select:
-            // Resize if the drag started on a handle-resizable selection's
-            // bottom-right handle (±~8 pt tolerance).
+            // Resize if the drag started near a handle-resizable selection's
+            // bottom-right handle. Generous tolerance so the corner is easy to
+            // grab — important for redactions, where a miss lands in the body and
+            // becomes a size-preserving move (which reads as "can't resize").
             if model.selectedIsResizable, let sel = model.boundsOfSelected() {
-                let handleImg = 8 / f.s
+                let handleImg = 14 / f.s
                 let corner = CGPoint(x: sel.maxX, y: sel.maxY)
                 if abs(startImg.x - corner.x) <= handleImg, abs(startImg.y - corner.y) <= handleImg {
                     return Drag(mode: .resize, startImg: startImg, origRect: sel, original: model.selected)
