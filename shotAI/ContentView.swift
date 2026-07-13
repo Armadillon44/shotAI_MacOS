@@ -46,8 +46,11 @@ struct ContentView: View {
             } message: {
                 Text(editorError ?? "")
             }
+            // Shared error channel (open / rename / delete / archive / restore /
+            // bulk). Neutral title so it isn't mislabeled — the message carries
+            // the specifics ("2 of 5 projects couldn't be archived").
             .alert(
-                "Couldn't open project",
+                "Something went wrong",
                 isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
             ) {
                 Button("OK", role: .cancel) {}
