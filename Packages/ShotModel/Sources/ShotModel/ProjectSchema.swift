@@ -508,12 +508,18 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     public var intro: SopIntro?
     /// Pre-edit snapshot enabling revert of Claude's inline SOP edits.
     public var sopBackup: SopBackup?
+    /// Archived state (F2): when true, the project's bulk files (shots/, export/)
+    /// are compressed into archive.zip and the loose copies removed — the project
+    /// stays listed (under the Archive tab) and is auto-restored on open.
+    /// `archivedAt` is the ISO time it was archived (nil when live).
+    public var archived: Bool
+    public var archivedAt: String?
     /// Keys this schema version doesn't know — preserved for round-trip.
     public var extra: [String: JSONValue]
 
     private static let knownKeys: Set<String> = [
         "version", "id", "title", "createdWith", "createdAt", "updatedAt",
-        "captureSettings", "steps", "intro", "sopBackup",
+        "captureSettings", "steps", "intro", "sopBackup", "archived", "archivedAt",
     ]
 
     public init(
@@ -526,6 +532,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         steps: [ProjectStep] = [],
         intro: SopIntro? = nil,
         sopBackup: SopBackup? = nil,
+        archived: Bool = false,
+        archivedAt: String? = nil,
         extra: [String: JSONValue] = [:]
     ) {
         self.version = version
@@ -538,6 +546,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.steps = steps
         self.intro = intro
         self.sopBackup = sopBackup
+        self.archived = archived
+        self.archivedAt = archivedAt
         self.extra = extra
     }
 
@@ -556,6 +566,9 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         let rawIntro = try? c.decodeIfPresent(SopIntro.self, forKey: key("intro"))
         intro = (rawIntro?.isEmpty ?? true) ? nil : rawIntro
         sopBackup = try? c.decodeIfPresent(SopBackup.self, forKey: key("sopBackup"))
+        // Tolerant like Windows readManifest: any non-`true` (missing/null/other) → false.
+        archived = ((try? c.decodeIfPresent(Bool.self, forKey: key("archived"))) ?? false) == true
+        archivedAt = (try? c.decodeIfPresent(String.self, forKey: key("archivedAt"))) ?? nil
         var extras: [String: JSONValue] = [:]
         for k in c.allKeys where !Self.knownKeys.contains(k.stringValue) {
             extras[k.stringValue] = try? c.decode(JSONValue.self, forKey: k)
@@ -576,6 +589,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         try c.encode(steps, forKey: key("steps"))
         try c.encode(intro, forKey: key("intro"))
         try c.encode(sopBackup, forKey: key("sopBackup"))
+        try c.encode(archived, forKey: key("archived"))
+        try c.encode(archivedAt, forKey: key("archivedAt"))  // explicit null when live
         for (k, v) in extra.sorted(by: { $0.key < $1.key }) {
             try c.encode(v, forKey: key(k))
         }
@@ -623,11 +638,14 @@ public struct ProjectSummary: Equatable, Sendable {
     /// from `ProjectManifest.searchableText` at list time (the manifest is
     /// already parsed there, so this is free).
     public var searchText: String
+    /// Whether the project is archived (bulk files compressed in place). Drives
+    /// the Active/Archive tab split on Home.
+    public var archived: Bool
 
     public init(
         id: String, title: String, path: String,
         createdAt: String, updatedAt: String, stepCount: Int, hasSop: Bool = false,
-        searchText: String = ""
+        searchText: String = "", archived: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -636,6 +654,7 @@ public struct ProjectSummary: Equatable, Sendable {
         self.updatedAt = updatedAt
         self.stepCount = stepCount
         self.hasSop = hasSop
+        self.archived = archived
         self.searchText = searchText
     }
 }

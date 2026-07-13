@@ -134,7 +134,9 @@ enum Fixture {
             "futureStepField": "keep me"
           }],
           "intro": null,
-          "sopBackup": null
+          "sopBackup": null,
+          "archived": false,
+          "archivedAt": null
         }
         """
         let m = try ProjectJSON.decodeManifest(Data(json.utf8))

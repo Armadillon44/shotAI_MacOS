@@ -249,5 +249,7 @@
     "heading": "Overview",
     "body": "This SOP shows how to export the monthly orders report from Acme ERP in Google Chrome. It takes about two minutes."
   },
-  "sopBackup": null
+  "sopBackup": null,
+  "archived": false,
+  "archivedAt": null
 }
