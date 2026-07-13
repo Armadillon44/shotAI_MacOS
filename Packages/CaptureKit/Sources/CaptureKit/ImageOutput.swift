@@ -18,11 +18,14 @@ public enum ImageOutput {
     }
 
     /// Crop a full-display frame to a monitor-local point rect, downscale, and
-    /// PNG-encode. `pixelScale` is the frame's pixels-per-point.
+    /// PNG-encode. `pixelScale` is the frame's pixels-per-point. `scale` is the
+    /// target downscale factor (defaults to the constant; the engine passes the
+    /// user's configured screenshot quality).
     public static func prepare(
         frame: CGImage,
         cropLocal: CGRect?,
-        pixelScale: CGFloat
+        pixelScale: CGFloat,
+        scale: CGFloat = CaptureConstants.captureScale
     ) -> Prepared? {
         var image = frame
         var effectivePixelScale = pixelScale
@@ -44,19 +47,25 @@ public enum ImageOutput {
             // shave a pixel; keep click math exact against real dimensions).
             effectivePixelScale = cropLocal.width > 0 ? CGFloat(cropped.width) / cropLocal.width : pixelScale
         }
-        let (downscaled, downScale) = downscale(image)
+        let (downscaled, downScale) = downscale(image, scale: scale)
         guard let png = encodePNG(downscaled) else { return nil }
         return Prepared(png: png, imageScale: effectivePixelScale * downScale)
     }
 
-    /// Ported downscalePng: returns the (possibly original) image + the actual
-    /// applied scale. Fail-open on every path.
-    static func downscale(_ image: CGImage) -> (CGImage, CGFloat) {
-        guard CaptureConstants.captureScale < 1 else { return (image, 1) }
+    /// Ported downscalePng: returns the (possibly original) image + the ACTUAL
+    /// applied scale (so click-coordinate math stays exact even when rounding
+    /// shaves a pixel). Enforces the readability floor — the longer edge is never
+    /// taken below `minCaptureLongEdge`, so even a low quality setting stays
+    /// legible (target = max(userScale, floorScale)). Fail-open on every path.
+    static func downscale(_ image: CGImage, scale: CGFloat = CaptureConstants.captureScale) -> (CGImage, CGFloat) {
         let w = image.width
         let h = image.height
         guard w >= 2, h >= 2 else { return (image, 1) }
-        let targetW = max(1, Int((CGFloat(w) * CaptureConstants.captureScale).rounded()))
+        // Never upscale (floorScale caps at 1 for already-small captures).
+        let floorScale = min(1, CaptureConstants.minCaptureLongEdge / CGFloat(max(w, h)))
+        let target = max(scale, floorScale)
+        guard target < 1 else { return (image, 1) }
+        let targetW = max(1, Int((CGFloat(w) * target).rounded()))
         guard targetW < w else { return (image, 1) }
         let targetH = max(1, Int((CGFloat(h) * CGFloat(targetW) / CGFloat(w)).rounded()))
         guard let ctx = CGContext(

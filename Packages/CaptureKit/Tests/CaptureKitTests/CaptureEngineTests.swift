@@ -63,13 +63,13 @@ import ShotModel
             projectPath: h.projectDir, attachHook: false,
             target: CaptureTarget(mode: .area, area: Rect(x: 100, y: 100, width: 300, height: 200)))
         let step = try await h.engine.captureStep(trigger: .click, point: CGPoint(x: 150, y: 150))
-        // 300x200pt → 600x400px → ×0.85 → 510x340. Exact, as the Windows
-        // self-test's 300×200 fixture (scaled).
+        // 300x200pt → 600x400px. The longer edge (600) is below the 1100
+        // readability floor, so it is NOT downscaled → 600x400 (imageScale = 2).
         let dims = pngSize(try h.shotData(step!))
-        #expect(dims.width == 510)
-        #expect(dims.height == 340)
-        // Origin = area origin → click at (150,150) maps to (50,50)pt × 1.7.
-        #expect(step?.click?.image == Point(x: 85, y: 85))
+        #expect(dims.width == 600)
+        #expect(dims.height == 400)
+        // Origin = area origin → click at (150,150) maps to (50,50)pt × 2.
+        #expect(step?.click?.image == Point(x: 100, y: 100))
         _ = await h.engine.stop()
         h.cleanup()
     }
@@ -96,10 +96,11 @@ import ShotModel
                 mode: .window,
                 window: .init(id: 42, pid: 500, title: "Apple")))
         let step = try await h.engine.captureStep(trigger: .click, point: CGPoint(x: 250, y: 150))
-        // 400x300pt → 800x600px → ×0.85 → 680x510
+        // 400x300pt → 800x600px; below the 1100 readability floor → not
+        // downscaled → 800x600.
         let dims = pngSize(try h.shotData(step!))
-        #expect(dims.width == 680)
-        #expect(dims.height == 510)
+        #expect(dims.width == 800)
+        #expect(dims.height == 600)
         _ = await h.engine.stop()
         h.cleanup()
     }
@@ -397,9 +398,10 @@ import ShotModel
         #expect(sTiny == 1)
         #expect(outTiny.width == 1)
         // Actual scale is post-rounding output/input, not the nominal 0.85.
-        let img = makeImage(width: 1001, height: 500)
+        // Use a long edge well above the 1100 readability floor so 0.85 applies.
+        let img = makeImage(width: 2001, height: 1000)
         let (out, s) = ImageOutput.downscale(img)
-        #expect(out.width == 851) // round(1001 × 0.85)
-        #expect(s == CGFloat(851) / CGFloat(1001))
+        #expect(out.width == 1701) // round(2001 × 0.85)
+        #expect(s == CGFloat(1701) / CGFloat(2001))
     }
 }

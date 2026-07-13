@@ -5,8 +5,23 @@ import Foundation
 /// which IS the logical unit — so these apply directly, with no scale-factor
 /// multiplication (multiplying again would double-apply Retina scale).
 public enum CaptureConstants {
-    /// Downscale factor applied to every stored PNG (T2). ≥ 1 disables.
+    /// Default downscale factor applied to every stored PNG (T2). ≥ 1 disables.
     public static let captureScale: CGFloat = 0.85
+    /// Allowed screenshot-quality range (mirrors the Windows CAPTURE_SCALE_MIN/MAX).
+    /// Lower = smaller files + cheaper AI, softer text.
+    public static let captureScaleMin: CGFloat = 0.5
+    public static let captureScaleMax: CGFloat = 1.0
+    /// Readability floor (MIN_CAPTURE_LONG_EDGE): never downscale a capture's
+    /// longer edge below this many pixels, so even the lowest quality setting
+    /// keeps text legible for Claude + exports. Ported from CaptureController.ts.
+    public static let minCaptureLongEdge: CGFloat = 1100
+
+    /// Clamp an untrusted screenshot-quality value into the allowed range;
+    /// non-finite input falls back to the default.
+    public static func clampCaptureScale(_ v: CGFloat) -> CGFloat {
+        guard v.isFinite else { return captureScale }
+        return min(captureScaleMax, max(captureScaleMin, v))
+    }
 
     /// ms after a right-click during which the next left click is treated as a
     /// context-menu selection.
