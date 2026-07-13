@@ -43,20 +43,43 @@ final class AppModel {
             didStartupSweep = true
             _ = await store.autoArchiveStale(ageDays: settings.archiveAgeDays())
         }
-        await refresh()
+        // autoRefresh (not refresh) so this launch list coalesces with HomeView's
+        // own appear-refresh — otherwise both fire at launch and scan twice.
+        await autoRefresh()
     }
 
     /// Set the auto-archive age (0 = never). Bound by Settings ▸ General.
     func setArchiveAgeDays(_ days: Int) { settings.setArchiveAgeDays(days) }
 
     func refresh() async {
-        projects = await store.listProjects()
-        Log.store.debug("refresh listed \(self.projects.count, privacy: .public) projects")
+        let listed = await store.listProjects()
+        // Only publish when the list actually changed. @Observable fires on every
+        // assignment (no equality check), so an unchanged periodic poll would
+        // otherwise re-run Home's whole filter/sort/group pipeline every tick.
+        // ProjectSummary is Equatable, and listProjects returns a stable order.
+        if listed != projects { projects = listed }
+        Log.store.debug("refresh listed \(listed.count, privacy: .public) projects")
         // Keep a live selection when its project vanished from disk.
-        if let selectedPath, !projects.contains(where: { $0.path == selectedPath }) {
+        if let selectedPath, !listed.contains(where: { $0.path == selectedPath }) {
             self.selectedPath = nil
             opened = nil
         }
+    }
+
+    @ObservationIgnored private var autoRefreshInFlight = false
+
+    /// Coalesced, best-effort re-list for background triggers — return-to-Home,
+    /// window activation, and the periodic Home poll. Keeps the list in sync with
+    /// on-disk changes made elsewhere (opening an archived project auto-restores
+    /// it; the Windows app touching the shared folder). Skips if a refresh is
+    /// already running: the in-flight pass reflects the latest state, so a skip
+    /// never leaves the list stale. Never runs while a project is open (the report
+    /// is re-synced by capture callbacks; auto-reloading it could clobber edits).
+    func autoRefresh() async {
+        guard opened == nil, !autoRefreshInFlight else { return }
+        autoRefreshInFlight = true
+        defer { autoRefreshInFlight = false }
+        await refresh()
     }
 
     func openSelected() async {
