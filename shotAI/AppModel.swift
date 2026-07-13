@@ -292,6 +292,10 @@ final class AppModel {
         let trimmed = dir.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         settings.setProjectsDir(trimmed)
+        // Recents are absolute paths under the OLD root; listProjects merges them
+        // in, so without clearing them the previous folder's projects keep showing
+        // after a switch. Drop them so Home lists only the new folder.
+        settings.setRecents([])
         // Leaving the current project — tear down the same transient state
         // closeToHome() does, so an in-flight SOP run can't outlive the switch.
         resetSopState()
