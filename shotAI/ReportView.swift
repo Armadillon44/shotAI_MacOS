@@ -595,13 +595,9 @@ private struct StepRow: View {
         InlineEditable(text: step.body ?? "", placeholder: "+ Add instructions", multiline: true, id: "body:\(step.id)", focus: focus) { new in
             Task { await model.editStepText(stepId: step.id, body: new) }
         }
-        // `note` is a legacy read-only field (Windows shows it if present but
-        // offers no editor); surfaced only when something populated it.
-        if !step.note.isEmpty {
-            Text(step.note)
-                .font(.system(size: 12.5))
-                .foregroundStyle(Palette.ink2)
-        }
+        // Capture steps show only caption + instruction now — the legacy `note`
+        // section was removed (parity with the Windows app). The `note` field
+        // still round-trips in the manifest; it's just no longer displayed.
         if let window = step.window, let line = windowLine(window) {
             Text(line)
                 .font(.caption)
