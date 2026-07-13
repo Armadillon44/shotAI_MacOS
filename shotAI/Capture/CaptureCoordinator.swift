@@ -17,6 +17,9 @@ final class CaptureCoordinator {
     var showWizard = false
     var onStepAdded: ((ProjectStep) -> Void)?
     var onRecordingEnded: (() -> Void)?
+    /// Live capture preferences from the app (Settings ▸ Capture): screenshot
+    /// quality + whether to keep the shotAI window visible during capture.
+    var capturePrefs: () -> (scale: CGFloat, noHide: Bool) = { (CaptureConstants.captureScale, false) }
 
     private let store: ProjectStore
     /// Direct reference for synchronous teardown in applicationWillTerminate
@@ -62,6 +65,7 @@ final class CaptureCoordinator {
             return false
         }
         do {
+            await engine.setCaptureScale(capturePrefs().scale)
             try await store.setCaptureSettings(at: projectPath, target)
             try await engine.start(
                 projectPath: projectPath,
@@ -91,7 +95,7 @@ final class CaptureCoordinator {
             return false
         }
         let main = mainWindow
-        main?.orderOut(nil)
+        if !capturePrefs().noHide { main?.orderOut(nil) }
         defer {
             main?.makeKeyAndOrderFront(nil)
             NSApp.activate()
@@ -123,6 +127,7 @@ final class CaptureCoordinator {
 
     private func runImmediate(projectPath: String, insertAt: Int, target: CaptureTarget) async -> Bool {
         do {
+            await engine.setCaptureScale(capturePrefs().scale)
             let step = try await engine.captureImmediate(
                 projectPath: projectPath, insertAt: insertAt, target: target)
             if step == nil { Log.capture.error("immediate capture produced no step") }
@@ -139,7 +144,7 @@ final class CaptureCoordinator {
     func selectArea() async -> ShotModel.Rect? {
         Log.capture.info("selectArea started")
         let main = mainWindow
-        main?.orderOut(nil)
+        if !capturePrefs().noHide { main?.orderOut(nil) }
         defer {
             main?.makeKeyAndOrderFront(nil)
             NSApp.activate()
@@ -241,22 +246,22 @@ final class CaptureCoordinator {
     }
 
     private func recordingChanged(_ recording: Bool) {
-        let noHide = ProcessInfo.processInfo.environment["SHOTAI_CAPTURE_NO_HIDE"] == "1"
+        // Settings ▸ Capture toggle, with the legacy env var kept as an override.
+        let noHide = capturePrefs().noHide
+            || ProcessInfo.processInfo.environment["SHOTAI_CAPTURE_NO_HIDE"] == "1"
         if recording {
             // A new session is a clean slate — drop any error left unacknowledged
             // by the previous one (show() also resets the pill's own copy).
             lastError = nil
             let main = mainWindow
-            if !noHide {
-                main?.orderOut(nil)
-                // Relinquish frontmost. With our window hidden we'd otherwise stay
-                // the active app, and the engine's own-app-frontmost guard would
-                // swallow the user's FIRST capture click (they had to click once to
-                // "wake" the target, then again to capture). The pill is a
-                // non-activating panel shown via orderFrontRegardless, so it stays
-                // visible after we deactivate.
-                NSApp.deactivate()
-            }
+            if !noHide { main?.orderOut(nil) }
+            // Relinquish frontmost REGARDLESS of hide. If shotAI stays the active
+            // app, the engine's own-app-frontmost guard swallows the user's FIRST
+            // capture click (they'd have to click once to "wake" the target, then
+            // again to capture). This must happen even in keep-visible mode — the
+            // window can stay on screen without us being frontmost. The pill is a
+            // non-activating panel (orderFrontRegardless), so it stays visible.
+            NSApp.deactivate()
             pill?.show(state: state, near: main)
         } else {
             pill?.hide()

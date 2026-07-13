@@ -17,6 +17,11 @@ struct ShotAIApp: App {
         let capture = CaptureCoordinator(store: model.store)
         _capture = State(initialValue: capture)
         AppDelegate.captureCoordinator = capture
+        // Feed live capture prefs (screenshot quality + keep-visible) from Settings.
+        capture.capturePrefs = { [weak model] in
+            guard let p = model?.preferences else { return (CaptureConstants.captureScale, false) }
+            return (CGFloat(p.captureScale), p.captureNoHide)
+        }
     }
 
     var body: some Scene {
@@ -27,6 +32,8 @@ struct ShotAIApp: App {
                 // Low floor so the Home can sit narrow; ContentView drives the
                 // actual width per surface (narrow Home ⇄ wide project detail).
                 .frame(minWidth: 680, minHeight: 560)
+                // Appearance ▸ Theme override (nil = follow the system).
+                .preferredColorScheme(model.preferences.theme.colorScheme)
         }
         .defaultSize(width: WindowLayout.home, height: 760)
         .commands {
@@ -82,6 +89,7 @@ struct ShotAIApp: App {
         Settings {
             SettingsView()
                 .environment(model)
+                .preferredColorScheme(model.preferences.theme.colorScheme)
         }
     }
 }
