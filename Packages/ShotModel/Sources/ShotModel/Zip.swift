@@ -11,17 +11,18 @@ import Foundation
 // (images are already compressed; project.json is tiny), which JSZip on Windows
 // reads fine — so packages round-trip both directions.
 
-struct ZipEntry {
-    let name: String
-    let data: Data
+public struct ZipEntry {
+    public let name: String
+    public let data: Data
+    public init(name: String, data: Data) { self.name = name; self.data = data }
 }
 
-enum ZipError: Error, LocalizedError, Equatable {
+public enum ZipError: Error, LocalizedError, Equatable {
     case notAZip
     case corrupt(String)
     case entryTooLarge(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .notAZip: "This file is not a valid .zip package."
         case .corrupt(let why): "The .zip package is corrupt: \(why)"
@@ -37,7 +38,7 @@ private let sigEOCD = 0x0605_4b50
 // MARK: - Writer (STORED)
 
 /// Build a ZIP archive (all entries STORED/uncompressed) from `entries` in order.
-func zipStored(_ entries: [(name: String, data: Data)]) -> Data {
+public func zipStored(_ entries: [(name: String, data: Data)]) -> Data {
     var out = Data()
     var central = Data()
     var offsets: [Int] = []
@@ -113,17 +114,17 @@ func zipStored(_ entries: [(name: String, data: Data)]) -> Data {
 /// A listed archive entry — metadata only, no decompression yet. Splitting list
 /// from extract lets a caller inflate ONLY the entries it keeps (with a running
 /// total cap), so a zip bomb of junk/non-whitelisted entries is never inflated.
-struct ZipItem {
-    let name: String
-    let method: Int            // 0 = stored, 8 = deflate
-    let uncompressedSize: Int
-    let compressedRange: Range<Int>  // absolute indices into the source Data
+public struct ZipItem {
+    public let name: String
+    public let method: Int            // 0 = stored, 8 = deflate
+    public let uncompressedSize: Int
+    let compressedRange: Range<Int>  // absolute indices into the source Data (in-module use only)
 }
 
 /// Parse a ZIP's central directory into entry metadata (files only; directories
 /// skipped). Every offset/length is bounds-checked; malformed input throws rather
 /// than crashing. NO decompression happens here.
-func zipList(_ data: Data) throws -> [ZipItem] {
+public func zipList(_ data: Data) throws -> [ZipItem] {
     let n = data.count
     guard n >= 22 else { throw ZipError.notAZip }
 
@@ -197,7 +198,7 @@ func zipList(_ data: Data) throws -> [ZipItem] {
 
 /// Decompress one listed entry to bytes (STORED = copy, DEFLATE = inflate). Pass
 /// the SAME `data` that was given to `zipList`.
-func zipExtract(_ data: Data, _ item: ZipItem) throws -> Data {
+public func zipExtract(_ data: Data, _ item: ZipItem) throws -> Data {
     let comp = data.subdata(in: item.compressedRange)
     switch item.method {
     case 0: // STORED
@@ -218,7 +219,7 @@ func zipExtract(_ data: Data, _ item: ZipItem) throws -> Data {
 /// Convenience: list + extract every entry (used by tests and simple callers). An
 /// entry whose uncompressed size exceeds `maxEntryBytes` throws. Prefer
 /// zipList + selective zipExtract for untrusted input (avoids inflating junk).
-func zipRead(_ data: Data, maxEntryBytes: Int) throws -> [ZipEntry] {
+public func zipRead(_ data: Data, maxEntryBytes: Int) throws -> [ZipEntry] {
     try zipList(data).map { item in
         guard item.uncompressedSize <= maxEntryBytes else { throw ZipError.entryTooLarge(item.name) }
         return ZipEntry(name: item.name, data: try zipExtract(data, item))
@@ -250,7 +251,7 @@ private let crcTable: [UInt32] = {
     }
 }()
 
-func crc32(_ data: Data) -> UInt32 {
+public func crc32(_ data: Data) -> UInt32 {
     var c: UInt32 = 0xFFFF_FFFF
     for byte in data {
         c = crcTable[Int((c ^ UInt32(byte)) & 0xff)] ^ (c >> 8)

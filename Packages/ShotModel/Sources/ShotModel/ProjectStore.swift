@@ -124,7 +124,8 @@ public actor ProjectStore {
             updatedAt: manifest.updatedAt,
             stepCount: manifest.steps.count,
             hasSop: manifest.intro != nil || manifest.steps.contains { $0.aiInserted == true },
-            searchText: manifest.searchableText
+            searchText: manifest.searchableText,
+            archived: manifest.archived
         )
     }
 
@@ -142,13 +143,46 @@ public actor ProjectStore {
     /// (best-effort, as in the original).
     public func openProject(at projectPath: String) throws -> OpenedProject {
         let resolved = try resolveKnownProject(projectPath)
+        // Auto-unarchive (F2): opening an archived project restores its bulk files
+        // first (fail-closed), keyed on DISK truth so a half-completed archive
+        // self-heals. This must NOT count as an edit — no updatedAt bump.
+        if Archive.isArchivedOnDisk(resolved) {
+            try Archive.unpackArchive(resolved)
+        }
         var manifest = try readManifest(at: resolved)
+        // Fold the archive-flag clear and the id back-fill into ONE plain write
+        // (writeManifest never touches updatedAt).
+        var needsWrite = false
+        if manifest.archived || manifest.archivedAt != nil {
+            manifest.archived = false
+            manifest.archivedAt = nil
+            needsWrite = true
+        }
         if manifest.id.isEmpty {
             manifest.id = UUID().uuidString.lowercased()
-            try? writeManifest(manifest, at: resolved)
+            needsWrite = true
         }
+        if needsWrite { try? writeManifest(manifest, at: resolved) }
         settings.addRecent(resolved)
         return OpenedProject(dir: resolved, manifest: manifest)
+    }
+
+    /// Restore an archived project without opening it (Home "Restore" action):
+    /// unpack its files, clear the archived flag, and re-list it. Fail-closed;
+    /// does NOT bump updatedAt (restoring isn't an edit). No-op if not archived.
+    @discardableResult
+    public func unarchiveProject(at projectPath: String) throws -> ProjectSummary {
+        let resolved = try resolveKnownProject(projectPath)
+        if Archive.isArchivedOnDisk(resolved) {
+            try Archive.unpackArchive(resolved)
+        }
+        var manifest = try readManifest(at: resolved)
+        if manifest.archived || manifest.archivedAt != nil {
+            manifest.archived = false
+            manifest.archivedAt = nil
+            try writeManifest(manifest, at: resolved)
+        }
+        return summarize(manifest, at: resolved)
     }
 
     /// Register a folder the user explicitly picked (open panel) so it becomes a
@@ -267,6 +301,9 @@ public actor ProjectStore {
         if out.createdAt.isEmpty { out.createdAt = now }
         out.updatedAt = now
         out.sopBackup = nil
+        // An imported project is materialized live (files extracted), never archived.
+        out.archived = false
+        out.archivedAt = nil
         try writeManifest(out, at: dir)
         settings.addRecent(dir)
         Log.store.notice("createProjectFromImport: created project [id \(id, privacy: .public)] files=\(files.count, privacy: .public)")
