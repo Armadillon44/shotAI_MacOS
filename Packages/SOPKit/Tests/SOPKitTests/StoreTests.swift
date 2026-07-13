@@ -66,9 +66,9 @@ final class ApplyRevertTests: XCTestCase {
             intro: SopIntro(heading: "Overview", body: "Do the thing"),
             steps: [
                 SopStepEdit(stepNumber: 1, caption: "Click Save", body: "Press the Save button",
-                            note: "be careful", sectionHeading: nil, sectionBody: nil),
+                            sectionHeading: nil, sectionBody: nil),
                 SopStepEdit(stepNumber: 2, caption: "Confirm", body: "Click Confirm",
-                            note: nil, sectionHeading: "Phase 2", sectionBody: "Now finalize"),
+                            sectionHeading: "Phase 2", sectionBody: "Now finalize"),
             ])
     }
 
@@ -83,7 +83,7 @@ final class ApplyRevertTests: XCTestCase {
         XCTAssertNotEqual(m.steps[0].kind, .text)   // shot (kind absent = shot by convention)
         XCTAssertEqual(m.steps[0].caption, "Click Save")
         XCTAssertEqual(m.steps[0].body, "Press the Save button")
-        XCTAssertEqual(m.steps[0].note, "be careful")
+        XCTAssertEqual(m.steps[0].note, "")  // note is never AI-written; original (empty) preserved
         XCTAssertEqual(m.steps[1].kind, .text)
         XCTAssertEqual(m.steps[1].heading, "Phase 2")
         XCTAssertEqual(m.steps[1].aiInserted, true)
