@@ -104,7 +104,12 @@ struct HomeView: View {
 
             HStack(spacing: 8) {
                 TextField("Name (optional — defaults to a timestamp)", text: $title)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 7)
+                    .background(Palette.field)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.controlBd))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                     .onSubmit { if canStart { startCapture() } }
                 Button { startCapture() } label: {
                     Label("Capture", systemImage: "record.circle")

@@ -35,6 +35,10 @@ enum Palette {
     static let surface  = dyn(0xFFFFFF, 0x1B1926)
     static let surface2 = dyn(0xFAF9FF, 0x211F2E)
     static let ground   = dyn(0xF5F4FB, 0x121019)
+    /// Editable-input fill. In dark mode it's deliberately LIGHTER than the
+    /// surfaces so a text field reads as an input on an elevated card (the stock
+    /// bezel blends into surface2).
+    static let field    = dyn(0xFFFFFF, 0x2E2B40)
 
     // Status — semantic, kept separate from the accent.
     static let ok        = dyn(0x0E9F6E, 0x34D399)

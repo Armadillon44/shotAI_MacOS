@@ -10,16 +10,16 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         TabView {
-            PermissionsSettings()
-                .tabItem { Label("Permissions", systemImage: "lock.shield") }
-            AISettings()
-                .tabItem { Label("AI", systemImage: "sparkles") }
-            AppearanceSettings()
-                .tabItem { Label("Appearance", systemImage: "paintbrush") }
-            CaptureSettings()
-                .tabItem { Label("Capture", systemImage: "camera.viewfinder") }
             GeneralSettings()
                 .tabItem { Label("General", systemImage: "gearshape") }
+            AISettings()
+                .tabItem { Label("AI", systemImage: "sparkles") }
+            CaptureSettings()
+                .tabItem { Label("Capture", systemImage: "camera.viewfinder") }
+            AppearanceSettings()
+                .tabItem { Label("Appearance", systemImage: "paintbrush") }
+            PermissionsSettings()
+                .tabItem { Label("Permissions", systemImage: "lock.shield") }
         }
         .frame(width: 560, height: 480)
     }
