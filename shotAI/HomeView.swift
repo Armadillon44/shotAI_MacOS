@@ -42,6 +42,8 @@ struct HomeView: View {
     // separate "select mode"); the bulk bar appears whenever something is picked.
     @State private var selection = Set<String>()
     @State private var bulkDeleteConfirm = false
+    /// Path of the card the cursor is over, for the hover-lift.
+    @State private var hoveredPath: String?
 
     // Keep the list fresh without a manual Refresh: re-list whenever Home
     // (re)appears — which also fixes opening an archived project (it auto-restores
@@ -50,30 +52,35 @@ struct HomeView: View {
     // outside the app (e.g. the Windows app editing the shared folder, or a cloud
     // sync landing). `@Environment(\.scenePhase)` so we only poll while frontmost.
     @Environment(\.scenePhase) private var scenePhase
+    /// Honor Accessibility ▸ Reduce Motion — SwiftUI doesn't auto-suppress
+    /// withAnimation/.animation/.transition, so every motion below is gated on this.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// A stable timer held in @State so re-renders don't resubscribe (which would
     /// reset the countdown and it would never fire). Lives only while Home is on
     /// screen, so nothing polls while a project is open.
     @State private var pollTick = Timer.publish(every: 20, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                brandHeader
-                if tab == .active { hero }
-                tabsRow
-                listHead
-                if !selection.isEmpty { bulkBar }
-                if tabProjects.isEmpty {
-                    tab == .archive ? AnyView(archiveEmptyState) : AnyView(emptyState)
-                } else if filteredProjects.isEmpty {
-                    noMatchesState
-                } else {
-                    projectList
+        VStack(spacing: 0) {
+            bannerBar
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    if tab == .active { hero }
+                    tabsRow
+                    listHead
+                    if !selection.isEmpty { bulkBar }
+                    if tabProjects.isEmpty {
+                        tab == .archive ? AnyView(archiveEmptyState) : AnyView(emptyState)
+                    } else if filteredProjects.isEmpty {
+                        noMatchesState
+                    } else {
+                        projectList
+                    }
                 }
+                .padding(28)
+                .frame(maxWidth: 760)
+                .frame(maxWidth: .infinity)
             }
-            .padding(28)
-            .frame(maxWidth: 760)
-            .frame(maxWidth: .infinity)
         }
         .background(Palette.ground)
         // ⌘F focuses the project search field.
@@ -147,15 +154,35 @@ struct HomeView: View {
 
     // MARK: - Header
 
-    private var brandHeader: some View {
-        HStack(spacing: 10) {
+    /// The Home banner — a real, full-width surface bar with a bottom hairline
+    /// (restoring the Windows header chrome the port dropped). The content column
+    /// is constrained to the same 760 width + 28 padding as the list beneath it,
+    /// so logo and cards share a left edge; the bar itself spans the window.
+    private var bannerBar: some View {
+        HStack(spacing: 11) {
             Image("AppLogo")
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 30, height: 30)
+                .frame(width: 34, height: 34)
                 .accessibilityHidden(true)
-            Text("shotAI").font(.system(size: 17, weight: .semibold))
-            Spacer()
+            VStack(alignment: .leading, spacing: 1) {
+                (Text("shot").foregroundColor(Palette.ink)
+                    + Text("AI").foregroundColor(Palette.accent))
+                    .font(Typo.wordmark)
+                    .kerning(-0.3)
+                Text("Turn any process into a step-by-step guide")
+                    .font(Typo.tagline)
+                    .foregroundStyle(Palette.ink3)
+            }
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 11)
+        .frame(maxWidth: 760)
+        .frame(maxWidth: .infinity)
+        .background(Palette.surface)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Palette.hair).frame(height: 1)
         }
     }
 
@@ -163,7 +190,7 @@ struct HomeView: View {
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Start a project").font(.system(size: 18, weight: .bold))
+            Text("Start a project").font(Typo.heroTitle)
             Text("Record a process, mark it up, and let Claude turn it into a step-by-step guide you can export and share.")
                 .font(.callout)
                 .foregroundStyle(Palette.ink2)
@@ -171,8 +198,8 @@ struct HomeView: View {
             HStack(spacing: 8) {
                 TextField("Name (optional — defaults to a timestamp)", text: $title)
                     .textFieldStyle(.plain)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 7)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 10)
                     .background(Palette.field)
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.controlBd))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -192,8 +219,11 @@ struct HomeView: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Palette.surface2)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.hair))
+        // Elevated above the flat list so it reads as the primary "start here":
+        // soft shadow + a low-opacity accent border instead of a plain hairline.
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.accent.opacity(0.40)))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .cardElevation()
     }
 
     private var modeRow: some View {
@@ -204,7 +234,7 @@ struct HomeView: View {
                 .foregroundStyle(Palette.ink3)
             ForEach([CaptureMode.screen, .auto, .window, .area], id: \.self) { m in
                 Button { mode = m } label: { Text(label(for: m)) }
-                    .buttonStyle(ChipStyle(on: mode == m))
+                    .buttonStyle(ChipStyle(on: mode == m, reduceMotion: reduceMotion))
             }
             if mode == .auto {
                 Text("⚠ Auto is best-effort")
@@ -274,12 +304,12 @@ struct HomeView: View {
                 Button {
                     guard tab != t else { return }
                     commitRenameIfEditing()
-                    selection.removeAll()  // selection is scoped to one tab
+                    clearSelection()  // scoped to one tab; animate the bar out
                     tab = t
                 } label: {
                     Text(t == .active ? "Projects \(activeCount)" : "Archive \(archiveCount)")
                 }
-                .buttonStyle(ChipStyle(on: tab == t))
+                .buttonStyle(ChipStyle(on: tab == t, reduceMotion: reduceMotion))
             }
             Spacer()
         }
@@ -296,7 +326,7 @@ struct HomeView: View {
             Text("Sort").font(.caption).foregroundStyle(Palette.ink3)
             ForEach(SortKey.allCases, id: \.self) { key in
                 Button { sortKey = key } label: { Text(key.rawValue) }
-                    .buttonStyle(ChipStyle(on: sortKey == key))
+                    .buttonStyle(ChipStyle(on: sortKey == key, reduceMotion: reduceMotion))
             }
             Button {
                 sortAsc.toggle()
@@ -360,7 +390,8 @@ struct HomeView: View {
         return HStack(spacing: 10) {
             Text("\(count) selected").font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Palette.ink)
-            Button("Select all") { selection = Set(filteredProjects.map(\.path)) }
+                .contentTransition(.numericText())
+            Button("Select all") { selectAllVisible() }
                 .buttonStyle(.link)
                 .disabled(filteredProjects.isEmpty || allVisibleSelected)
             Button("Clear") { clearSelection() }
@@ -391,8 +422,10 @@ struct HomeView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(Palette.surface2)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.hair))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.hair))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .cardElevation()
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     /// Bulk export as a pull-down (same document formats as the per-row menu).
@@ -422,13 +455,26 @@ struct HomeView: View {
         !filteredProjects.isEmpty && filteredProjects.allSatisfy { selection.contains($0.path) }
     }
 
+    /// Spring used for selection changes so the bulk bar slides in/out and the
+    /// count rolls, instead of teleporting.
+    private static let selectAnim = Animation.spring(response: 0.32, dampingFraction: 0.86)
+
+    /// The selection spring, or no animation under Reduce Motion.
+    private var selectionAnim: Animation? { reduceMotion ? nil : Self.selectAnim }
+
     private func toggle(_ p: ProjectSummary) {
-        if selection.contains(p.path) { selection.remove(p.path) } else { selection.insert(p.path) }
+        withAnimation(selectionAnim) {
+            if selection.contains(p.path) { selection.remove(p.path) } else { selection.insert(p.path) }
+        }
+    }
+
+    private func selectAllVisible() {
+        withAnimation(selectionAnim) { selection = Set(filteredProjects.map(\.path)) }
     }
 
     /// Clear the selection (hides the bulk bar).
     private func clearSelection() {
-        selection.removeAll()
+        withAnimation(selectionAnim) { selection.removeAll() }
     }
 
     // MARK: - Project list
@@ -440,7 +486,7 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if !group.label.isEmpty {
                         Text(group.label.uppercased())
-                            .font(.system(size: 11, weight: .bold))
+                            .font(Typo.eyebrow)
                             .kerning(0.6)
                             .foregroundStyle(Palette.ink3)
                     }
@@ -448,15 +494,32 @@ struct HomeView: View {
                 }
             }
         }
+        // Animate only user-driven re-layout (sort / direction / tab / search).
+        // Deliberately NOT keyed on model.projects, so the 20s background poll
+        // never animates rows out from under the user.
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: listAnimToken)
+        // A card that scrolls/filters out of view and back can otherwise re-appear
+        // "hovered" (the pointer never left it). Reset on any list re-layout.
+        .onChange(of: listAnimToken) { _, _ in hoveredPath = nil }
+    }
+
+    /// Composite of the user-driven list controls — the sole trigger for list
+    /// animation (see projectList).
+    private var listAnimToken: String {
+        "\(tab)|\(sortKey.rawValue)|\(sortAsc)|\(trimmedQuery)"
     }
 
     private func card(_ p: ProjectSummary) -> some View {
         let isSelected = selection.contains(p.path)
+        let isHover = hoveredPath == p.path
         return HStack(spacing: 12) {
             Button { toggle(p) } label: {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18))
-                    .foregroundStyle(isSelected ? Palette.accent : Palette.ink3)
+                    // Muted at rest so the title wins the glance; full accent when checked.
+                    .font(.system(size: isSelected ? 18 : 16))
+                    .foregroundStyle(isSelected ? Palette.accent : Palette.ink3.opacity(0.55))
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: isSelected)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -471,13 +534,13 @@ struct HomeView: View {
                         .onExitCommand { renamingPath = nil }
                 } else {
                     HStack(spacing: 8) {
-                        Text(p.title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                        Text(p.title).font(Typo.cardTitle).lineLimit(1)
                         StatusBadge(hasSop: p.hasSop)
                     }
                 }
                 Text("\(p.stepCount) step\(p.stepCount == 1 ? "" : "s")\(Self.metaDate(p.updatedAt).map { " · \(p.archived ? "archived" : "modified") \($0)" } ?? "")")
                     .font(.caption)
-                    .foregroundStyle(Palette.ink2)
+                    .foregroundStyle(Palette.ink3)
             }
             Spacer(minLength: 8)
             Button("Open") { onOpen(p.path) }
@@ -500,8 +563,13 @@ struct HomeView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(isSelected ? Palette.accentTint : Palette.surface)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSelected ? Palette.accent : Palette.hair))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(
+            isSelected ? Palette.accent : (isHover ? Palette.accent.opacity(0.45) : Palette.hair)))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .cardElevation(hover: isHover && !isSelected)
+        .offset(y: isHover && !isSelected ? -1 : 0)
+        .onHover { over in hoveredPath = over ? p.path : (hoveredPath == p.path ? nil : hoveredPath) }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.13), value: isHover)
         .contextMenu {
             Button(isSelected ? "Deselect" : "Select") { toggle(p) }
             Divider()
@@ -550,12 +618,31 @@ struct HomeView: View {
         .disabled(model.exporting)
     }
 
+    /// The brand mark in a soft accent halo — first-run's warm welcome.
+    private var logoHalo: some View {
+        Image("AppLogo")
+            .resizable()
+            .interpolation(.high)
+            .frame(width: 50, height: 50)
+            .padding(14)
+            .background(Circle().fill(Palette.accentTint))
+            .accessibilityHidden(true)
+    }
+
+    /// An SF Symbol in the same accent halo — for state-specific empties.
+    private func iconHalo(_ system: String) -> some View {
+        Image(systemName: system)
+            .font(.system(size: 29))
+            .foregroundStyle(Palette.accent)
+            .frame(width: 78, height: 78)
+            .background(Circle().fill(Palette.accentTint))
+            .accessibilityHidden(true)
+    }
+
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "folder")
-                .font(.system(size: 34))
-                .foregroundStyle(Palette.ink3)
-            Text("No projects yet").font(.system(size: 15, weight: .semibold))
+        VStack(spacing: 12) {
+            logoHalo
+            Text("No projects yet").font(Typo.sectionTitle)
             Text("Create one above — press Capture to record a process, or Empty project to build one from images and text.")
                 .font(.callout)
                 .foregroundStyle(Palette.ink2)
@@ -563,16 +650,14 @@ struct HomeView: View {
                 .frame(maxWidth: 420)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
+        .padding(.vertical, 48)
     }
 
     /// Shown on the Archive tab when nothing has been archived yet.
     private var archiveEmptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "archivebox")
-                .font(.system(size: 34))
-                .foregroundStyle(Palette.ink3)
-            Text("No archived projects").font(.system(size: 15, weight: .semibold))
+        VStack(spacing: 12) {
+            iconHalo("archivebox")
+            Text("No archived projects").font(Typo.sectionTitle)
             Text("Archiving compresses a project's screenshots in place to save disk. Use a project's ⋯ menu to Archive it — it restores automatically when you open it.")
                 .font(.callout)
                 .foregroundStyle(Palette.ink2)
@@ -580,23 +665,21 @@ struct HomeView: View {
                 .frame(maxWidth: 420)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
+        .padding(.vertical, 48)
     }
 
     /// Shown when a search matches none of the (non-empty) project list.
     private var noMatchesState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 34))
-                .foregroundStyle(Palette.ink3)
+        VStack(spacing: 12) {
+            iconHalo("magnifyingglass")
             Text("No projects match “\(searchQuery.trimmingCharacters(in: .whitespacesAndNewlines))”")
-                .font(.system(size: 15, weight: .semibold))
+                .font(Typo.sectionTitle)
                 .multilineTextAlignment(.center)
             Button("Clear search") { searchQuery = "" }
                 .buttonStyle(.bordered)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
+        .padding(.vertical, 48)
     }
 
     // MARK: - Search / sorting / grouping
@@ -739,6 +822,7 @@ struct HomeView: View {
 /// `capmode__chip` / `project__sort-chip`.
 private struct ChipStyle: ButtonStyle {
     let on: Bool
+    var reduceMotion = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: on ? .semibold : .regular))
@@ -749,12 +833,20 @@ private struct ChipStyle: ButtonStyle {
             .overlay(Capsule().stroke(on ? Palette.accent : Palette.controlBd))
             .clipShape(Capsule())
             .opacity(configuration.isPressed ? 0.7 : 1)
+            // Cross-fade the selected tint and give a springy press instead of snapping.
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: on)
+            .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.55), value: configuration.isPressed)
     }
 }
 
-/// The green "SOP ready" / amber "Draft" status pill.
+/// The green "SOP ready" / amber "Draft" status pill. On a genuine flip to
+/// SOP-ready its colors and label cross-fade — a gentle reward. (Deliberately no
+/// identity-swap scale-pop: that also fired on every search/sort/tab re-insertion,
+/// which read as noise while typing in the search field.)
 private struct StatusBadge: View {
     let hasSop: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Text(hasSop ? "SOP ready" : "Draft")
             .font(.system(size: 11, weight: .semibold))
@@ -763,6 +855,8 @@ private struct StatusBadge: View {
             .foregroundStyle(hasSop ? Palette.okInk : Palette.draftInk)
             .background(hasSop ? Palette.okTint : Palette.draftTint)
             .clipShape(Capsule())
+            .contentTransition(.opacity)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: hasSop)
             .help(hasSop ? "Claude has written this guide" : "No SOP generated yet")
     }
 }
