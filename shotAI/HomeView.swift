@@ -1,3 +1,4 @@
+import Combine
 import CaptureKit
 import ExportKit
 import ShotModel
@@ -36,6 +37,18 @@ struct HomeView: View {
     @State private var deleteTarget: ProjectSummary?
     @State private var searchQuery = ""
     @FocusState private var searchFocused: Bool
+
+    // Keep the list fresh without a manual Refresh: re-list whenever Home
+    // (re)appears — which also fixes opening an archived project (it auto-restores
+    // on disk, so the row must move from Archive back to Projects) — plus on
+    // window activation and a gentle periodic poll. The poll picks up changes made
+    // outside the app (e.g. the Windows app editing the shared folder, or a cloud
+    // sync landing). `@Environment(\.scenePhase)` so we only poll while frontmost.
+    @Environment(\.scenePhase) private var scenePhase
+    /// A stable timer held in @State so re-renders don't resubscribe (which would
+    /// reset the countdown and it would never fire). Lives only while Home is on
+    /// screen, so nothing polls while a project is open.
+    @State private var pollTick = Timer.publish(every: 20, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ScrollView {
@@ -82,6 +95,27 @@ struct HomeView: View {
         } message: {
             Text("This removes the project folder and its screenshots. This can't be undone.")
         }
+        // Re-list every time Home appears (covers return-from-project, so an
+        // opened-then-auto-restored archive lands back under Projects).
+        .task { await model.autoRefresh() }
+        // Re-list when the app comes back to the foreground (e.g. after editing a
+        // project in the Windows app on the shared folder).
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            autoRefreshUnlessBusy()
+        }
+        // Gentle periodic poll while Home is frontmost.
+        .onReceive(pollTick) { _ in
+            guard scenePhase == .active else { return }
+            autoRefreshUnlessBusy()
+        }
+    }
+
+    /// Background refresh, skipped while the user is mid-rename so we never yank
+    /// focus or reorder the row being edited out from under them.
+    private func autoRefreshUnlessBusy() {
+        guard renamingPath == nil else { return }
+        Task { await model.autoRefresh() }
     }
 
     // MARK: - Header
