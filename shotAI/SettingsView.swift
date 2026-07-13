@@ -206,6 +206,7 @@ private struct GeneralSettings: View {
     // (settings is a `let`, and it reads UserDefaults), so the view wouldn't
     // otherwise re-evaluate.
     @State private var projectsDir = ""
+    @State private var archiveAge = archiveAgeDefault
 
     private var appVersion: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
@@ -248,11 +249,33 @@ private struct GeneralSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Auto-archive").font(.headline)
+                Picker("Archive projects untouched for", selection: $archiveAge) {
+                    Text("Never").tag(0)
+                    Text("30 days").tag(30)
+                    Text("60 days").tag(60)
+                    Text("90 days").tag(90)
+                    Text("180 days").tag(180)
+                    Text("1 year").tag(365)
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 340, alignment: .leading)
+                .onChange(of: archiveAge) { _, v in model.setArchiveAgeDays(v) }
+                Text("On launch, projects you haven't touched in this long are compressed into the Archive to save disk — their screenshots are zipped in place and restore automatically when you open the project.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Spacer(minLength: 0)
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { projectsDir = model.settings.projectsDir() }
+        .onAppear {
+            projectsDir = model.settings.projectsDir()
+            archiveAge = model.settings.archiveAgeDays()
+        }
     }
 
     private func chooseProjectsFolder(current: String) {

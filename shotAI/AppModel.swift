@@ -34,6 +34,21 @@ final class AppModel {
         refreshApiKeyStatus()
     }
 
+    @ObservationIgnored private var didStartupSweep = false
+
+    /// Launch entry point: run the one-time auto-archive sweep (stale projects →
+    /// Archive), then list. Idempotent — the sweep runs at most once per launch.
+    func startup() async {
+        if !didStartupSweep {
+            didStartupSweep = true
+            _ = await store.autoArchiveStale(ageDays: settings.archiveAgeDays())
+        }
+        await refresh()
+    }
+
+    /// Set the auto-archive age (0 = never). Bound by Settings ▸ General.
+    func setArchiveAgeDays(_ days: Int) { settings.setArchiveAgeDays(days) }
+
     func refresh() async {
         projects = await store.listProjects()
         Log.store.debug("refresh listed \(self.projects.count, privacy: .public) projects")
