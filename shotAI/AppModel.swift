@@ -574,6 +574,87 @@ final class AppModel {
         }
     }
 
+    // MARK: - Bulk operations (Home multi-select)
+
+    /// Archive several projects, then re-list once. Best-effort: each is attempted
+    /// independently and failures are counted into a single message (a project
+    /// already archived is a no-op in the store, not a failure).
+    func archiveProjects(paths: [String]) async {
+        var failed = 0
+        for path in paths {
+            do { try await store.archiveProject(at: path) }
+            catch {
+                failed += 1
+                Log.store.error("bulk archive failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+            }
+        }
+        await refresh()
+        if failed > 0 { errorMessage = "\(failed) of \(paths.count) project\(paths.count == 1 ? "" : "s") couldn’t be archived." }
+        Log.store.notice("bulk archive: \(paths.count - failed, privacy: .public)/\(paths.count, privacy: .public) ok")
+    }
+
+    /// Restore several archived projects, then re-list once.
+    func unarchiveProjects(paths: [String]) async {
+        var failed = 0
+        for path in paths {
+            do { try await store.unarchiveProject(at: path) }
+            catch {
+                failed += 1
+                Log.store.error("bulk restore failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+            }
+        }
+        await refresh()
+        if failed > 0 { errorMessage = "\(failed) of \(paths.count) project\(paths.count == 1 ? "" : "s") couldn’t be restored." }
+        Log.store.notice("bulk restore: \(paths.count - failed, privacy: .public)/\(paths.count, privacy: .public) ok")
+    }
+
+    /// Delete several projects' folders, then re-list once. Returns to Home if the
+    /// open project is among them.
+    func deleteProjects(paths: [String]) async {
+        var failed = 0
+        for path in paths {
+            do {
+                try await store.deleteProject(at: path)
+                if selectedPath == path { closeToHome() }
+            } catch {
+                failed += 1
+                Log.store.error("bulk delete failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+            }
+        }
+        await refresh()
+        if failed > 0 { errorMessage = "\(failed) of \(paths.count) project\(paths.count == 1 ? "" : "s") couldn’t be deleted." }
+        Log.store.notice("bulk delete: \(paths.count - failed, privacy: .public)/\(paths.count, privacy: .public) ok")
+    }
+
+    /// Export several projects to `format` (each into its own export/ folder), then
+    /// reveal the projects root. Same fail-closed flatten as the single export;
+    /// failures are counted. Opening a project flattens+may auto-restore it, so a
+    /// re-list follows.
+    func exportProjects(paths: [String], format: ExportFormat) async {
+        guard !exporting else { return }
+        exporting = true
+        defer { exporting = false }
+        var failed = 0
+        for path in paths {
+            do {
+                let loaded = try await store.openProject(at: path)
+                let manifest = try await ensureFlattened(dir: loaded.dir, manifest: loaded.manifest)
+                _ = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline)
+            } catch {
+                failed += 1
+                Log.store.error("bulk export \(format.rawValue, privacy: .public) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
+            }
+        }
+        if opened != nil { await reloadOpened() }
+        await refresh()
+        // Reveal only when something was actually written (matches single export()).
+        if failed < paths.count {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: settings.projectsDir())])
+        }
+        if failed > 0 { exportError = "\(failed) of \(paths.count) export\(paths.count == 1 ? "" : "s") failed." }
+        Log.store.notice("bulk export \(format.rawValue, privacy: .public): \(paths.count - failed, privacy: .public)/\(paths.count, privacy: .public) ok")
+    }
+
     /// Reveal a project's folder in Finder (confined to a known project path).
     func revealInFinder(path: String) {
         guard projects.contains(where: { $0.path == path }) else { return }
