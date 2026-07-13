@@ -37,6 +37,11 @@ struct ShotAIApp: App {
         }
         .defaultSize(width: WindowLayout.home, height: 760)
         .commands {
+            // About shotAI — the native panel (shows the AppIcon + version +
+            // copyright automatically) with our tagline added as credits.
+            CommandGroup(replacing: .appInfo) {
+                Button("About shotAI") { Self.showAboutPanel() }
+            }
             // Guarantee ⌘Q / the Quit menu always work, even while a `.sheet`
             // (the Record chooser) is presented — SwiftUI otherwise vetoes
             // termination with a sheet up. We have no unsaved state; release the
@@ -82,6 +87,8 @@ struct ShotAIApp: App {
             }
         }
 
+        // (see showAboutPanel below for the About command's implementation)
+
         // Native Settings window (shotAI ▸ Settings… / ⌘,) — houses Permissions
         // (which the toolbar shield used to open), General, and AI. The AI tab
         // shares the same AppModel instance as the main window (key status + SOP
@@ -91,6 +98,21 @@ struct ShotAIApp: App {
                 .environment(model)
                 .preferredColorScheme(model.preferences.theme.colorScheme)
         }
+    }
+
+    /// The native About panel — it reads the app icon, name, version, and
+    /// © (NSHumanReadableCopyright) from the bundle; we add the product tagline
+    /// as credits so About shows what shotAI is.
+    private static func showAboutPanel() {
+        let credits = NSAttributedString(
+            string: "Local-first SOP builder — record a process and let Claude write the step-by-step guide.",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+        )
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        NSApplication.shared.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 }
 

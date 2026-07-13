@@ -217,9 +217,11 @@ private struct GeneralSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
-                Image(systemName: "s.square.fill")
-                    .font(.system(size: 34))
-                    .foregroundStyle(Palette.accent)
+                Image("AppLogo")
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 44, height: 44)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("shotAI for macOS").font(.title3.bold())
                     Text("Version \(appVersion)").foregroundStyle(.secondary).font(.callout)
