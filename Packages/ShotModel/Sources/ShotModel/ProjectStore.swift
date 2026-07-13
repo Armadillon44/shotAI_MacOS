@@ -177,6 +177,10 @@ public actor ProjectStore {
             summaries.append(summarize(manifest, at: dir))
             seen.insert(dir)
         }
+        // Merge in recents outside the root too, so a project opened via
+        // "Open Project…" (from anywhere) still appears on Home. Recents are
+        // cleared when the user changes the projects folder (AppModel.setProjectsDir),
+        // so a folder switch doesn't drag the previous root's projects along.
         for recent in settings.recents() {
             let abs = lexicallyResolve(absolutize(recent))
             guard !seen.contains(abs) else { continue }
