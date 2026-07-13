@@ -167,6 +167,31 @@ public actor ProjectStore {
         return OpenedProject(dir: resolved, manifest: manifest)
     }
 
+    /// Archive a project (F2): compress shots/ + export/ into archive.zip and
+    /// remove the loose copies (fail-closed: packArchive verifies before deleting
+    /// anything). The project stays listed (under the Archive tab) and auto-restores
+    /// on open. Does NOT bump updatedAt — archiving isn't a content edit. No-op if
+    /// already archived or if there are no bulk files to pack. Runs on the store
+    /// actor so it can't interleave another manifest write.
+    @discardableResult
+    public func archiveProject(at projectPath: String) throws -> ProjectSummary {
+        let resolved = try resolveKnownProject(projectPath)
+        var manifest = try readManifest(at: resolved)
+        guard !manifest.archived, !Archive.isArchivedOnDisk(resolved) else {
+            return summarize(manifest, at: resolved)  // idempotent
+        }
+        try Archive.packArchive(resolved)  // packs BEFORE the flag flip
+        // Only mark archived if a zip was actually produced (an empty project with
+        // no shots/export has nothing to archive and stays live).
+        guard Archive.isArchivedOnDisk(resolved) else {
+            return summarize(manifest, at: resolved)
+        }
+        manifest.archived = true
+        manifest.archivedAt = ProjectJSON.isoNow()
+        try writeManifest(manifest, at: resolved)  // NO updatedAt bump
+        return summarize(manifest, at: resolved)
+    }
+
     /// Restore an archived project without opening it (Home "Restore" action):
     /// unpack its files, clear the archived flag, and re-list it. Fail-closed;
     /// does NOT bump updatedAt (restoring isn't an edit). No-op if not archived.

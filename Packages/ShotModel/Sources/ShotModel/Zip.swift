@@ -21,12 +21,14 @@ public enum ZipError: Error, LocalizedError, Equatable {
     case notAZip
     case corrupt(String)
     case entryTooLarge(String)
+    case tooLargeToWrite
 
     public var errorDescription: String? {
         switch self {
         case .notAZip: "This file is not a valid .zip package."
         case .corrupt(let why): "The .zip package is corrupt: \(why)"
         case .entryTooLarge(let name): "A file in the package is too large: \(name)"
+        case .tooLargeToWrite: "This project is too large to archive (over the 4 GB zip limit)."
         }
     }
 }
@@ -109,6 +111,120 @@ public func zipStored(_ entries: [(name: String, data: Data)]) -> Data {
     return out
 }
 
+// MARK: - Writer (mixed STORED / DEFLATE — for the archive)
+
+/// Zip-safe ceiling: offsets/sizes are UInt32 (no zip64), so keep the whole
+/// archive comfortably under 4 GB. Conservative to leave room for headers.
+private let zipWriteCeiling = 0xF000_0000  // ~3.75 GB
+
+/// Build a ZIP where each entry is DEFLATE-compressed iff `deflate(name)` is true
+/// (and compression actually helps) — else STORED. Used for archive.zip:
+/// text under export/ compresses well; already-compressed shots/*.png stay STORED.
+/// Throws `.tooLargeToWrite` rather than trapping the UInt32 casts near 4 GB.
+public func zipArchive(_ entries: [(name: String, data: Data)], deflate: (String) -> Bool) throws -> Data {
+    // Upper-bound the output before building (each entry: local header 30 + name +
+    // payload; central 46 + name; plus the EOCD). Payload ≤ data.count (DEFLATE
+    // only ever shrinks here — we fall back to STORED otherwise).
+    var bound = 22
+    for (name, data) in entries {
+        let nameLen = name.utf8.count
+        bound += 30 + nameLen + data.count + 46 + nameLen
+        if data.count > zipWriteCeiling { throw ZipError.tooLargeToWrite }
+    }
+    guard bound <= zipWriteCeiling else { throw ZipError.tooLargeToWrite }
+
+    var out = Data()
+    var central = Data()
+
+    func appU16(_ into: inout Data, _ v: Int) {
+        into.append(UInt8(v & 0xff)); into.append(UInt8((v >> 8) & 0xff))
+    }
+    func appU32(_ into: inout Data, _ v: UInt32) {
+        into.append(UInt8(v & 0xff)); into.append(UInt8((v >> 8) & 0xff))
+        into.append(UInt8((v >> 16) & 0xff)); into.append(UInt8((v >> 24) & 0xff))
+    }
+
+    for (name, data) in entries {
+        let nameBytes = Array(name.utf8)
+        let crc = crc32(data)
+        let uncompSize = UInt32(data.count)
+        var method = 0
+        var payload = data
+        // DEFLATE only if requested AND it actually shrinks the entry.
+        if deflate(name), let comp = deflateRaw(data), comp.count < data.count {
+            method = 8
+            payload = comp
+        }
+        let compSize = UInt32(payload.count)
+        let offset = out.count
+
+        appU32(&out, UInt32(sigLocal))
+        appU16(&out, 20)                // version needed
+        appU16(&out, 0)                 // flags
+        appU16(&out, method)
+        appU16(&out, 0)                 // mod time
+        appU16(&out, 0x21)              // mod date (1980-01-01)
+        appU32(&out, crc)
+        appU32(&out, compSize)
+        appU32(&out, uncompSize)
+        appU16(&out, nameBytes.count)
+        appU16(&out, 0)                 // extra len
+        out.append(contentsOf: nameBytes)
+        out.append(payload)
+
+        appU32(&central, UInt32(sigCentral))
+        appU16(&central, 20)            // version made by
+        appU16(&central, 20)            // version needed
+        appU16(&central, 0)             // flags
+        appU16(&central, method)
+        appU16(&central, 0)             // mod time
+        appU16(&central, 0x21)          // mod date
+        appU32(&central, crc)
+        appU32(&central, compSize)
+        appU32(&central, uncompSize)
+        appU16(&central, nameBytes.count)
+        appU16(&central, 0)             // extra
+        appU16(&central, 0)             // comment
+        appU16(&central, 0)             // disk number start
+        appU16(&central, 0)             // internal attrs
+        appU32(&central, 0)             // external attrs
+        appU32(&central, UInt32(offset))
+        central.append(contentsOf: nameBytes)
+    }
+
+    let cdOffset = out.count
+    out.append(central)
+    appU32(&out, UInt32(sigEOCD))
+    appU16(&out, 0)
+    appU16(&out, 0)
+    appU16(&out, entries.count)
+    appU16(&out, entries.count)
+    appU32(&out, UInt32(central.count))
+    appU32(&out, UInt32(cdOffset))
+    appU16(&out, 0)
+    return out
+}
+
+/// Raw DEFLATE (ZIP method 8) via Apple's Compression. `COMPRESSION_ZLIB` here is
+/// raw RFC-1951 (no zlib header/trailer), symmetric to `inflateRaw`. Returns nil
+/// on failure or if the compressed output didn't fit the buffer (caller falls
+/// back to STORED).
+private func deflateRaw(_ src: Data) -> Data? {
+    guard !src.isEmpty else { return Data() }
+    let cap = src.count + (src.count / 2) + 64  // ample for incompressible input
+    var dst = Data(count: cap)
+    let written = dst.withUnsafeMutableBytes { (dstRaw: UnsafeMutableRawBufferPointer) -> Int in
+        src.withUnsafeBytes { (srcRaw: UnsafeRawBufferPointer) -> Int in
+            guard let d = dstRaw.bindMemory(to: UInt8.self).baseAddress,
+                  let s = srcRaw.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+            return compression_encode_buffer(d, cap, s, src.count, nil, COMPRESSION_ZLIB)
+        }
+    }
+    guard written > 0 else { return nil }
+    dst.removeSubrange(written..<dst.count)
+    return dst
+}
+
 // MARK: - Reader (STORED + DEFLATE)
 
 /// A listed archive entry — metadata only, no decompression yet. Splitting list
@@ -118,6 +234,7 @@ public struct ZipItem {
     public let name: String
     public let method: Int            // 0 = stored, 8 = deflate
     public let uncompressedSize: Int
+    public let crc: UInt32            // CRC-32 of the uncompressed data (from the central dir)
     let compressedRange: Range<Int>  // absolute indices into the source Data (in-module use only)
 }
 
@@ -163,6 +280,7 @@ public func zipList(_ data: Data) throws -> [ZipItem] {
             throw ZipError.corrupt("bad central directory record")
         }
         let method = u16(c + 10)
+        let crc = UInt32(bitPattern: Int32(truncatingIfNeeded: u32(c + 16)))
         let compSize = u32(c + 20)
         let uncompSize = u32(c + 24)
         let nameLen = u16(c + 28)
@@ -191,7 +309,7 @@ public func zipList(_ data: Data) throws -> [ZipItem] {
         }
         let start = data.startIndex + dataStart
         items.append(ZipItem(name: name, method: method, uncompressedSize: uncompSize,
-                             compressedRange: start..<(start + compSize)))
+                             crc: crc, compressedRange: start..<(start + compSize)))
     }
     return items
 }

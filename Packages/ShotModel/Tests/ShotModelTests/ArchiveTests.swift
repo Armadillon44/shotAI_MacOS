@@ -69,6 +69,69 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: (dir as NSString).appendingPathComponent("shots/a.png")))
     }
 
+    // MARK: - Phase 2 (writer + pack)
+
+    @Test func zipArchiveHybridCompressesTextButStoresImages() throws {
+        let png = Data([0x89, 0x50, 0x4e, 0x47] + (0..<200).map { UInt8(truncatingIfNeeded: $0 &* 37) })  // "incompressible-ish"
+        let html = Data(String(repeating: "<p>hello world</p>", count: 500).utf8)      // very compressible
+        let zip = try zipArchive([("shots/a.png", png), ("export/r.html", html)]) { $0.hasPrefix("export/") }
+        let items = try zipList(zip)
+        let shot = items.first { $0.name == "shots/a.png" }!
+        let doc = items.first { $0.name == "export/r.html" }!
+        #expect(shot.method == 0)                 // STORED (image)
+        #expect(doc.method == 8)                  // DEFLATE (text)
+        #expect(doc.compressedRange.count < html.count)  // actually smaller
+        // Both round-trip to identical bytes.
+        #expect(try zipExtract(zip, shot) == png)
+        #expect(try zipExtract(zip, doc) == html)
+    }
+
+    @Test func archiveProjectPacksRestoresAndPreservesUpdatedAt() async throws {
+        let (root, dir) = try tempDir(); defer { try? FileManager.default.removeItem(atPath: root) }
+        // A live project: manifest + shots/ + export/ with real files.
+        let m = ProjectManifest(id: "p", title: "T", createdAt: "2026-01-01T00:00:00Z",
+                                updatedAt: "2026-05-05T00:00:00Z")
+        try ProjectJSON.encodeManifest(m).write(to: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("project.json")))
+        let png = Data([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5])
+        let html = Data(String(repeating: "step ", count: 300).utf8)
+        try FileManager.default.createDirectory(atPath: (dir as NSString).appendingPathComponent("shots"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: (dir as NSString).appendingPathComponent("export"), withIntermediateDirectories: true)
+        try png.write(to: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("shots/step-0001.png")))
+        try html.write(to: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("export/report.html")))
+
+        let store = ProjectStore(settings: InMemorySettings(projectsDir: root))
+        let summary = try await store.archiveProject(at: dir)
+
+        #expect(summary.archived == true)
+        #expect(Archive.isArchivedOnDisk(dir))                                             // archive.zip present
+        #expect(!FileManager.default.fileExists(atPath: (dir as NSString).appendingPathComponent("shots")))  // loose gone
+        #expect(!FileManager.default.fileExists(atPath: (dir as NSString).appendingPathComponent("export")))
+        // Manifest flag flipped, updatedAt untouched.
+        let onDisk = try ProjectJSON.decodeManifest(try Data(contentsOf: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("project.json"))))
+        #expect(onDisk.archived == true)
+        #expect(onDisk.updatedAt == "2026-05-05T00:00:00Z")
+
+        // Open restores byte-identical files + clears the flag (no updatedAt bump).
+        let opened = try await store.openProject(at: dir)
+        #expect(opened.manifest.archived == false)
+        #expect(opened.manifest.updatedAt == "2026-05-05T00:00:00Z")
+        #expect(try Data(contentsOf: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("shots/step-0001.png"))) == png)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("export/report.html"))) == html)
+    }
+
+    @Test func archiveProjectIsIdempotent() async throws {
+        let (root, dir) = try tempDir(); defer { try? FileManager.default.removeItem(atPath: root) }
+        let m = ProjectManifest(id: "p", title: "T", createdAt: "", updatedAt: "2026-05-05T00:00:00Z")
+        try ProjectJSON.encodeManifest(m).write(to: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("project.json")))
+        try FileManager.default.createDirectory(atPath: (dir as NSString).appendingPathComponent("shots"), withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("shots/a.png")))
+        let store = ProjectStore(settings: InMemorySettings(projectsDir: root))
+        _ = try await store.archiveProject(at: dir)
+        let again = try await store.archiveProject(at: dir)  // no-op, no throw
+        #expect(again.archived == true)
+        #expect(Archive.isArchivedOnDisk(dir))
+    }
+
     @Test func listProjectsMarksArchivedSummaries() async throws {
         let (root, dir) = try tempDir(); defer { try? FileManager.default.removeItem(atPath: root) }
         try writeArchivedManifest(dir, updatedAt: "2026-06-01T00:00:00Z")
