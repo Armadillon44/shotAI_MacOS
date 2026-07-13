@@ -149,10 +149,11 @@ struct HomeView: View {
 
     private var brandHeader: some View {
         HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Palette.accent)
+            Image("AppLogo")
+                .resizable()
+                .interpolation(.high)
                 .frame(width: 30, height: 30)
-                .overlay(Text("s").font(.system(size: 17, weight: .bold)).foregroundStyle(Palette.onAccent))
+                .accessibilityHidden(true)
             Text("shotAI").font(.system(size: 17, weight: .semibold))
             Spacer()
         }
