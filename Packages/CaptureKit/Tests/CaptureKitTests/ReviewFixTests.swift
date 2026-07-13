@@ -185,9 +185,9 @@ import ShotModel
         try await h.engine.start(projectPath: h.projectDir, attachHook: false)
         let step = try await h.engine.captureStep(trigger: .click, point: CGPoint(x: 200, y: 180))
         let dims = pngSize(try h.shotData(step!))
-        // 400x300pt → 800x600px → ×0.85 → 680x510.
-        #expect(dims.width == 680)
-        #expect(dims.height == 510)
+        // 400x300pt → 800x600px; below the 1100 readability floor → not downscaled.
+        #expect(dims.width == 800)
+        #expect(dims.height == 600)
         _ = await h.engine.stop()
         h.cleanup()
     }
@@ -209,10 +209,11 @@ import ShotModel
         try await h.engine.start(projectPath: h.projectDir, attachHook: false)
         let step = try await h.engine.captureStep(trigger: .click, point: CGPoint(x: 500, y: 200))
         let dims = pngSize(try h.shotData(step!))
-        // B is 300x240pt → 600x480px → ×0.85 → 510x408 (a window crop, NOT the
-        // 1394-wide region "safety" box and NOT the 1700-wide fullscreen).
-        #expect(dims.width == 510)
-        #expect(dims.height == 408)
+        // B is 300x240pt → 600x480px; below the 1100 readability floor → not
+        // downscaled → 600x480 (a window crop, NOT the 1394-wide region "safety"
+        // box and NOT the 1700-wide fullscreen).
+        #expect(dims.width == 600)
+        #expect(dims.height == 480)
         #expect(step?.window?.app == "Notes") // metadata reflects the clicked window
         _ = await h.engine.stop()
         h.cleanup()

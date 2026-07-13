@@ -107,6 +107,15 @@ public actor CaptureEngine {
     private let inputsCont: AsyncStream<EngineInput>.Continuation
 
     private var session: Session?
+    /// Target downscale for stored PNGs (screenshot quality). Defaults to the
+    /// constant; the app updates it from the user's setting via `setCaptureScale`
+    /// before a recording/immediate capture. Clamped to the allowed range.
+    private var captureScale: CGFloat = CaptureConstants.captureScale
+
+    /// Set the screenshot-quality downscale for subsequent captures (clamped).
+    public func setCaptureScale(_ scale: CGFloat) {
+        captureScale = CaptureConstants.clampCaptureScale(scale)
+    }
     /// Monotonic session identity, bumped when a session is installed. A
     /// capture/decision captures the generation at entry and re-checks it after
     /// every suspension: `session != nil` alone is insufficient because a
@@ -950,7 +959,7 @@ public actor CaptureEngine {
             if let mon, let frame = try? await screenshotter.captureDisplay(mon.id) {
                 let crop = GrabMath.areaCrop(monitor: mon.frame, area: area)
                 if let prepared = ImageOutput.prepare(
-                    frame: frame.image, cropLocal: crop.local, pixelScale: frame.display.pixelScale) {
+                    frame: frame.image, cropLocal: crop.local, pixelScale: frame.display.pixelScale, scale: captureScale) {
                     return Grabbed(
                         prepared: prepared, originX: crop.originX, originY: crop.originY,
                         display: frame.display)
@@ -975,7 +984,7 @@ public actor CaptureEngine {
         if autoMode == .region || autoMode == .window, let point {
             let crop = GrabMath.regionCrop(monitor: frame.display.frame, point: point)
             if let prepared = ImageOutput.prepare(
-                frame: frame.image, cropLocal: crop.local, pixelScale: frame.display.pixelScale) {
+                frame: frame.image, cropLocal: crop.local, pixelScale: frame.display.pixelScale, scale: captureScale) {
                 return Grabbed(
                     prepared: prepared, originX: crop.originX, originY: crop.originY,
                     display: frame.display)
@@ -992,14 +1001,14 @@ public actor CaptureEngine {
         if let region {
             let crop = GrabMath.cropToRegion(monitor: frame.display.frame, region: region)
             guard let prepared = ImageOutput.prepare(
-                frame: frame.image, cropLocal: crop.local, pixelScale: frame.display.pixelScale)
+                frame: frame.image, cropLocal: crop.local, pixelScale: frame.display.pixelScale, scale: captureScale)
             else { return nil }
             return Grabbed(
                 prepared: prepared, originX: crop.originX, originY: crop.originY,
                 display: frame.display)
         }
         guard let prepared = ImageOutput.prepare(
-            frame: frame.image, cropLocal: nil, pixelScale: frame.display.pixelScale)
+            frame: frame.image, cropLocal: nil, pixelScale: frame.display.pixelScale, scale: captureScale)
         else { return nil }
         return Grabbed(
             prepared: prepared,
