@@ -38,12 +38,11 @@ final class SettingsAndPromptTests: XCTestCase {
 
     func testSchemaSerializesAndRawDecodes() throws {
         XCTAssertTrue(JSONSerialization.isValidJSONObject(sopEditJSONSchema()))
-        let json = #"{"title":"T","intro":{"heading":"H","body":"B"},"steps":[{"stepNumber":1,"caption":"C","body":"Bd","note":null,"sectionHeading":"S","sectionBody":"SB"}]}"#
+        let json = #"{"title":"T","intro":{"heading":"H","body":"B"},"steps":[{"stepNumber":1,"caption":"C","body":"Bd","sectionHeading":"S","sectionBody":"SB"}]}"#
         let raw = try JSONDecoder().decode(SopEditRaw.self, from: Data(json.utf8))
         XCTAssertEqual(raw.title, "T")
         XCTAssertEqual(raw.intro?.heading, "H")
         XCTAssertEqual(raw.steps.first?.stepNumber, 1)
-        XCTAssertNil(raw.steps.first?.note)
         XCTAssertEqual(raw.steps.first?.sectionHeading, "S")
     }
 }
@@ -73,7 +72,7 @@ final class ClaudeClientTests: XCTestCase {
     }
 
     func testStreamDecodesPlan() async throws {
-        let json = #"{"title":"My SOP","intro":null,"steps":[{"stepNumber":1,"caption":"Open menu","body":"Click it","note":null,"sectionHeading":null,"sectionBody":null}]}"#
+        let json = #"{"title":"My SOP","intro":null,"steps":[{"stepNumber":1,"caption":"Open menu","body":"Click it","sectionHeading":null,"sectionBody":null}]}"#
         let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: json), 200) }))
         let raw = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in })
         XCTAssertEqual(raw.title, "My SOP")
@@ -85,7 +84,7 @@ final class ClaudeClientTests: XCTestCase {
         // The structured-output JSON arrives split across many text_deltas, after
         // thinking blocks, interleaved with ping/keepalive events. Reassembly must
         // be lossless and decode to the full plan.
-        let json = #"{"title":"My SOP","intro":{"heading":"Overview","body":"Do it"},"steps":[{"stepNumber":1,"caption":"Open menu","body":"Click the menu","note":null,"sectionHeading":null,"sectionBody":null},{"stepNumber":2,"caption":"Save","body":"Click Save","note":"careful","sectionHeading":null,"sectionBody":null}]}"#
+        let json = #"{"title":"My SOP","intro":{"heading":"Overview","body":"Do it"},"steps":[{"stepNumber":1,"caption":"Open menu","body":"Click the menu","sectionHeading":null,"sectionBody":null},{"stepNumber":2,"caption":"Save","body":"Click Save","sectionHeading":null,"sectionBody":null}]}"#
         // Chunk into small pieces to simulate real streaming granularity.
         var chunks: [String] = []
         var i = json.startIndex
@@ -120,7 +119,7 @@ final class ClaudeClientTests: XCTestCase {
         XCTAssertEqual(raw.title, "My SOP")
         XCTAssertEqual(raw.intro?.heading, "Overview")
         XCTAssertEqual(raw.steps.map(\.stepNumber), [1, 2])
-        XCTAssertEqual(raw.steps[1].note, "careful")
+        XCTAssertEqual(raw.steps[1].caption, "Save")
     }
 
     func testStreamRefusal() async {
@@ -198,7 +197,7 @@ final class SopServiceTests: XCTestCase {
         catch { XCTAssertEqual(error as? ClaudeError, .incomplete) }
 
         // Steps present but all blank → also incomplete.
-        let blank = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"  ","body":"","note":null,"sectionHeading":null,"sectionBody":null}]}"#
+        let blank = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"  ","body":"","sectionHeading":null,"sectionBody":null}]}"#
         let svc2 = SopService(
             client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: blank), 200) })),
             keyStore: StubKeyStore())
@@ -206,7 +205,7 @@ final class SopServiceTests: XCTestCase {
         catch { XCTAssertEqual(error as? ClaudeError, .incomplete) }
 
         // A real edit passes.
-        let good = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"Do it","body":"Click","note":null,"sectionHeading":null,"sectionBody":null}]}"#
+        let good = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"Do it","body":"Click","sectionHeading":null,"sectionBody":null}]}"#
         let svc3 = SopService(
             client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: good), 200) })),
             keyStore: StubKeyStore())

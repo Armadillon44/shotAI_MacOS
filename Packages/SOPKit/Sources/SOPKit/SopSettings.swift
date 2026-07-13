@@ -121,11 +121,12 @@ public struct SopStepEdit: Sendable, Equatable {
     public let caption: String
     /// Instruction detail shown under the screenshot.
     public let body: String
-    /// Extra context for the note field, or nil to leave it.
-    public let note: String?
     /// If set, insert a section-heading text step immediately BEFORE this step.
     public let sectionHeading: String?
     public let sectionBody: String?
+    // NOTE: no `note` field — the SOP generator no longer writes the step's
+    // legacy `note` (it has no editor in the report, so AI-written notes were
+    // uneditable). The existing `note` is preserved as-is on apply.
 }
 
 /// The full inline edit plan Claude returns, applied transactionally by the store.

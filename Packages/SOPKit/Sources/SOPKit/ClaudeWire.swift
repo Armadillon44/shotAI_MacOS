@@ -32,12 +32,11 @@ func sopEditJSONSchema() -> [String: Any] { [
             "items": [
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["stepNumber", "caption", "body", "note", "sectionHeading", "sectionBody"],
+                "required": ["stepNumber", "caption", "body", "sectionHeading", "sectionBody"],
                 "properties": [
                     "stepNumber": ["type": "integer"],
                     "caption": ["type": "string"],
                     "body": ["type": "string"],
-                    "note": nullable(["type": "string"]),
                     "sectionHeading": nullable(["type": "string"]),
                     "sectionBody": nullable(["type": "string"]),
                 ],
@@ -57,7 +56,6 @@ struct SopEditRaw: Decodable {
         let stepNumber: Int
         let caption: String
         let body: String
-        let note: String?
         let sectionHeading: String?
         let sectionBody: String?
     }

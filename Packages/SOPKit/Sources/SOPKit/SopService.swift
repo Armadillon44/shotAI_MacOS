@@ -85,7 +85,7 @@ public struct SopService: Sendable {
             intro: raw.intro.map { SopIntro(heading: $0.heading, body: $0.body) },
             steps: raw.steps.map {
                 SopStepEdit(stepNumber: $0.stepNumber, caption: $0.caption, body: $0.body,
-                            note: $0.note, sectionHeading: $0.sectionHeading, sectionBody: $0.sectionBody)
+                            sectionHeading: $0.sectionHeading, sectionBody: $0.sectionBody)
             })
         // A project always has shot steps here (the assembler throws otherwise),
         // so a plan with no actual step instruction means the model under-produced

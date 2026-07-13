@@ -65,7 +65,9 @@ public func applySopEdits(
             edited.caption = cap.isEmpty ? step.caption : cap
             let bod = e.body.trimmingCharacters(in: .whitespacesAndNewlines)
             edited.body = bod.isEmpty ? (step.body ?? "") : bod
-            edited.note = e.note ?? step.note  // nil leaves the existing note
+            // The generator no longer writes `note`; keep whatever was there
+            // (a manual/legacy note round-trips untouched).
+            edited.note = step.note
             next.append(edited)
         }
 
