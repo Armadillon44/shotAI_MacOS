@@ -201,7 +201,7 @@ struct HomeView: View {
                 .font(.system(size: 11, weight: .bold))
                 .kerning(0.6)
                 .foregroundStyle(Palette.ink3)
-            ForEach([CaptureMode.auto, .screen, .window, .area], id: \.self) { m in
+            ForEach([CaptureMode.screen, .auto, .window, .area], id: \.self) { m in
                 Button { mode = m } label: { Text(label(for: m)) }
                     .buttonStyle(ChipStyle(on: mode == m))
             }
