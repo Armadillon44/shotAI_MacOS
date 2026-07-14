@@ -127,8 +127,11 @@ public func exportPackage(dir: String, manifest: ProjectManifest, includeOrigina
 
 /// Add a manifest-relative file to `entries` at the same relative path (confined,
 /// best-effort: a missing referenced file is skipped, matching the Windows app).
+/// Uses `confinePathNoSymlinks`: `Data(contentsOf:)` follows symlinks, so a
+/// lexical-only check would let a symlinked component copy an arbitrary
+/// off-project file into the package. A symlinked ref is skipped, not shipped.
 private func addFileRef(_ entries: inout [(name: String, data: Data)], dir: String, rel: String) {
-    guard !rel.isEmpty, let abs = confinePath(dir: dir, rel: rel),
+    guard !rel.isEmpty, let abs = confinePathNoSymlinks(dir: dir, rel: rel),
           let bytes = try? Data(contentsOf: URL(fileURLWithPath: abs)) else { return }
     entries.append((rel.replacingOccurrences(of: "\\", with: "/"), bytes))
 }

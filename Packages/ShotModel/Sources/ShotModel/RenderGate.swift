@@ -34,7 +34,11 @@ public enum RenderGateError: Error, LocalizedError, Equatable {
 /// - stepLabel: caller-supplied label for error messages (Claude and export
 ///   number steps differently, so the label is passed in).
 /// - verb: "send" (to Claude) or "export" — only affects the message.
-/// Reads use the lexical `confinePath` (a read can't redirect a write).
+/// Egress reads go through `confinePathNoSymlinks`: a lexical-only check would
+/// pass a symlinked `shots/`/leaf that points outside the project, and
+/// `Data(contentsOf:)` follows symlinks — so a shared project could redirect the
+/// read to an arbitrary file (e.g. ~/.ssh/id_rsa) and exfiltrate it to Claude or
+/// into an export. The lstat-reject layer refuses any symlinked component.
 public func resolveSendableRender(
     dir: String, step: ProjectStep, stepLabel: String, verb: String
 ) throws -> SendableRender {
@@ -45,7 +49,7 @@ public func resolveSendableRender(
         throw RenderGateError.unbakedRedaction(step: stepLabel, verb: verb)
     }
     let relToRead = rel ?? step.screenshot
-    guard !relToRead.isEmpty, let abs = confinePath(dir: dir, rel: relToRead) else {
+    guard !relToRead.isEmpty, let abs = confinePathNoSymlinks(dir: dir, rel: relToRead) else {
         throw RenderGateError.noReadableShot(step: stepLabel)
     }
     let ext = ((relToRead as NSString).pathExtension).lowercased()

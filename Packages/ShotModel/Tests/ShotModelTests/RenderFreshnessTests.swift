@@ -111,6 +111,30 @@ import Testing
         cleanup()
     }
 
+    // Egress must refuse a symlinked shots/ path: a shared project could plant
+    // `shots/leak.png -> ~/.ssh/id_rsa`, and Data(contentsOf:) would follow it,
+    // exfiltrating the target to Claude / into an export. confinePathNoSymlinks
+    // rejects the symlinked leaf, so the gate throws instead of reading it.
+    @Test func gateRejectsSymlinkedRenderOrShot() throws {
+        let secret = root + "/secret_id_rsa"
+        try Data("PRIVATE KEY".utf8).write(to: URL(fileURLWithPath: secret))
+        try FileManager.default.createSymbolicLink(
+            atPath: projectDir + "/shots/leak.png", withDestinationPath: secret)
+
+        // (a) flattened points at the symlink (the markerBaked-skip exploit shape).
+        var viaFlattened = ProjectStep(id: "s", order: 1, screenshot: "shots/real.png", trigger: .click)
+        viaFlattened.flattened = "shots/leak.png"
+        #expect(throws: RenderGateError.self) {
+            _ = try resolveSendableRender(dir: projectDir, step: viaFlattened, stepLabel: "1", verb: "send")
+        }
+        // (b) the screenshot itself is the symlink (no flattened, no redaction).
+        let viaShot = ProjectStep(id: "s2", order: 2, screenshot: "shots/leak.png", trigger: .click)
+        #expect(throws: RenderGateError.self) {
+            _ = try resolveSendableRender(dir: projectDir, step: viaShot, stepLabel: "2", verb: "export")
+        }
+        cleanup()
+    }
+
     @Test func patchClickSetsAndClears() {
         var step = ProjectStep(id: "s", order: 1, screenshot: "shots/s.png", trigger: .click)
         step.click = StepClick(global: Point(x: 10, y: 10), image: Point(x: 5, y: 5), button: .left)
