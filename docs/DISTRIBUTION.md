@@ -99,6 +99,52 @@ team), so a user grants Screen Recording / Accessibility / Input Monitoring once
 and the grants survive updates (same property that keeps them stable across local
 rebuilds). The first-run permissions wizard still guides them.
 
+## Internal rollout (LFI / MDM) — usually better than a personal purchase
+
+For deploying to La Crosse Footwear machines, prefer the company's infrastructure
+over a personal $99 membership:
+
+1. **Sign under LFI's Apple Developer *organization* account, not a personal one.**
+   Get added to the org team, create the **Developer ID Application** cert there,
+   and set `TEAM_ID` in [`Scripts/dist.sh`](../Scripts/dist.sh) to the org team.
+   The app becomes a company asset; no personal cost.
+
+2. **Deploy + pre-approve permissions via MDM (Jamf / Intune / Kandji / …).**
+   An MDM can push the app *and* ship a **PPPC** (Privacy Preferences Policy
+   Control) configuration profile that pre-grants shotAI's TCC permissions, so end
+   users never see the permission wizard. The three services shotAI needs:
+
+   | Permission        | TCC service key            | PPPC pre-approval |
+   |-------------------|----------------------------|-------------------|
+   | Accessibility     | `kTCCServiceAccessibility` | Yes (Allow)       |
+   | Input Monitoring  | `kTCCServiceListenEvent`   | Yes (Allow)       |
+   | Screen Recording  | `kTCCServiceScreenCapture` | Depends on macOS/MDM version — may still need a one-time user OK |
+
+   PPPC keys the approval to the app's **code requirement**. After signing, read
+   the exact requirement with:
+
+   ```sh
+   codesign -d -r - "build/dist/shotAI.app"
+   ```
+
+   For a Developer-ID-signed build it looks like:
+
+   ```
+   identifier "com.armadillon44.shotai" and anchor apple generic and
+   certificate leaf[subject.OU] = <LFI_TEAM_ID>
+   ```
+
+   Notarization is **optional** for MDM-installed apps (an MDM install isn't
+   quarantined), but a stable Developer ID signature is still required for PPPC.
+
+   For MDM you'll typically want a signed **`.pkg`** rather than a DMG — ask and I
+   can add a `pkgbuild`/`productbuild` step to `dist.sh` and generate a PPPC
+   `.mobileconfig` template pre-filled with the bundle id + code requirement.
+
+**Ask your Mac admin:** (1) Do we have an Apple Developer Program *organization*
+membership I can be added to? (2) What MDM manages our Macs, and can we ship an
+internal signed app + a PPPC profile pre-approving the three permissions above?
+
 ## Verifying by hand
 ```sh
 spctl -a -t open --context context:primary-signature -vv build/dist/shotAI-*.dmg   # DMG accepted
