@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  shotAI — Privacy Preferences Policy Control (PPPC) profile.
+
+  Pre-approves shotAI's three TCC permissions so managed users don't have to grant
+  them by hand. Deploy via Intune as a *Custom* macOS configuration profile
+  (upload this .mobileconfig).
+
+  BEFORE DEPLOYING, fill in two things:
+    1. __LFI_TEAM_ID__  → your Apple Developer *Team ID* (the OU in the signing
+       cert). After a signed build, get the exact code requirement with:
+         codesign -d -r - build/dist/shotAI.app
+       and confirm the CodeRequirement strings below match it.
+    2. The two Payload UUIDs are pre-generated; leave them, or regenerate with
+       `uuidgen` if you clone this for another app.
+
+  CAVEAT — Screen Recording: MDM can silently pre-approve Accessibility and Input
+  Monitoring (ListenEvent). Screen Recording (ScreenCapture) is only silently
+  granted on devices enrolled via Apple Business Manager / Automated Device
+  Enrollment (supervised); on user-enrolled Macs the profile pre-populates the
+  entry but the user may still get a one-time approval prompt.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadType</key>            <string>Configuration</string>
+  <key>PayloadVersion</key>         <integer>1</integer>
+  <key>PayloadScope</key>           <string>System</string>
+  <key>PayloadDisplayName</key>     <string>shotAI — Privacy Permissions</string>
+  <key>PayloadDescription</key>     <string>Pre-approves Accessibility, Input Monitoring, and Screen Recording for shotAI.</string>
+  <key>PayloadOrganization</key>    <string>La Crosse Footwear</string>
+  <key>PayloadIdentifier</key>      <string>com.armadillon44.shotai.pppc</string>
+  <key>PayloadUUID</key>            <string>8EDCF138-F719-4986-99A9-63401D93D58F</string>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadType</key>        <string>com.apple.TCC.configuration-profile-policy</string>
+      <key>PayloadVersion</key>     <integer>1</integer>
+      <key>PayloadIdentifier</key>  <string>com.armadillon44.shotai.pppc.tcc</string>
+      <key>PayloadUUID</key>        <string>892552F9-9968-410C-96D2-8C238F477FB8</string>
+      <key>PayloadDisplayName</key> <string>shotAI TCC</string>
+      <key>Services</key>
+      <dict>
+        <key>Accessibility</key>
+        <array>
+          <dict>
+            <key>Identifier</key>        <string>com.armadillon44.shotai</string>
+            <key>IdentifierType</key>    <string>bundleID</string>
+            <key>CodeRequirement</key>   <string>identifier "com.armadillon44.shotai" and anchor apple generic and certificate leaf[subject.OU] = "__LFI_TEAM_ID__"</string>
+            <key>Authorization</key>     <string>Allow</string>
+          </dict>
+        </array>
+        <key>ListenEvent</key>
+        <array>
+          <dict>
+            <key>Identifier</key>        <string>com.armadillon44.shotai</string>
+            <key>IdentifierType</key>    <string>bundleID</string>
+            <key>CodeRequirement</key>   <string>identifier "com.armadillon44.shotai" and anchor apple generic and certificate leaf[subject.OU] = "__LFI_TEAM_ID__"</string>
+            <key>Authorization</key>     <string>Allow</string>
+          </dict>
+        </array>
+        <key>ScreenCapture</key>
+        <array>
+          <dict>
+            <key>Identifier</key>        <string>com.armadillon44.shotai</string>
+            <key>IdentifierType</key>    <string>bundleID</string>
+            <key>CodeRequirement</key>   <string>identifier "com.armadillon44.shotai" and anchor apple generic and certificate leaf[subject.OU] = "__LFI_TEAM_ID__"</string>
+            <key>Authorization</key>     <string>Allow</string>
+          </dict>
+        </array>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>
