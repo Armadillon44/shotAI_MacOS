@@ -36,6 +36,12 @@ enum Archive {
     static func unpackArchive(_ projectDir: String) throws {
         guard isArchivedOnDisk(projectDir) else { return }
         let zipPath = (projectDir as NSString).appendingPathComponent(archiveZipName)
+        // Cap the on-disk size BEFORE reading it into memory: a multi-GB archive.zip
+        // in an opened/synced project would otherwise exhaust RAM at the read step,
+        // before any per-entry guard runs (a compressed archive can't legitimately
+        // exceed the uncompressed total cap).
+        let onDisk = (try? FileManager.default.attributesOfItem(atPath: zipPath)[.size] as? Int) ?? nil
+        if let onDisk, onDisk > maxTotalBytes { throw ArchiveError.tooLarge }
         let data = try coordinatedRead(URL(fileURLWithPath: zipPath))
         let items = try zipList(data)
 
@@ -45,8 +51,13 @@ enum Archive {
             let rel = it.name.replacingOccurrences(of: "\\", with: "/")
             // Only restore into the dirs we archive — reject anything else (a
             // tampered zip). NOT isImportableImagePath: that's too narrow and would
-            // reject legitimate export/ files (report.html, etc.).
-            let allowed = archivedDirs.contains { rel == $0 || rel.hasPrefix("\($0)/") }
+            // reject legitimate export/ files (report.html, etc.). Reject any `..`
+            // segment too: a lexical prefix check alone passes `export/../evil`,
+            // which confinePathNoSymlinks resolves back to the project root, so a
+            // tampered zip could overwrite project.json on auto-unarchive.
+            let segs = rel.split(separator: "/")
+            let allowed = !segs.contains("..")
+                && archivedDirs.contains { rel == $0 || rel.hasPrefix("\($0)/") }
             guard allowed else { throw ArchiveError.unexpectedEntry(rel) }
             guard it.uncompressedSize <= maxEntryBytes else { throw ArchiveError.entryTooLarge(rel) }
             total += it.uncompressedSize

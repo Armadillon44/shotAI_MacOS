@@ -135,6 +135,30 @@ import Testing
         cleanup()
     }
 
+    // A malformed blur (e.g. "solid" omitting blockSize, or an unknown mode) must
+    // still decode AS a blur so the gate recognizes the redaction and fails
+    // closed — NOT demote to .unknown, which would ship the raw screenshot.
+    @Test func malformedBlurStaysBlurAndGateFailsClosed() throws {
+        let solidNoBlock = #"{"type":"blur","id":"b1","x":1,"y":2,"width":30,"height":10,"mode":"solid"}"#
+        let ann = try JSONDecoder().decode(Annotation.self, from: Data(solidNoBlock.utf8))
+        guard case .blur(let b) = ann else { Issue.record("expected .blur, got \(ann)"); return }
+        #expect(b.mode == .solid)
+        #expect(b.blockSize == 12)  // defaulted, not a decode failure
+
+        var step = ProjectStep(id: "s", order: 1, screenshot: "shots/s.png", trigger: .click)
+        step.annotations = [ann]
+        #expect(throws: RenderGateError.self) {
+            _ = try resolveSendableRender(dir: projectDir, step: step, stepLabel: "1", verb: "send")
+        }
+        // An unknown mode string still decodes as a blur (→ pixelate).
+        let badMode = try JSONDecoder().decode(
+            Annotation.self,
+            from: Data(#"{"type":"blur","id":"b","x":0,"y":0,"width":5,"height":5,"mode":"???"}"#.utf8))
+        guard case .blur(let b2) = badMode else { Issue.record("expected .blur"); return }
+        #expect(b2.mode == .pixelate)
+        cleanup()
+    }
+
     @Test func patchClickSetsAndClears() {
         var step = ProjectStep(id: "s", order: 1, screenshot: "shots/s.png", trigger: .click)
         step.click = StepClick(global: Point(x: 10, y: 10), image: Point(x: 5, y: 5), button: .left)

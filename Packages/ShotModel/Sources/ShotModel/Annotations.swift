@@ -87,6 +87,27 @@ public struct BlurAnnotation: Codable, Equatable, Sendable {
         self.mode = mode
         self.blockSize = blockSize
     }
+
+    enum CodingKeys: String, CodingKey { case id, x, y, width, height, mode, blockSize }
+
+    /// Tolerant decode (matches the Windows producer's leniency): an unknown or
+    /// missing `mode` → pixelate (mosaic), a missing/invalid `blockSize`
+    /// (documented "ignored for solid") → a safe default. This is a SECURITY
+    /// property, not just convenience: if a blur failed strict decoding it was
+    /// demoted to `.unknown`, and the egress gate — which recognizes redactions
+    /// via `if case .blur` — would then miss it and ship the RAW screenshot.
+    /// Keeping a malformed blur decodable as a blur keeps the gate fail-closed.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        x = try c.decode(Double.self, forKey: .x)
+        y = try c.decode(Double.self, forKey: .y)
+        width = try c.decode(Double.self, forKey: .width)
+        height = try c.decode(Double.self, forKey: .height)
+        mode = ((try? c.decodeIfPresent(String.self, forKey: .mode)) ?? nil) == "solid" ? .solid : .pixelate
+        let bs = (try? c.decodeIfPresent(Double.self, forKey: .blockSize)) ?? nil
+        blockSize = (bs.map { $0 > 0 ? $0 : 12 }) ?? 12
+    }
 }
 
 /// Numbered step stamp (a circle with a number). x/y are the center.

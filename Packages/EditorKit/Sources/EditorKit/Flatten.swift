@@ -59,10 +59,10 @@ public enum Flatten {
     ) throws -> Data {
         let nw = image.width
         let nh = image.height
-        let cx = crop.map { clampInt(Int($0.x.rounded()), 0, max(0, nw - 1)) } ?? 0
-        let cy = crop.map { clampInt(Int($0.y.rounded()), 0, max(0, nh - 1)) } ?? 0
-        let cw = crop.map { clampInt(Int($0.width.rounded()), 1, nw - cx) } ?? nw
-        let ch = crop.map { clampInt(Int($0.height.rounded()), 1, nh - cy) } ?? nh
+        let cx = crop.map { clampInt(satInt($0.x), 0, max(0, nw - 1)) } ?? 0
+        let cy = crop.map { clampInt(satInt($0.y), 0, max(0, nh - 1)) } ?? 0
+        let cw = crop.map { clampInt(satInt($0.width), 1, nw - cx) } ?? nw
+        let ch = crop.map { clampInt(satInt($0.height), 1, nh - cy) } ?? nh
 
         guard let ctx = CGContext(
             data: nil, width: cw, height: ch, bitsPerComponent: 8, bytesPerRow: 0,
@@ -125,12 +125,12 @@ public enum Flatten {
         _ ctx: CGContext, blur a: BlurAnnotation, source: CGImage,
         cropX: Int, cropY: Int, cw: Int, ch: Int
     ) -> Bool {
-        let x = Int((a.x - CGFloat(cropX)).rounded())
-        let y = Int((a.y - CGFloat(cropY)).rounded())
+        let x = satInt(a.x - CGFloat(cropX))
+        let y = satInt(a.y - CGFloat(cropY))
         let x0 = clampInt(x, 0, cw)
         let y0 = clampInt(y, 0, ch)
-        let x1 = clampInt(x + Int(a.width.rounded()), 0, cw)
-        let y1 = clampInt(y + Int(a.height.rounded()), 0, ch)
+        let x1 = clampInt(x + satInt(a.width), 0, cw)
+        let y1 = clampInt(y + satInt(a.height), 0, ch)
         let w = x1 - x0
         let h = y1 - y0
         if w <= 0 || h <= 0 { return false }
@@ -148,7 +148,7 @@ public enum Flatten {
         // only the source has been drawn so far), average-downsample it, then
         // draw it back up. `block` (downsample factor) is floored at
         // MIN_REDACT_BLOCK so a hand-edited manifest can't blur text legible.
-        let block = max(AnnotationStyle.minRedactBlock, CGFloat(max(1, Int((a.blockSize == 0 ? 12 : a.blockSize).rounded()))))
+        let block = max(AnnotationStyle.minRedactBlock, CGFloat(max(1, satInt(a.blockSize == 0 ? 12 : a.blockSize))))
         let sw = max(1, Int((CGFloat(w) / block).rounded()))
         let sh = max(1, Int((CGFloat(h) / block).rounded()))
         // Source region in image coords (top-left) = canvas region + crop origin.
@@ -345,3 +345,17 @@ public enum Flatten {
 
 private func finite(_ v: CGFloat) -> CGFloat { v.isFinite ? v : 0 }
 private func clampInt(_ v: Int, _ lo: Int, _ hi: Int) -> Int { max(lo, min(v, hi)) }
+
+/// Untrusted Double → Int without trapping. Plain `Int(d)` crashes on NaN, ±inf,
+/// or a value outside Int range (e.g. a crafted `"width": 1e300` in project.json).
+/// NaN → 0; anything beyond ±2^40 saturates to that bound — far past any real
+/// pixel coordinate, yet far enough below Int.max that summing two results can't
+/// overflow before the caller clamps to the image rect.
+private func satInt(_ d: Double) -> Int {
+    if d.isNaN { return 0 }
+    let bound = 1 << 40
+    let r = d.rounded()
+    if r >= Double(bound) { return bound }
+    if r <= -Double(bound) { return -bound }
+    return Int(r)
+}

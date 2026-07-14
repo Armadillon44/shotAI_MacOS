@@ -53,6 +53,18 @@ import Testing
         #expect(Archive.isArchivedOnDisk(dir))  // fail-closed: zip preserved
     }
 
+    // A `..` traversal that a lexical prefix check would accept (export/../ still
+    // "hasPrefix export/") must be rejected — else auto-unarchive could overwrite
+    // project.json at the project root.
+    @Test func unpackRejectsDotDotTraversalEntry() throws {
+        let (root, dir) = try tempDir(); defer { try? FileManager.default.removeItem(atPath: root) }
+        try zipStored([("export/../pwned.txt", Data("x".utf8))])
+            .write(to: URL(fileURLWithPath: (dir as NSString).appendingPathComponent("archive.zip")))
+        #expect(throws: ArchiveError.self) { try Archive.unpackArchive(dir) }
+        #expect(!FileManager.default.fileExists(atPath: (dir as NSString).appendingPathComponent("pwned.txt")))
+        #expect(Archive.isArchivedOnDisk(dir))  // fail-closed: zip preserved
+    }
+
     @Test func openProjectAutoUnarchivesWithoutBumpingUpdatedAt() async throws {
         let (root, dir) = try tempDir(); defer { try? FileManager.default.removeItem(atPath: root) }
         try writeArchivedManifest(dir, updatedAt: "2026-06-01T00:00:00Z")

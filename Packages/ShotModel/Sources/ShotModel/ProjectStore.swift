@@ -110,7 +110,9 @@ public actor ProjectStore {
             throw StoreError.renderPathNotConfined(id)
         }
         try fm.createDirectory(atPath: (abs as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-        try png.write(to: URL(fileURLWithPath: abs))
+        // Atomic: a partial write (disk full / cloud IO) must not truncate the
+        // prior baked render in place while the manifest still trusts it.
+        try writeFileAtomic(png, to: abs)
         step.flattened = rel
         step.renderRev = (step.renderRev ?? 0) + 1
     }

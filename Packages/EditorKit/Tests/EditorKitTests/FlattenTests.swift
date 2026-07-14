@@ -55,6 +55,17 @@ import ShotModel
         #expect(center.r < 8 && center.g < 8 && center.b < 8, "solid redaction must be black, got \(center)")
     }
 
+    // Untrusted geometry (a crafted 1e300 / ±inf crop or blur in project.json) must
+    // clamp, not trap `Int(Double)` and crash the app on Save/Merge.
+    @Test func extremeGeometryDoesNotTrap() throws {
+        let src = makeImage(60, 60) { c in
+            c.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)); c.fill(CGRect(x: 0, y: 0, width: 60, height: 60))
+        }
+        _ = try Flatten.toPNG(image: src, annotations: [], crop: Rect(x: 0, y: 0, width: 1e300, height: 1e300))
+        _ = try Flatten.toPNG(image: src, annotations: [blur(1e300, -1e300, 1e300, 1e300, mode: .solid, block: 1e300)], crop: nil)
+        _ = try Flatten.toPNG(image: src, annotations: [blur(.infinity, .infinity, .infinity, .infinity, mode: .pixelate)], crop: nil)
+    }
+
     @Test func mosaicRedactionDestroysHighContrastText() throws {
         // 1px alternating black/white horizontal stripes (stand-in for text) in a
         // region. Source has ~full luminance range there; a mosaic must collapse it.
