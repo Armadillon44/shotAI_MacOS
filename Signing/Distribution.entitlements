@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  shotAI distribution entitlements.
+
+  Deliberately EMPTY:
+  - NOT App-Sandboxed. shotAI needs CGEventTap + Accessibility (AX) + a Carbon
+    hotkey, all of which the sandbox forbids. Sandbox is only required for the Mac
+    App Store, which this app can't target anyway — Developer ID distribution is
+    unsandboxed and fine.
+  - NO hardened-runtime exception entitlements are needed. Screen Recording
+    (ScreenCaptureKit), Accessibility, and Input Monitoring (the event tap) are
+    all TCC-gated at RUNTIME, not blocked by the hardened runtime. The app loads
+    no third-party/unsigned dylibs, uses no JIT and no DYLD overrides, so none of
+    the com.apple.security.cs.* exceptions apply.
+  - MUST NOT contain com.apple.security.get-task-allow — notarization rejects it.
+    (Release builds don't add it; signing with this empty file guarantees its
+    absence.)
+
+  If a future need arises (e.g. loading an unsigned plug-in), add the specific
+  com.apple.security.cs.* key here rather than weakening the whole runtime.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict/>
+</plist>
