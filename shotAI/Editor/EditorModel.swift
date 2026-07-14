@@ -62,9 +62,10 @@ final class EditorModel {
 
     init?(step: ProjectStep, projectDir: String, store: ProjectStore, scanner: any OCRScanning) {
         // Load the RAW screenshot (confined), not step.flattened — the editor
-        // always composes from the original pixels.
+        // always composes from the original pixels. No-symlinks: a save bakes an
+        // egress-able render, so a symlinked source must not open here.
         guard !step.screenshot.isEmpty,
-              let abs = confinePath(dir: projectDir, rel: step.screenshot),
+              let abs = confinePathNoSymlinks(dir: projectDir, rel: step.screenshot),
               let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: abs) as CFURL, nil),
               let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
         else {

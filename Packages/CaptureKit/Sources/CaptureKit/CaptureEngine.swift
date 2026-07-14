@@ -891,13 +891,26 @@ public actor CaptureEngine {
                 winRect = await activeWindows.resolveWindow(ref)
             }
             var frame: CapturedFrame?
-            if let pre = await opts.preGrab?.value {
+            let pre = await opts.preGrab?.value
+            if mode == .screen, let id = s.target.monitorId {
+                // Screen mode always captures the CHOSEN monitor, even for a menu
+                // selection made on a different display. Reuse the menu pre-grab
+                // only when it IS that monitor (keeps the open menu visible in the
+                // shot); otherwise the menu was on another display — capture the
+                // chosen monitor fresh so screen mode never leaks a monitor the
+                // user didn't pick.
+                guard let intended = displays.first(where: { Int($0.id) == id }) ?? clickDisplay
+                else { return nil }
+                if let pre, pre.display.id == intended.id {
+                    frame = pre
+                } else {
+                    frame = try? await screenshotter.captureDisplay(intended.id)
+                }
+            } else if let pre {
                 frame = pre
             } else {
                 var mon = clickDisplay
-                if mode == .screen, let id = s.target.monitorId {
-                    mon = displays.first { Int($0.id) == id } ?? clickDisplay
-                } else if let winRect {
+                if let winRect {
                     mon = GrabMath.display(containing: winRect.origin, in: displays) ?? clickDisplay
                 }
                 guard let mon else { return nil }

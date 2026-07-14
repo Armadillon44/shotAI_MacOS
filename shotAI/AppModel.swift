@@ -874,8 +874,9 @@ final class AppModel {
         guard let i = steps.firstIndex(where: { $0.id == id }), i + 1 < steps.count else { return }
         let current = steps[i], next = steps[i + 1]
         guard current.kind != .text, next.kind != .text, !next.screenshot.isEmpty else { return }
-        // Load the KEPT (next) step's raw screenshot to re-bake from.
-        guard let abs = confinePath(dir: opened.dir, rel: next.screenshot),
+        // Load the KEPT (next) step's raw screenshot to re-bake from. No-symlinks:
+        // the merged render is egress-able, so refuse a symlinked source.
+        guard let abs = confinePathNoSymlinks(dir: opened.dir, rel: next.screenshot),
               let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: abs) as CFURL, nil),
               let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
         else {
@@ -951,9 +952,12 @@ final class AppModel {
     }
 
     /// Re-bake a step's own render (raw + its annotations/crop + its click marker).
+    /// Reads the source via `confinePathNoSymlinks`: the render this produces is
+    /// egress-able (Claude/export), so a symlinked screenshot must not launder an
+    /// off-project image into it — refuse the bake instead.
     private func flattenRender(for step: ProjectStep, dir: String) throws -> Data? {
         guard !step.screenshot.isEmpty,
-              let abs = confinePath(dir: dir, rel: step.screenshot),
+              let abs = confinePathNoSymlinks(dir: dir, rel: step.screenshot),
               let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: abs) as CFURL, nil),
               let cg = CGImageSourceCreateImageAtIndex(src, 0, nil)
         else { return nil }
