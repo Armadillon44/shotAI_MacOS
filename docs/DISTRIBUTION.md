@@ -1,0 +1,117 @@
+# Phase E — Distributing shotAI (Developer ID + notarization)
+
+Goal: hand someone a `shotAI.dmg` that opens cleanly on any Mac — no
+"unidentified developer" wall, works offline. This needs a **Developer ID**
+signature + **Apple notarization**. The whole flow is automated in
+[`Scripts/dist.sh`](../Scripts/dist.sh); the steps below are the **one-time human
+setup** it depends on.
+
+> The current local **Apple Development** cert is for running on your own machine
+> only. It **cannot** sign for distribution — that's what Developer ID is for.
+
+---
+
+## One-time setup (you)
+
+### 1. Join the Apple Developer Program — $99/year
+<https://developer.apple.com/programs/enroll/>. Uses your Apple ID
+(dylan.dreier@icloud.com). Approval takes a few hours to ~a day.
+
+- **Individual** — fast; the app is attributed to you personally.
+- **Organization (LFI)** — attributes it to Lacrosse Footwear; requires a
+  D‑U‑N‑S number and authority to enroll the company. Slower, but the right
+  choice if this ships under LFI. Decide before enrolling — switching later is
+  painful.
+
+**Check whether you're already enrolled:** sign in at
+<https://developer.apple.com/account>. A paid membership shows a *Membership*
+section (expiration + Team ID `JX6BU857VX`) and *Certificates, Identifiers &
+Profiles*. A free account shows an **Enroll** button instead.
+
+### 2. Create a "Developer ID Application" certificate
+Easiest in Xcode: **Settings ▸ Accounts ▸ (your Apple ID) ▸ Manage
+Certificates… ▸ + ▸ Developer ID Application**. It installs into your login
+keychain. Verify:
+
+```sh
+security find-identity -v -p codesigning | grep "Developer ID Application"
+```
+
+### 3. Store a notarization credential (once)
+Notarization uploads the app to Apple's automated malware scan. Authenticate with
+an **app-specific password**:
+
+1. Create one at <https://appleid.apple.com> ▸ **Sign-In & Security ▸
+   App-Specific Passwords**.
+2. Store it in your keychain under a profile name the script uses. **You** run
+   this — the password goes straight into the keychain; the script never sees it:
+
+   ```sh
+   xcrun notarytool store-credentials shotai-notary \
+     --apple-id "dylan.dreier@icloud.com" \
+     --team-id JX6BU857VX \
+     --password "<the app-specific password>"
+   ```
+
+   (Alternative: an App Store Connect API key `.p8` via
+   `--key/--key-id/--issuer`. The app-specific password is simplest to start.)
+
+---
+
+## Ship a build
+
+From the repo root:
+
+```sh
+./Scripts/dist.sh
+```
+
+It builds Release, signs with your Developer ID cert + hardened runtime, notarizes
+and staples the app **and** the DMG, verifies Gatekeeper, and leaves the result at:
+
+```
+build/dist/shotAI-<version>.dmg
+```
+
+First notarization of a new app can take a few minutes; later ones are usually
+1–2 min. `notarytool ... --wait` blocks until Apple responds.
+
+---
+
+## Why the app is signed the way it is
+
+- **Not sandboxed.** shotAI needs a CGEventTap, Accessibility, and a Carbon
+  hotkey — all forbidden in the App Sandbox. Sandbox is only required for the Mac
+  App Store, which this app can't target regardless. Developer ID distribution is
+  unsandboxed and fully supported.
+- **Hardened runtime, empty entitlements.** Notarization requires the hardened
+  runtime. Screen Recording, Accessibility, and Input Monitoring are gated by
+  **TCC at runtime**, not by entitlements — so
+  [`Signing/Distribution.entitlements`](../Signing/Distribution.entitlements) is
+  intentionally empty (and must never include `get-task-allow`, which
+  notarization rejects).
+- **Zero third-party dependencies**, so there's no embedded framework/dylib to
+  sign — the signature covers a single app bundle.
+
+## TCC permissions after distribution
+A Developer-ID signature gives a **stable designated requirement** (bundle id +
+team), so a user grants Screen Recording / Accessibility / Input Monitoring once
+and the grants survive updates (same property that keeps them stable across local
+rebuilds). The first-run permissions wizard still guides them.
+
+## Verifying by hand
+```sh
+spctl -a -t open --context context:primary-signature -vv build/dist/shotAI-*.dmg   # DMG accepted
+spctl -a -vvv "/Applications/shotAI.app"                                           # app accepted: "source=Notarized Developer ID"
+xcrun stapler validate "/Applications/shotAI.app"                                  # ticket stapled
+codesign --verify --deep --strict --verbose=2 "/Applications/shotAI.app"
+```
+
+## Gotchas
+- **`get-task-allow` / debug builds can't be notarized** — always ship the
+  **Release** build (the script forces it).
+- **Timestamp required** — signing uses `--timestamp` (needs network at sign
+  time); notarization rejects ad-hoc/un-timestamped signatures.
+- **Renew:** the Developer ID cert is valid ~5 years; the Program membership is
+  annual. If the membership lapses, the cert still validates already-notarized
+  builds, but you can't notarize new ones until renewed.
