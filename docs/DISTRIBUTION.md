@@ -137,9 +137,11 @@ over a personal $99 membership:
    Notarization is **optional** for MDM-installed apps (an MDM install isn't
    quarantined), but a stable Developer ID signature is still required for PPPC.
 
-   For MDM you'll typically want a signed **`.pkg`** rather than a DMG — ask and I
-   can add a `pkgbuild`/`productbuild` step to `dist.sh` and generate a PPPC
-   `.mobileconfig` template pre-filled with the bundle id + code requirement.
+   For MDM you'll want a signed **`.pkg`** rather than a DMG. That's built in:
+   `./Scripts/dist.sh pkg` produces a signed + notarized `.pkg`, and
+   [`Intune/shotAI-PPPC.mobileconfig`](../Intune/shotAI-PPPC.mobileconfig) is a
+   ready PPPC profile pre-filled with the bundle id + the three services (just add
+   your Team ID). Full Intune steps: [`Intune/README.md`](../Intune/README.md).
 
 **Ask your Mac admin:** (1) Do we have an Apple Developer Program *organization*
 membership I can be added to? (2) What MDM manages our Macs, and can we ship an
