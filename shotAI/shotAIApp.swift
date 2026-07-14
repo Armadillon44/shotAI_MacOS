@@ -80,7 +80,7 @@ struct ShotAIApp: App {
                         let url = try Log.exportRecentLog(hours: 24)
                         NSWorkspace.shared.activateFileViewerSelecting([url])
                     } catch {
-                        Log.app.error("Log export failed: \(error.localizedDescription, privacy: .public)")
+                        Log.app.error("Log export failed: \(error.localizedDescription, privacy: .private)")
                         NSSound.beep()
                     }
                 }
