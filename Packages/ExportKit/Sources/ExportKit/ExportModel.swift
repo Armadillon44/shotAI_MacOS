@@ -40,6 +40,30 @@ public func defaultExportFilename(title: String, format: ExportFormat) -> String
     safeFileBase(title) + format.stemSuffix + format.ext
 }
 
+/// The next non-colliding export filename (with extension) for `directory`, so a
+/// Save dialog defaults to "keep both" (numbered ` (1)`, ` (2)`, …) instead of
+/// prompting to overwrite a previous export. For Markdown it also steps past an
+/// existing `<stem>/` container or `<stem>-images/` folder, not just the `.md`.
+public func availableExportFilename(inDirectory directory: String, title: String, format: ExportFormat) -> String {
+    let base = safeFileBase(title) + format.stemSuffix
+    let ext = format.ext
+    let fm = FileManager.default
+    func taken(_ stem: String) -> Bool {
+        if fm.fileExists(atPath: (directory as NSString).appendingPathComponent(stem + ext)) { return true }
+        if format == .markdown {
+            if fm.fileExists(atPath: (directory as NSString).appendingPathComponent(stem)) { return true }
+            if fm.fileExists(atPath: (directory as NSString).appendingPathComponent(stem + "-images")) { return true }
+        }
+        return false
+    }
+    var n = 0
+    while true {
+        let stem = n == 0 ? base : "\(base) (\(n))"
+        if !taken(stem) { return stem + ext }
+        n += 1
+    }
+}
+
 /// The result of an export: which format + where the file landed.
 public struct ExportResult: Sendable {
     public var format: ExportFormat

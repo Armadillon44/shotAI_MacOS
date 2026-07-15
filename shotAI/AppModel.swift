@@ -179,7 +179,10 @@ final class AppModel {
             ? "Choose where to save this export. Markdown is saved as a self-contained folder."
             : "Choose where to save this export."
         panel.prompt = "Save"
-        panel.nameFieldStringValue = defaultExportFilename(title: title, format: format)
+        // Pre-fill the next non-colliding name so re-exporting keeps both by
+        // default (numbered) instead of prompting to overwrite the last export.
+        // The user can still type an existing name to replace it.
+        panel.nameFieldStringValue = availableExportFilename(inDirectory: exportDir, title: title, format: format)
         panel.directoryURL = URL(fileURLWithPath: exportDir)
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
