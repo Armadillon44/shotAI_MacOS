@@ -108,6 +108,11 @@ final class AppModel {
     /// True while an export (flatten + write) is in flight — drives the Export
     /// menu's disabled/spinner state.
     private(set) var exporting = false
+    /// Per-project progress during a bulk export (nil when not bulk-exporting) —
+    /// drives Home's "Exporting N of M…" indicator. Set once the destination is
+    /// chosen and updated as each project completes.
+    struct BulkExportProgress: Equatable { var current: Int; var total: Int }
+    private(set) var bulkExportProgress: BulkExportProgress?
     /// Set on export failure → surfaced by ContentView's alert. Success reveals
     /// the file in Finder instead (no alert needed).
     var exportError: String?
@@ -710,13 +715,16 @@ final class AppModel {
         // Matches the single-project export() path. The early returns below reset
         // it via defer.
         exporting = true
-        defer { exporting = false }
+        defer { exporting = false; bulkExportProgress = nil }
         // Ask up front: drop each export in its own project folder, or gather all
         // of them into one folder the user picks. Cancelling backs out entirely.
         guard let target = chooseBulkExportTarget(count: paths.count, format: format) else { return }
         var failed = 0
         var usedStems = Set<String>()  // dedup filenames within a single-folder batch
-        for path in paths {
+        for (i, path) in paths.enumerated() {
+            // Drive Home's "Exporting N of M…" indicator. Each project awaits disk
+            // work, so the main actor yields between them and this repaints.
+            bulkExportProgress = BulkExportProgress(current: i + 1, total: paths.count)
             do {
                 let loaded = try await store.openProject(at: path)
                 let manifest = try await ensureFlattened(dir: loaded.dir, manifest: loaded.manifest)
@@ -733,14 +741,21 @@ final class AppModel {
                 Log.store.error("bulk export \(format.rawValue, privacy: .public) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
             }
         }
+        bulkExportProgress = nil  // done writing; below is just reveal + re-list
         if opened != nil { await reloadOpened() }
         await refresh()
         // Reveal only when something was actually written (matches single export()).
-        // For a chosen folder, reveal that folder; otherwise the projects dir.
         if failed < paths.count {
-            let revealDir: String
-            if case .oneFolder(let dir) = target { revealDir = dir } else { revealDir = settings.projectsDir() }
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: revealDir)])
+            if case .oneFolder(let dir) = target {
+                // Everything landed in one place — OPEN that folder so its exports
+                // are shown. (activateFileViewerSelecting would open the PARENT and
+                // merely highlight the folder — the "one level too high" behavior.)
+                NSWorkspace.shared.open(URL(fileURLWithPath: dir))
+            } else {
+                // Per-project: exports are scattered across each project's export/
+                // folder, so just surface the projects dir (historical behavior).
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: settings.projectsDir())])
+            }
         }
         if failed > 0 { exportError = "\(failed) of \(paths.count) export\(paths.count == 1 ? "" : "s") failed." }
         Log.store.notice("bulk export \(format.rawValue, privacy: .public): \(paths.count - failed, privacy: .public)/\(paths.count, privacy: .public) ok")

@@ -68,7 +68,19 @@ struct HomeView: View {
                     if tab == .active { hero }
                     tabsRow
                     listHead
-                    if !selection.isEmpty { bulkBar }
+                    // Progress takes precedence over the bulk bar, so ticking a
+                    // card mid-export can't hide the "Exporting N of M…" feedback.
+                    // The presence-keyed .animation gives the bar the same slide
+                    // in/out the bulk bar gets (its own transition can't self-
+                    // animate — the model mutations are bare assignments).
+                    Group {
+                        if let prog = model.bulkExportProgress {
+                            bulkProgressBar(prog)
+                        } else if !selection.isEmpty {
+                            bulkBar
+                        }
+                    }
+                    .animation(selectionAnim, value: model.bulkExportProgress != nil)
                     if tabProjects.isEmpty {
                         tab == .archive ? AnyView(archiveEmptyState) : AnyView(emptyState)
                     } else if filteredProjects.isEmpty {
@@ -426,6 +438,31 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .cardElevation()
         .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// Shown in the bulk bar's slot while a bulk export runs (the selection is
+    /// cleared the instant export starts, so the bar itself is already gone).
+    /// Gives the "there should be a progress indicator until they're all done"
+    /// feedback, then Finder surfaces the destination on completion.
+    private func bulkProgressBar(_ p: AppModel.BulkExportProgress) -> some View {
+        HStack(spacing: 12) {
+            ProgressView(value: Double(p.current), total: Double(max(p.total, 1)))
+                .progressViewStyle(.linear)
+                .frame(width: 150)
+            Text("Exporting \(p.current) of \(p.total)…")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Palette.ink)
+                .contentTransition(.numericText())
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Palette.surface2)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.hair))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .cardElevation()
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: p.current)
     }
 
     /// Bulk export as a pull-down (same document formats as the per-row menu).
