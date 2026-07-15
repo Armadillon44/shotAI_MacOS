@@ -23,6 +23,10 @@ struct ReportView: View {
     @FocusState private var focus: String?
     /// The step pending a delete confirmation, if any.
     @State private var deleteStepTarget: ProjectStep?
+    /// Bumped to force the title field to re-seed from the store — used when an
+    /// empty-title commit is rejected (the rename is a no-op, so the field's own
+    /// text prop doesn't change and it would otherwise stay showing a placeholder).
+    @State private var titleResetToken = 0
     /// A pending immediate window/screen capture — drives the target-picker sheet.
     @State private var immediatePick: ImmediatePick?
     /// A pending "Capture steps here" recording — drives the record sheet.
@@ -41,7 +45,7 @@ struct ReportView: View {
     /// then per step: shot = caption/instructions, text = heading/body, callout =
     /// heading/body).
     private var orderedFieldIDs: [String] {
-        var ids: [String] = []
+        var ids: [String] = ["title"]
         if opened.manifest.intro != nil || addingIntro { ids += ["intro:h", "intro:b"] }
         for step in steps {
             if step.kind == .text {
@@ -284,8 +288,25 @@ struct ReportView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(opened.manifest.title)
-                .font(.title.bold())
+            // Click-to-edit, like every other field. Commits through the same
+            // rename path as Home's ⋯ → Rename (trims + ignores empty). The
+            // -5 leading cancels InlineEditable's own padding so the title text
+            // stays flush with the meta line below it.
+            InlineEditable(
+                text: opened.manifest.title,
+                placeholder: "Untitled guide",
+                font: .title.bold(),
+                id: "title",
+                focus: $focus
+            ) { new in
+                if new.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    titleResetToken += 1  // reject empty → snap back to current title
+                } else {
+                    Task { await model.renameProject(path: opened.dir, to: new) }
+                }
+            }
+            .id(titleResetToken)  // new identity re-seeds draft from the (unchanged) title
+            .padding(.leading, -5)
             HStack(spacing: 6) {
                 if let created = ContentView.formatDate(opened.manifest.createdAt) {
                     Text("Created \(created)")
