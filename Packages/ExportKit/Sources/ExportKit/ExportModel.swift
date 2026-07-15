@@ -21,6 +21,25 @@ public enum ExportFormat: String, CaseIterable, Sendable {
     public var stemSuffix: String { self == .htmlPlain ? "-plain" : "" }
 }
 
+/// Where a document export is written.
+public enum ExportDestination: Sendable {
+    /// The project's own `export/` folder, auto-named with collision numbering
+    /// (the historical default).
+    case projectFolder
+    /// A user-chosen location (e.g. from a Save dialog): write `<stem><ext>` (and,
+    /// for Markdown, a sibling `<stem>-images/`) into `directory`, OVERWRITING an
+    /// existing file of that name — the Save dialog already handled the overwrite
+    /// prompt.
+    case custom(directory: String, stem: String)
+}
+
+/// The suggested filename (with extension) for an export Save dialog. Matches the
+/// auto-naming used for the project's `export/` folder, minus the collision
+/// number — so "Save" in the default folder lands the same name it always would.
+public func defaultExportFilename(title: String, format: ExportFormat) -> String {
+    safeFileBase(title) + format.stemSuffix + format.ext
+}
+
 /// The result of an export: which format + where the file landed.
 public struct ExportResult: Sendable {
     public var format: ExportFormat

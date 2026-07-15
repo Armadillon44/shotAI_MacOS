@@ -121,13 +121,15 @@ final class AppModel {
         await export(projectPath: path, format: format)
     }
 
-    /// Flatten every shot that lacks a current marker-baked render, then export
-    /// the project at `projectPath` to `format` under its `export/` folder and
-    /// reveal the file in Finder. Works whether or not the project is the one
-    /// currently open (the Home ⋯ menu exports by path). Fail-closed: if a step
-    /// can't be flattened or the render gate refuses (unbaked redaction/crop), the
-    /// error is surfaced and NO partial export is written. Mirrors the Windows
-    /// flow (ensureFlattened → exportProject).
+    /// Flatten every shot that lacks a current marker-baked render, then ask the
+    /// user where to save (a Save dialog pre-pointed at the project's `export/`
+    /// folder — Save there for the default spot, or navigate anywhere for Save
+    /// As), write the export, and reveal it in Finder. Works whether or not the
+    /// project is the one currently open (the Home ⋯ menu exports by path).
+    /// Fail-closed: if a step can't be flattened or the render gate refuses
+    /// (unbaked redaction/crop), the error is surfaced and NO partial export is
+    /// written — and the Save dialog only appears once the export is confirmed
+    /// clean, so the user is never asked where to put something that can't be made.
     func export(projectPath: String, format: ExportFormat) async {
         guard !exporting else { return }
         exporting = true
@@ -135,7 +137,11 @@ final class AppModel {
         do {
             let loaded = try await store.openProject(at: projectPath)
             let manifest = try await ensureFlattened(dir: loaded.dir, manifest: loaded.manifest)
-            let result = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline)
+            // Prepared and safe — now let the user choose the destination.
+            guard let dest = chooseExportDestination(dir: loaded.dir, title: manifest.title, format: format) else {
+                return  // user cancelled the Save dialog
+            }
+            let result = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline, to: dest)
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: result.outputPath)])
             // If we just re-flattened the project that's on screen, refresh it.
             if opened?.dir == loaded.dir { await reloadOpened() }
@@ -144,6 +150,32 @@ final class AppModel {
             exportError = error.localizedDescription
             Log.store.error("export \(format.rawValue, privacy: .public) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
         }
+    }
+
+    /// Save dialog for a single-project export: pre-pointed at the project's
+    /// `export/` folder with the default filename, so clicking **Save** lands the
+    /// export where it always would, while the user can navigate anywhere else for
+    /// a Save-As. Returns nil if the user cancels.
+    @MainActor
+    private func chooseExportDestination(dir: String, title: String, format: ExportFormat) -> ExportDestination? {
+        let exportDir = (dir as NSString).appendingPathComponent("export")
+        try? FileManager.default.createDirectory(atPath: exportDir, withIntermediateDirectories: true)
+        let panel = NSSavePanel()
+        panel.title = "Export"
+        panel.message = "Choose where to save this export."
+        panel.prompt = "Save"
+        panel.nameFieldStringValue = defaultExportFilename(title: title, format: format)
+        panel.directoryURL = URL(fileURLWithPath: exportDir)
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        switch format {
+        case .html, .htmlPlain: panel.allowedContentTypes = [.html]
+        case .pdf:              panel.allowedContentTypes = [.pdf]
+        case .markdown:         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return .custom(directory: url.deletingLastPathComponent().path,
+                       stem: url.deletingPathExtension().lastPathComponent)
     }
 
     // MARK: - Shareable package (.zip)
