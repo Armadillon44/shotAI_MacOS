@@ -702,15 +702,32 @@ final class AppModel {
     /// failures are counted. Opening a project flattens+may auto-restore it, so a
     /// re-list follows.
     func exportProjects(paths: [String], format: ExportFormat) async {
-        guard !exporting else { return }
+        guard !exporting, !paths.isEmpty else { return }
+        // Claim `exporting` BEFORE showing any modal. The chooser below spins a
+        // nested (common-mode) run loop, during which a queued exportProjects
+        // Task could otherwise pass the `!exporting` guard and stack a second
+        // dialog / double-run (the Home button's disable is gated on this flag).
+        // Matches the single-project export() path. The early returns below reset
+        // it via defer.
         exporting = true
         defer { exporting = false }
+        // Ask up front: drop each export in its own project folder, or gather all
+        // of them into one folder the user picks. Cancelling backs out entirely.
+        guard let target = chooseBulkExportTarget(count: paths.count, format: format) else { return }
         var failed = 0
+        var usedStems = Set<String>()  // dedup filenames within a single-folder batch
         for path in paths {
             do {
                 let loaded = try await store.openProject(at: path)
                 let manifest = try await ensureFlattened(dir: loaded.dir, manifest: loaded.manifest)
-                _ = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline)
+                let dest: ExportDestination
+                switch target {
+                case .eachProjectFolder:
+                    dest = .projectFolder
+                case .oneFolder(let dir):
+                    dest = bulkCustomDestination(in: dir, title: manifest.title, format: format, used: &usedStems)
+                }
+                _ = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline, to: dest)
             } catch {
                 failed += 1
                 Log.store.error("bulk export \(format.rawValue, privacy: .public) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
@@ -719,11 +736,80 @@ final class AppModel {
         if opened != nil { await reloadOpened() }
         await refresh()
         // Reveal only when something was actually written (matches single export()).
+        // For a chosen folder, reveal that folder; otherwise the projects dir.
         if failed < paths.count {
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: settings.projectsDir())])
+            let revealDir: String
+            if case .oneFolder(let dir) = target { revealDir = dir } else { revealDir = settings.projectsDir() }
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: revealDir)])
         }
         if failed > 0 { exportError = "\(failed) of \(paths.count) export\(paths.count == 1 ? "" : "s") failed." }
         Log.store.notice("bulk export \(format.rawValue, privacy: .public): \(paths.count - failed, privacy: .public)/\(paths.count, privacy: .public) ok")
+    }
+
+    /// Where a bulk export should land.
+    private enum BulkExportTarget {
+        case eachProjectFolder                 // per-project export/ (historical)
+        case oneFolder(directory: String)      // all exports in one chosen folder
+    }
+
+    /// Ask whether to save each guide in its own project's `export/` folder or
+    /// gather them all into one folder of the user's choosing. Returns nil if the
+    /// user cancels either the choice or the folder picker.
+    @MainActor
+    private func chooseBulkExportTarget(count: Int, format: ExportFormat) -> BulkExportTarget? {
+        let alert = NSAlert()
+        alert.messageText = "Export \(count) project\(count == 1 ? "" : "s")"
+        alert.informativeText = "Save each guide in its own project’s export folder, or gather them all into one folder you choose."
+        alert.addButton(withTitle: "Each Project’s Folder")  // .alertFirstButtonReturn
+        alert.addButton(withTitle: "Choose One Folder…")     // .alertSecondButtonReturn
+        alert.addButton(withTitle: "Cancel")                 // .alertThirdButtonReturn
+        NSApp.activate(ignoringOtherApps: true)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .eachProjectFolder
+        case .alertSecondButtonReturn:
+            let panel = NSOpenPanel()
+            panel.title = "Choose Export Folder"
+            panel.message = "Choose a folder to save all \(count) export\(count == 1 ? "" : "s") into."
+            panel.prompt = "Export Here"
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.canCreateDirectories = true
+            NSApp.activate(ignoringOtherApps: true)
+            guard panel.runModal() == .OK, let url = panel.url else { return nil }
+            return .oneFolder(directory: url.path)
+        default:
+            return nil
+        }
+    }
+
+    /// A collision-safe destination inside one shared folder. Non-Markdown lands
+    /// as "<stem><ext>"; Markdown gets its own self-contained "<stem>/" subfolder
+    /// (matching the single custom-Markdown export, and keeping each guide's
+    /// images with its `.md`). Dedupes against BOTH the filesystem and the stems
+    /// already claimed earlier in this batch, so two same-titled projects — or a
+    /// re-export over a prior one — never clobber each other.
+    @MainActor
+    private func bulkCustomDestination(
+        in directory: String, title: String, format: ExportFormat, used: inout Set<String>
+    ) -> ExportDestination {
+        let base = (defaultExportFilename(title: title, format: format) as NSString).deletingPathExtension
+        let fm = FileManager.default
+        func taken(_ stem: String) -> Bool {
+            if used.contains(stem.lowercased()) { return true }
+            // Markdown occupies a "<stem>/" folder; others a "<stem><ext>" file.
+            let probe = format == .markdown ? stem : "\(stem)\(format.ext)"
+            return fm.fileExists(atPath: (directory as NSString).appendingPathComponent(probe))
+        }
+        var stem = base
+        var n = 2
+        while taken(stem) { stem = "\(base) (\(n))"; n += 1 }
+        used.insert(stem.lowercased())
+        if format == .markdown {
+            return .custom(directory: (directory as NSString).appendingPathComponent(stem), stem: stem)
+        }
+        return .custom(directory: directory, stem: stem)
     }
 
     /// Reveal a project's folder in Finder (confined to a known project path).
