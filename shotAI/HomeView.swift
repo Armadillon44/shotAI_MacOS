@@ -483,8 +483,12 @@ struct HomeView: View {
     }
 
     private func runBulkExport(_ format: ExportFormat) {
-        let paths = Array(selection); clearSelection()
-        Task { await model.exportProjects(paths: paths, format: format) }
+        // Snapshot the paths but KEEP the checkboxes visible through the
+        // destination chooser — clearing up front made the ticks vanish under the
+        // dialog, reading as an accidental deselect. onConfirmed clears them the
+        // moment writing begins (never on cancel, so cancel leaves them selected).
+        let paths = Array(selection)
+        Task { await model.exportProjects(paths: paths, format: format) { clearSelection() } }
     }
 
     /// True when every currently-visible (tab + search) project is selected.

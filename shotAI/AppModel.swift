@@ -706,7 +706,12 @@ final class AppModel {
     /// reveal the projects root. Same fail-closed flatten as the single export;
     /// failures are counted. Opening a project flattens+may auto-restore it, so a
     /// re-list follows.
-    func exportProjects(paths: [String], format: ExportFormat) async {
+    /// `onConfirmed` fires once the destination chooser is committed (never on
+    /// cancel), just before writing starts — the caller uses it to clear its
+    /// selection then, so the checkboxes stay visible through the dialog (clearing
+    /// up front made them look accidentally deselected) but are gone by the time
+    /// the progress bar appears.
+    func exportProjects(paths: [String], format: ExportFormat, onConfirmed: () -> Void = {}) async {
         guard !exporting, !paths.isEmpty else { return }
         // Claim `exporting` BEFORE showing any modal. The chooser below spins a
         // nested (common-mode) run loop, during which a queued exportProjects
@@ -719,6 +724,7 @@ final class AppModel {
         // Ask up front: drop each export in its own project folder, or gather all
         // of them into one folder the user picks. Cancelling backs out entirely.
         guard let target = chooseBulkExportTarget(count: paths.count, format: format) else { return }
+        onConfirmed()  // chooser committed → caller clears its selection now
         var failed = 0
         var usedStems = Set<String>()  // dedup filenames within a single-folder batch
         for (i, path) in paths.enumerated() {
