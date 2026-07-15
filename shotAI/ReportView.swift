@@ -146,10 +146,9 @@ struct ReportView: View {
         }
         .background(Palette.surface)
         .onPreferenceChange(ReportColumnWidthKey.self) { reportColumnWidth = $0 }
-        // Size every step figure to the live column so it (and its zoom controls)
-        // fit the card at any window width.
-        .environment(\.reportFigureFitWidth,
-                     min(maxStepFigureWidth, max(160, reportColumnWidth - stepFigureGutter)))
+        // Size every step figure to fill the live card so a full-width screenshot
+        // uses the whole width (and its zoom controls stay inside), at any window.
+        .environment(\.reportFigureFitWidth, max(160, reportColumnWidth - stepFigureGutter))
         .confirmationDialog(
             "Delete this step?",
             isPresented: Binding(get: { deleteStepTarget != nil }, set: { if !$0 { deleteStepTarget = nil } }),
@@ -462,13 +461,13 @@ private struct IntroBox: View {
     }
 }
 
-/// Upper bound on the step-figure width, and the horizontal chrome around it
-/// (outer padding 24·2 + card padding 14·2 + the rail and ⋯ menu gutters ≈ 170).
-/// The figure is sized to min(max, column − gutter) so it — and its floating zoom
-/// controls — always fit inside the card, at any window width (the report column
-/// is capped at 880 but can be dragged narrower).
-private let maxStepFigureWidth: CGFloat = 700
-private let stepFigureGutter: CGFloat = 170
+/// Horizontal chrome around the step figure: outer padding (24·2) + the rail
+/// gutter (badge 32 + spacing 14) + card padding (14·2) ≈ 122; 124 leaves a hair
+/// of margin. The figure fills the card content (column − gutter) so a full-width
+/// screenshot uses the whole card — and its floating zoom controls stay inside —
+/// shrinking with the window down to the 680 minimum. No fixed upper cap: the
+/// column is already bounded at 880, so the figure tops out ≈ 756.
+private let stepFigureGutter: CGFloat = 124
 
 /// Measured width of the report column (the maxWidth-880 content frame).
 private struct ReportColumnWidthKey: PreferenceKey {
@@ -479,7 +478,7 @@ private struct ReportColumnWidthKey: PreferenceKey {
 /// The resolved per-step figure fit width, pushed down so StepFigure sizes itself
 /// to the live column without threading a parameter through StepRow/shotBlock.
 private struct ReportFigureFitWidthKey: EnvironmentKey {
-    static let defaultValue: CGFloat = maxStepFigureWidth
+    static let defaultValue: CGFloat = 880 - stepFigureGutter
 }
 extension EnvironmentValues {
     var reportFigureFitWidth: CGFloat {
@@ -503,16 +502,22 @@ private struct StepRow: View {
     @State private var dropTargeted = false
 
     var body: some View {
-        // Frame each step in a subtle card so steps read as distinct, separated
-        // units (#40). Callouts are already their own colored box — don't
-        // double-frame them.
-        let framed = step.callout == nil
+        // Every step is a full-width card so steps read as distinct, aligned
+        // units (#40). The frame is tinted by type — the callout palette for
+        // note/caution/warning, the neutral surface for shots/text. The rail
+        // (number/glyph + drag grip) sits in a left gutter so the badges line up
+        // across all step types, and the ⋯ menu overlays the card's top-right
+        // corner (not a column) so a full-width screenshot uses the whole width.
+        let calloutKind = step.callout
+        let fill: Color = calloutKind.map { CalloutBox.palette($0).background } ?? Palette.surface2
+        let border: Color = calloutKind.map { CalloutBox.palette($0).border } ?? Palette.hair
+        let borderWidth: CGFloat = calloutKind == nil ? 1 : 1.5
         return HStack(alignment: .top, spacing: 14) {
             rail
             VStack(alignment: .leading, spacing: 8) {
                 if step.kind == .text {
-                    if let callout = step.callout {
-                        CalloutBox(step: step, kind: callout, focus: focus)
+                    if let calloutKind {
+                        CalloutBox(step: step, kind: calloutKind, focus: focus)
                     } else {
                         textBlock
                     }
@@ -521,20 +526,18 @@ private struct StepRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            stepMenu
-        }
-        .padding(framed ? 14 : 0)
-        // Frame with a filled + outlined rounded rect but do NOT clipShape: the
-        // step figure is sized to the live column (reportFigureFitWidth env), and
-        // its zoom controls float at the figure's trailing edge — a clip would
-        // crop a wide screenshot's right edge and hide those controls. Content is
-        // inset by the padding, so it clears the rounded corners without a clip.
-        .background {
-            if framed {
+            .padding(14)
+            // Filled + outlined rounded rect, NO clipShape: the figure is sized to
+            // the card (reportFigureFitWidth env) and its zoom controls float at
+            // its trailing edge — a clip would crop them. Content is inset by the
+            // padding, so it clears the rounded corners without a clip.
+            .background {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Palette.surface2)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.hair, lineWidth: 1))
+                    .fill(fill)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(border, lineWidth: borderWidth))
             }
+            // ⋯ inside the card's top-right corner (aligned with the content inset).
+            .overlay(alignment: .topTrailing) { stepMenu.padding(14) }
         }
         // A dragged step dropped on this row lands just before it; the accent
         // line shows where it will go.
@@ -594,8 +597,10 @@ private struct StepRow: View {
         .help("Step actions")
     }
 
-    /// Left rail: a drag grip (reorder any step, callouts included) over the
-    /// step number for numbered steps, or a type glyph for callouts.
+    /// Left rail (in the gutter, outside the card): a drag grip (reorder any step,
+    /// callouts included) under the step number for numbered steps, or a type
+    /// glyph for callouts. The top inset matches the card's content padding so the
+    /// badge lines up with the step's first line across all step types.
     private var rail: some View {
         VStack(spacing: 6) {
             badge // number/glyph on top, aligned with the step's first line
@@ -612,6 +617,7 @@ private struct StepRow: View {
                         .clipShape(Capsule())
                 }
         }
+        .padding(.top, 14)
     }
 
     /// A short label for the drag preview.
@@ -655,6 +661,7 @@ private struct StepRow: View {
             InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .title3.bold(), id: "th:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, heading: new) }
             }
+            .padding(.trailing, 28)  // clear the ⋯ overlay at the card's top-right
             InlineEditable(text: step.body ?? "", placeholder: "Empty — click to add text.", multiline: true, id: "tb:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, body: new) }
             }
@@ -672,6 +679,7 @@ private struct StepRow: View {
                 .help("Annotate, redact, or crop this step")
                 .fixedSize()
         }
+        .padding(.trailing, 28)  // clear the ⋯ overlay at the card's top-right
         if let rel = ReportPresentation.displayImagePath(for: step) {
             // Force a fresh figure (new @State → reload) whenever the render
             // revision or path changes, so a re-saved redaction refreshes in
@@ -745,6 +753,9 @@ private struct CalloutBox: View {
     }
 
     var body: some View {
+        // The colored frame is now the enclosing step card (see StepRow) — this is
+        // just the callout's content (heading + type picker + body), so a callout
+        // is a full-width card with the ⋯ inside, consistent with other steps.
         let palette = Self.palette(kind)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
@@ -763,15 +774,12 @@ private struct CalloutBox: View {
                 .fixedSize()
                 .help("Change callout type")
             }
+            .padding(.trailing, 28)  // clear the ⋯ overlay at the card's top-right
             InlineEditable(text: step.body ?? "", placeholder: "Callout text…", color: palette.text, multiline: true, id: "cb:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, body: new) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(palette.background)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.border, lineWidth: 1.5))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
