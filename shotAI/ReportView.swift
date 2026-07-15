@@ -673,7 +673,7 @@ private struct StepRow: View {
 
     @ViewBuilder private var shotBlock: some View {
         HStack(alignment: .top, spacing: 8) {
-            InlineEditable(text: step.caption, placeholder: "Add a caption…", font: .system(size: 14, weight: .semibold), id: "cap:\(step.id)", focus: focus) { new in
+            InlineEditable(text: step.caption, placeholder: "Add a caption…", font: .system(size: 14, weight: .bold), id: "cap:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, caption: new) }
             }
             Button("Edit", systemImage: "pencil") { onEdit(step) }
@@ -761,7 +761,7 @@ private struct CalloutBox: View {
         let palette = Self.palette(kind)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
-                InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .system(size: 14, weight: .semibold), color: palette.text, id: "ch:\(step.id)", focus: focus) { new in
+                InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .system(size: 14, weight: .bold), color: palette.text, id: "ch:\(step.id)", focus: focus) { new in
                     Task { await model.editStepText(stepId: step.id, heading: new) }
                 }
                 Spacer(minLength: 8)
@@ -980,7 +980,6 @@ private struct StepFigure: View {
     /// lags behind an async save+reload); cleared once the save round-trips. Lets
     /// rapid clicks compound off the pending value instead of coalescing.
     @State private var pendingZoom: Double?
-    @State private var hovering = false
 
     /// Effective zoom (optimistic pending, else persisted; never below fit).
     private var zoom: Double { pendingZoom ?? max(1, step.reportZoom ?? 1) }
@@ -1044,13 +1043,13 @@ private struct StepFigure: View {
             .gesture(canPan ? panGesture(shown: shown, rangeX: rangeX, rangeY: rangeY) : nil)
 
             // Floating zoom controls (top-right, outside the clipped box so they
-            // don't pan). Clearly visible at rest, full-strength on hover.
+            // don't pan). Always full-strength — fading the glass layer with
+            // .opacity mutes the Liquid Glass material; the individual buttons
+            // still light up on hover.
             zoomControls
                 .padding(6)
-                .opacity(hovering ? 1 : 0.85)
         }
         .frame(width: v.boxWidth, height: v.boxHeight, alignment: .topLeading)
-        .onHover { hovering = $0 }
     }
 
     private var zoomControls: some View {
