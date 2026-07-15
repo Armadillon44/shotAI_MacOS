@@ -9,9 +9,12 @@ import ShotModel
 import SOPKit
 import UniformTypeIdentifiers
 
-/// Keeps the export Save dialog's suggested filename collision-free for whatever
-/// folder the user navigates into — so "keep both" stays the default beyond the
-/// initial `export/` folder. A name the user has typed themselves is left alone.
+/// Keeps the export Save dialog "keep both" no matter which folder the user saves
+/// into. The reliable hook is `userEnteredFilename:confirmed:`, which fires when
+/// the user clicks Save and lets us return a non-colliding name — so the native
+/// "Replace?" prompt never appears and each export is kept. `didChangeToDirectory`
+/// additionally freshens the visible suggestion while browsing, where AppKit
+/// calls it.
 @MainActor
 private final class ExportSavePanelNamer: NSObject, NSOpenSavePanelDelegate {
     private let title: String
@@ -22,12 +25,26 @@ private final class ExportSavePanelNamer: NSObject, NSOpenSavePanelDelegate {
         self.format = format
         self.lastAutoName = initial
     }
+
+    /// Fires on Save — return a name that doesn't collide in the chosen folder, so
+    /// re-exporting keeps both instead of prompting to overwrite. Serializes from
+    /// whatever the user entered/kept (a trailing " (n)" is normalized away).
+    @objc func panel(_ sender: Any, userEnteredFilename filename: String, confirmed okFlag: Bool) -> String? {
+        guard okFlag, let panel = sender as? NSSavePanel, let dir = panel.directoryURL?.path else { return filename }
+        let ext = format.ext
+        let base = filename.hasSuffix(ext) ? String(filename.dropLast(ext.count)) : filename
+        let stem = availableExportStem(inDirectory: dir, base: base, format: format)
+        lastAutoName = stem + ext
+        // Return the stem only — the panel appends the extension (allowedContentTypes),
+        // and exportProject re-derives the path from the stem + format regardless.
+        return stem
+    }
+
+    /// Freshen the visible suggestion as the user browses (best-effort; AppKit
+    /// doesn't always call this for sidebar navigation — the Save hook above is
+    /// the guarantee). Never clobbers a name the user typed themselves.
     @objc func panel(_ sender: Any, didChangeToDirectoryURL url: URL?) {
         guard let panel = sender as? NSSavePanel, let dir = url?.path else { return }
-        // Only re-fill when the field still holds our last suggestion (the user
-        // hasn't customized it) — never clobber a name they typed themselves.
-        // NSSavePanel's nameFieldStringValue may drop the extension, so accept
-        // either the full "<name>.<ext>" or the bare "<name>" form we last set.
         let stem = (lastAutoName as NSString).deletingPathExtension
         let current = panel.nameFieldStringValue
         guard current == lastAutoName || current == stem else { return }
