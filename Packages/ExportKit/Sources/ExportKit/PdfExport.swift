@@ -38,22 +38,23 @@ func renderPdf(
         pdf.advance(20)
     }
 
-    for item in items {
+    for (idx, item) in items.enumerated() {
+        let separator = idx > 0  // subtle hairline between steps (#40)
         switch item {
         case .shot(let n, let caption, let body, let note, _, let image):
             let cg = (try? imageBytes(image)).flatMap(Self_cgImage)
             pdf.drawStep(
                 badge: "\(n)", badgeColor: Ink.badge,
                 caption: caption.isEmpty ? "Step \(n)" : caption,
-                image: cg, body: body, note: note)
+                image: cg, body: body, note: note, separator: separator)
 
         case .text(let n, let heading, let body):
             pdf.drawStep(
                 badge: "\(n)", badgeColor: Ink.badge,
-                caption: heading, image: nil, body: body, note: "")
+                caption: heading, image: nil, body: body, note: "", separator: separator)
 
         case .callout(let kind, let heading, let body):
-            pdf.drawCallout(kind: kind, heading: heading, body: body)
+            pdf.drawCallout(kind: kind, heading: heading, body: body, separator: separator)
         }
     }
 
@@ -177,12 +178,27 @@ private final class PdfCanvas {
 
     /// Page-break if `height` won't fit in the space left on the current page
     /// (unless we're already at the top — then the block is simply taller than a
-    /// page and will be handled by flowing/capping).
-    private func ensureRoom(_ height: CGFloat) {
-        if !pageOpen { beginPage(); return }
+    /// page and will be handled by flowing/capping). Returns true if it started a
+    /// fresh page, so callers can suppress a leading separator (a page break is
+    /// its own separation, and a rule would strand at the old page's bottom).
+    @discardableResult
+    private func ensureRoom(_ height: CGFloat) -> Bool {
+        if !pageOpen { beginPage(); return true }
         if cursorY - height < contentBottom && cursorY < contentTop {
-            endPage(); beginPage()
+            endPage(); beginPage(); return true
         }
+        return false
+    }
+
+    /// A subtle full-width hairline at the current cursor — the between-steps
+    /// separator (#40). Drawn only when the following item fits on this page.
+    private func strokeStepRule() {
+        guard let ctx, pageOpen else { return }
+        ctx.setStrokeColor(Ink.hair.cgColor)
+        ctx.setLineWidth(0.5)
+        ctx.move(to: CGPoint(x: margin, y: cursorY))
+        ctx.addLine(to: CGPoint(x: margin + contentW, y: cursorY))
+        ctx.strokePath()
     }
 
     static func measure(_ a: NSAttributedString, width: CGFloat) -> CGFloat {
@@ -237,7 +253,7 @@ private final class PdfCanvas {
 
     // MARK: Step + callout
 
-    func drawStep(badge: String, badgeColor: NSColor, caption: String, image: CGImage?, body: String, note: String) {
+    func drawStep(badge: String, badgeColor: NSColor, caption: String, image: CGImage?, body: String, note: String, separator: Bool) {
         guard let ctx else { return }
         let capAttr = caption.isEmpty ? nil : Ink.attr(caption, size: 13, weight: .semibold, color: Ink.title)
         let capH = capAttr.map { Self.measure($0, width: mainW) } ?? 0
@@ -254,8 +270,11 @@ private final class PdfCanvas {
                 if imgH > maxH { imgH = maxH; imgW = imgH * nw / nh }
             }
         }
-        // Keep the badge + caption + image on one page.
-        ensureRoom(headerH + (imgH > 0 ? 10 + imgH : 0))
+        // Keep the leading separator gap + badge + caption + image on one page. If
+        // this must break, skip the separator (the page break is the separation).
+        let sepGap: CGFloat = separator ? 28 : 0
+        let broke = ensureRoom(sepGap + headerH + (imgH > 0 ? 10 + imgH : 0))
+        if separator && !broke { advance(14); strokeStepRule(); advance(14) }
 
         let headerTop = cursorY
         // Badge circle + centered number.
@@ -292,10 +311,11 @@ private final class PdfCanvas {
             advance(6)
             drawFlowing(Ink.attr(note, size: 10, color: Ink.note, italic: true), x: mainX, width: mainW)
         }
-        advance(22)
+        // No trailing gap here — inter-step spacing is the next item's leading
+        // separator gap (see drawStep/drawCallout's `separator` handling).
     }
 
-    func drawCallout(kind: CalloutKindExport, heading: String, body: String) {
+    func drawCallout(kind: CalloutKindExport, heading: String, body: String, separator: Bool) {
         guard let ctx else { return }
         let c = Ink.callout(kind)
         let glyph = calloutGlyphExport(kind)
@@ -311,7 +331,9 @@ private final class PdfCanvas {
         let gap: CGFloat = (bH > 0) ? 4 : 0
         let boxH = padY * 2 + hH + bH + gap
 
-        ensureRoom(boxH)
+        let sepGap: CGFloat = separator ? 28 : 0
+        let broke = ensureRoom(sepGap + boxH)
+        if separator && !broke { advance(14); strokeStepRule(); advance(14) }
         let top = cursorY
         let box = CGRect(x: margin, y: top - boxH, width: contentW, height: boxH)
         ctx.setFillColor(c.bg.cgColor)
@@ -323,6 +345,6 @@ private final class PdfCanvas {
         if let bodyAttr {
             drawAt(bodyAttr, x: innerX, width: innerW, height: bH, top: top - padY - hH - gap, ctx: ctx)
         }
-        cursorY = top - boxH - 16
+        cursorY = top - boxH  // inter-step spacing is the next item's separator gap
     }
 }

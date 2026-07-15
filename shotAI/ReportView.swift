@@ -36,6 +36,10 @@ struct ReportView: View {
     /// Tab-between-fields state + the installed key-down monitor token.
     @State private var tabNav = TabNavigator()
     @State private var tabMonitor: Any?
+    /// The measured report column width (≤ 880), used to size each step figure so
+    /// it (and its zoom controls) always fit — even when the window is dragged
+    /// narrow. Seeded at the 880 cap; updated by the geometry probe below.
+    @State private var reportColumnWidth: CGFloat = 880
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
@@ -102,6 +106,10 @@ struct ReportView: View {
             }
             .padding(24)
             .frame(maxWidth: 880)
+            // Measure the (≤880) column so each figure can be sized to fit it.
+            .background(GeometryReader { g in
+                Color.clear.preference(key: ReportColumnWidthKey.self, value: g.size.width)
+            })
             .frame(maxWidth: .infinity)
             // A click anywhere off a field commits the active edit (macOS text
             // fields don't resign on a dead-space click). Field buttons/fields
@@ -137,6 +145,11 @@ struct ReportView: View {
             }
         }
         .background(Palette.surface)
+        .onPreferenceChange(ReportColumnWidthKey.self) { reportColumnWidth = $0 }
+        // Size every step figure to the live column so it (and its zoom controls)
+        // fit the card at any window width.
+        .environment(\.reportFigureFitWidth,
+                     min(maxStepFigureWidth, max(160, reportColumnWidth - stepFigureGutter)))
         .confirmationDialog(
             "Delete this step?",
             isPresented: Binding(get: { deleteStepTarget != nil }, set: { if !$0 { deleteStepTarget = nil } }),
@@ -449,6 +462,32 @@ private struct IntroBox: View {
     }
 }
 
+/// Upper bound on the step-figure width, and the horizontal chrome around it
+/// (outer padding 24·2 + card padding 14·2 + the rail and ⋯ menu gutters ≈ 170).
+/// The figure is sized to min(max, column − gutter) so it — and its floating zoom
+/// controls — always fit inside the card, at any window width (the report column
+/// is capped at 880 but can be dragged narrower).
+private let maxStepFigureWidth: CGFloat = 700
+private let stepFigureGutter: CGFloat = 170
+
+/// Measured width of the report column (the maxWidth-880 content frame).
+private struct ReportColumnWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 880
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// The resolved per-step figure fit width, pushed down so StepFigure sizes itself
+/// to the live column without threading a parameter through StepRow/shotBlock.
+private struct ReportFigureFitWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = maxStepFigureWidth
+}
+extension EnvironmentValues {
+    var reportFigureFitWidth: CGFloat {
+        get { self[ReportFigureFitWidthKey.self] }
+        set { self[ReportFigureFitWidthKey.self] = newValue }
+    }
+}
+
 private struct StepRow: View {
     let step: ProjectStep
     let number: Int?
@@ -464,7 +503,11 @@ private struct StepRow: View {
     @State private var dropTargeted = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        // Frame each step in a subtle card so steps read as distinct, separated
+        // units (#40). Callouts are already their own colored box — don't
+        // double-frame them.
+        let framed = step.callout == nil
+        return HStack(alignment: .top, spacing: 14) {
             rail
             VStack(alignment: .leading, spacing: 8) {
                 if step.kind == .text {
@@ -480,7 +523,19 @@ private struct StepRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             stepMenu
         }
-        .padding(.vertical, 6)
+        .padding(framed ? 14 : 0)
+        // Frame with a filled + outlined rounded rect but do NOT clipShape: the
+        // step figure is sized to the live column (reportFigureFitWidth env), and
+        // its zoom controls float at the figure's trailing edge — a clip would
+        // crop a wide screenshot's right edge and hide those controls. Content is
+        // inset by the padding, so it clears the rounded corners without a clip.
+        .background {
+            if framed {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Palette.surface2)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.hair, lineWidth: 1))
+            }
+        }
         // A dragged step dropped on this row lands just before it; the accent
         // line shows where it will go.
         .overlay(alignment: .top) {
@@ -896,6 +951,10 @@ private struct StepFigure: View {
     var onZoom: (Double) -> Void = { _ in }
     /// Persist the pan as fractions (0…1) of the scrollable range.
     var onReframe: (Double, Double) -> Void = { _, _ in }
+    /// Cap the at-zoom-1 fit width to the live report column so the figure (and
+    /// its floating zoom controls) never overflow the step card. Resolved by
+    /// ReportView from the measured column width.
+    @Environment(\.reportFigureFitWidth) private var fitWidth
 
     @State private var loaded: (image: NSImage, pixelSize: (width: Double, height: Double))?
     @State private var failed = false
@@ -920,7 +979,7 @@ private struct StepFigure: View {
 
     var body: some View {
         Group {
-            if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom) {
+            if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom, fitWidth: Double(fitWidth)) {
                 figure(loaded.image, loaded.pixelSize, viewport)
             } else if failed {
                 Label("Image missing: \(relPath)", systemImage: "photo.badge.exclamationmark")

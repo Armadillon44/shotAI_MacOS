@@ -17,7 +17,8 @@ body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-s
 .section{margin:26px 0}
 .section__h{font-size:1.3rem;margin:0 0 6px;color:#111827}
 .section__b{white-space:pre-wrap;margin:0}
-.step{display:flex;gap:16px;margin:0 0 26px;page-break-inside:avoid;break-inside:avoid}
+.step{display:flex;gap:16px;margin:0 0 18px;padding:16px 18px;border:1px solid #e6e8ee;border-radius:12px;background:#fbfbfd;page-break-inside:avoid;break-inside:avoid}
+.step--callout{padding:0;border:0;background:none}
 .step__num{flex:0 0 auto;width:30px;height:30px;border-radius:50%;background:#4f46e5;color:#fff;font-weight:600;display:flex;align-items:center;justify-content:center;font-size:.95rem}
 .step__num--note{background:#10b981}
 .step__num--caution{background:#f59e0b}
@@ -131,7 +132,8 @@ func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws ->
         if !intro.heading.isEmpty { parts.append("<h2>\(escapeHTML(intro.heading))</h2>") }
         if !intro.body.isEmpty { parts.append("<p>\(br(intro.body))</p>") }
     }
-    for it in items {
+    for (idx, it) in items.enumerated() {
+        if idx > 0 { parts.append("<hr>") }  // separate steps from one another (#40)
         switch it {
         case .callout(let kind, let heading, let body):
             let glyph = calloutGlyphExport(kind)
