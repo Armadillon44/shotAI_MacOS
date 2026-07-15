@@ -142,7 +142,15 @@ final class AppModel {
                 return  // user cancelled the Save dialog
             }
             let result = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline, to: dest)
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: result.outputPath)])
+            // For a custom Markdown save, reveal the self-contained folder itself;
+            // otherwise reveal the written file.
+            let revealPath: String
+            if case .custom(let d, _) = dest, format == .markdown {
+                revealPath = d
+            } else {
+                revealPath = result.outputPath
+            }
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: revealPath)])
             // If we just re-flattened the project that's on screen, refresh it.
             if opened?.dir == loaded.dir { await reloadOpened() }
             Log.store.notice("exported \(format.rawValue, privacy: .public) (\(manifest.steps.count, privacy: .public) steps)")
@@ -162,7 +170,9 @@ final class AppModel {
         try? FileManager.default.createDirectory(atPath: exportDir, withIntermediateDirectories: true)
         let panel = NSSavePanel()
         panel.title = "Export"
-        panel.message = "Choose where to save this export."
+        panel.message = format == .markdown
+            ? "Choose where to save this export. Markdown is saved as a self-contained folder."
+            : "Choose where to save this export."
         panel.prompt = "Save"
         panel.nameFieldStringValue = defaultExportFilename(title: title, format: format)
         panel.directoryURL = URL(fileURLWithPath: exportDir)
@@ -173,9 +183,38 @@ final class AppModel {
         case .pdf:              panel.allowedContentTypes = [.pdf]
         case .markdown:         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         }
+        // Bring the app fully forward first — otherwise the panel can open while
+        // the app isn't the active app and its title-bar controls (move/resize)
+        // don't respond until it's clicked.
+        NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        return .custom(directory: url.deletingLastPathComponent().path,
-                       stem: url.deletingPathExtension().lastPathComponent)
+        let stem = url.deletingPathExtension().lastPathComponent
+        let parent = url.deletingLastPathComponent().path
+        // Markdown writes a .md plus a sibling images folder. When the user picks
+        // an arbitrary location, nest BOTH inside a single self-contained
+        // <name>/ folder so the chosen spot stays tidy (one item, not two loose
+        // ones). The default export/ folder is already dedicated, so it's left flat.
+        if format == .markdown {
+            let container = (parent as NSString).appendingPathComponent(stem)
+            // The Save panel's overwrite prompt guarded "<stem>.md", but we write
+            // into the "<stem>/" folder instead — so confirm replacement of an
+            // existing export folder ourselves, or a re-export would silently
+            // overwrite a prior (possibly edited) Markdown export + wipe its images.
+            let fm = FileManager.default
+            let mdInside = (container as NSString).appendingPathComponent("\(stem).md")
+            let imgsInside = (container as NSString).appendingPathComponent("\(stem)-images")
+            if fm.fileExists(atPath: mdInside) || fm.fileExists(atPath: imgsInside) {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Replace the existing “\(stem)” export folder?"
+                alert.informativeText = "A Markdown export named “\(stem)” already exists there. Saving replaces its Markdown file and images."
+                alert.addButton(withTitle: "Replace")
+                alert.addButton(withTitle: "Cancel")
+                guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+            }
+            return .custom(directory: container, stem: stem)
+        }
+        return .custom(directory: parent, stem: stem)
     }
 
     // MARK: - Shareable package (.zip)
