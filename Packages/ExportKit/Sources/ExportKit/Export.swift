@@ -29,14 +29,28 @@ public func exportProject(
     manifest: ProjectManifest,
     format: ExportFormat,
     byline: String? = nil,
-    generatedAt: Date = Date()
+    generatedAt: Date = Date(),
+    to destination: ExportDestination = .projectFolder
 ) async throws -> ExportResult {
     let items = try collectSteps(dir: dir, manifest: manifest)
-    let base = safeFileBase(manifest.title)
     let createdLine = buildCreatedLine(generatedAt: generatedAt, byline: byline)
-    let exportDir = (dir as NSString).appendingPathComponent("export")
+
+    // Resolve the target directory + filename stem. `.projectFolder` keeps the
+    // historical export/ + collision-numbered naming; `.custom` writes exactly
+    // where the user chose (overwriting — the Save dialog owns that prompt).
+    let outDir: String
+    let stem: String
+    switch destination {
+    case .projectFolder:
+        outDir = (dir as NSString).appendingPathComponent("export")
+        let base = safeFileBase(manifest.title)
+        stem = nextAvailableStem(exportDir: outDir, stem: base + format.stemSuffix, ext: format.ext)
+    case .custom(let directory, let chosenStem):
+        outDir = directory
+        stem = chosenStem
+    }
     do {
-        try FileManager.default.createDirectory(atPath: exportDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
     } catch {
         throw ExportError.writeFailed(error.localizedDescription)
     }
@@ -44,24 +58,20 @@ public func exportProject(
     let outputPath: String
     switch format {
     case .markdown:
-        let stem = nextAvailableStem(exportDir: exportDir, stem: base, ext: ".md")
-        outputPath = try buildMarkdown(dir: dir, manifest: manifest, items: items, stem: stem, createdLine: createdLine)
+        outputPath = try buildMarkdown(outDir: outDir, manifest: manifest, items: items, stem: stem, createdLine: createdLine)
 
     case .htmlPlain:
         let html = try buildPlainHtmlDoc(manifest: manifest, items: items)
-        let stem = nextAvailableStem(exportDir: exportDir, stem: "\(base)-plain", ext: ".html")
-        outputPath = (exportDir as NSString).appendingPathComponent("\(stem).html")
+        outputPath = (outDir as NSString).appendingPathComponent("\(stem).html")
         try writeText(html, to: outputPath)
 
     case .html:
         let html = try buildHtmlDoc(manifest: manifest, items: items, createdLine: createdLine)
-        let stem = nextAvailableStem(exportDir: exportDir, stem: base, ext: ".html")
-        outputPath = (exportDir as NSString).appendingPathComponent("\(stem).html")
+        outputPath = (outDir as NSString).appendingPathComponent("\(stem).html")
         try writeText(html, to: outputPath)
 
     case .pdf:
-        let stem = nextAvailableStem(exportDir: exportDir, stem: base, ext: ".pdf")
-        outputPath = (exportDir as NSString).appendingPathComponent("\(stem).pdf")
+        outputPath = (outDir as NSString).appendingPathComponent("\(stem).pdf")
         // Native CoreText/CG renderer — NOT WKWebView printing, which hangs the
         // main thread in WebKit's print pagination (see PdfExport.swift).
         try renderPdf(title: manifest.title, createdLine: createdLine,

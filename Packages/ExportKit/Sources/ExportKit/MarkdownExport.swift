@@ -13,12 +13,11 @@ private func collapseHeading(_ s: String) -> String {
 /// Only title / created-line / headings / captions are escapeMarkdown'd; all body
 /// & note text is emitted RAW so authored Markdown renders. Returns the .md path.
 func buildMarkdown(
-    dir: String, manifest: ProjectManifest, items: [ExportItem], stem: String, createdLine: String
+    outDir: String, manifest: ProjectManifest, items: [ExportItem], stem: String, createdLine: String
 ) throws -> String {
     let fm = FileManager.default
-    let exportDir = (dir as NSString).appendingPathComponent("export")
     let imagesDirName = "\(stem)-images"
-    let imagesDir = (exportDir as NSString).appendingPathComponent(imagesDirName)
+    let imagesDir = (outDir as NSString).appendingPathComponent(imagesDirName)
     // Per-export images dir (stem is unique) — wipe any prior contents first.
     try? fm.removeItem(atPath: imagesDir)
     do {
@@ -86,7 +85,7 @@ func buildMarkdown(
         }
     }
 
-    let outputPath = (exportDir as NSString).appendingPathComponent("\(stem).md")
+    let outputPath = (outDir as NSString).appendingPathComponent("\(stem).md")
     do {
         try lines.joined(separator: "\n").write(toFile: outputPath, atomically: true, encoding: .utf8)
     } catch {
