@@ -306,10 +306,12 @@ private final class PdfCanvas {
         let cardH = innerPad * 2 + blockH
         let sepGap: CGFloat = separator ? 18 : 0
 
-        if cardH <= contentH {
-            // Fits a page → draw the framed card.
-            _ = ensureRoom(sepGap + cardH)
-            if separator { advance(sepGap) }   // gap between cards (no rule — the frame separates)
+        if sepGap + cardH <= contentH {
+            // The card (with its leading gap) fits a page → draw the framed card.
+            let broke = ensureRoom(sepGap + cardH)
+            // Only add the gap when we stayed on the page; a page break is its own
+            // separation (and avoids a stray band at the top of a fresh page).
+            if separator && !broke { advance(sepGap) }
             let cardTop = cursorY
             fillRoundedRect(CGRect(x: mainX, y: cardTop - cardH, width: cardW, height: cardH),
                             radius: 10, fill: Ink.cardBg, stroke: Ink.cardBorder, ctx: ctx)
@@ -362,20 +364,35 @@ private final class PdfCanvas {
         let bH = bodyAttr.map { Self.measure($0, width: innerW) } ?? 0
         let gap: CGFloat = (hH > 0 && bH > 0) ? 4 : 0
         let cardH = innerPad * 2 + hH + bH + gap
-
         let sepGap: CGFloat = separator ? 18 : 0
-        _ = ensureRoom(sepGap + cardH)
-        if separator { advance(sepGap) }   // gap between cards
-        let cardTop = cursorY
-        fillRoundedRect(CGRect(x: mainX, y: cardTop - cardH, width: cardW, height: cardH),
-                        radius: 10, fill: c.bg, stroke: c.border, ctx: ctx)
-        // Glyph badge in the gutter (light fill + colored ring), matching the report.
-        let top = cardTop - innerPad
-        drawBadge(calloutGlyphExport(kind), fill: c.bg, textColor: c.text, ring: c.border, topY: top, ctx: ctx)
-        var y = top
-        if let headAttr { drawAt(headAttr, x: innerX, width: innerW, height: hH, top: y, ctx: ctx); y -= hH + gap }
-        if let bodyAttr { drawAt(bodyAttr, x: innerX, width: innerW, height: bH, top: y, ctx: ctx) }
-        cursorY = cardTop - cardH
+
+        if sepGap + cardH <= contentH {
+            let broke = ensureRoom(sepGap + cardH)
+            if separator && !broke { advance(sepGap) }   // gap between cards (skip after a break)
+            let cardTop = cursorY
+            fillRoundedRect(CGRect(x: mainX, y: cardTop - cardH, width: cardW, height: cardH),
+                            radius: 10, fill: c.bg, stroke: c.border, ctx: ctx)
+            // Glyph badge in the gutter (light fill + colored ring), matching the report.
+            let top = cardTop - innerPad
+            drawBadge(calloutGlyphExport(kind), fill: c.bg, textColor: c.text, ring: c.border, topY: top, ctx: ctx)
+            var y = top
+            if let headAttr { drawAt(headAttr, x: innerX, width: innerW, height: hH, top: y, ctx: ctx); y -= hH + gap }
+            if let bodyAttr { drawAt(bodyAttr, x: innerX, width: innerW, height: bH, top: y, ctx: ctx) }
+            cursorY = cardTop - cardH
+        } else {
+            // Taller than a page (very long body) → flow it, box-less.
+            let broke = ensureRoom(sepGap + (hH > 0 ? hH : badgeD))
+            if separator && !broke { advance(14); strokeStepRule(); advance(14) }
+            let top = cursorY
+            drawBadge(calloutGlyphExport(kind), fill: c.bg, textColor: c.text, ring: c.border, topY: top, ctx: ctx)
+            if let headAttr {
+                drawAt(headAttr, x: mainX, width: mainW, height: hH, top: top, ctx: ctx)
+                cursorY = top - hH
+            } else {
+                cursorY = top - badgeD
+            }
+            if let bodyAttr { advance(6); drawFlowing(bodyAttr, x: mainX, width: mainW) }
+        }
     }
 
     /// The overview box (report parity): an "OVERVIEW" eyebrow + heading + body in
@@ -392,8 +409,8 @@ private final class PdfCanvas {
         let hH = headAttr.map { Self.measure($0, width: innerW) } ?? 0
         let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: Ink.body)
         let bH = bodyAttr.map { Self.measure($0, width: innerW) } ?? 0
-        let g1: CGFloat = hH > 0 ? 4 : 0
-        let g2: CGFloat = bH > 0 ? 6 : 0
+        let g1: CGFloat = 4                                // eyebrow → next block (always present)
+        let g2: CGFloat = (hH > 0 && bH > 0) ? 6 : 0       // heading → body, only when both exist
         let boxH = padY * 2 + eH + g1 + hH + g2 + bH
 
         if boxH <= contentH {
