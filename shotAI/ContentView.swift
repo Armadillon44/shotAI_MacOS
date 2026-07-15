@@ -174,15 +174,21 @@ struct ContentView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: capture.showWizard)
         // Full-window editor overlay (Phase C) — presented in-window, not a
         // sheet, so it can't veto ⌘Q.
+        //
+        // Presented with NO transition/animation on purpose (#41 crop freeze): a
+        // fading full-window overlay could be left STRANDED — still hit-testable
+        // at opacity ~0 — when its removal transition raced the report's
+        // re-layout after a crop changed the screenshot's size. The stranded layer
+        // swallowed every click and scroll in the report until a window
+        // minimize→restore rebuilt the view tree. Instant add/remove can't strand,
+        // so the report is immediately interactive again after Save/Cancel.
         .overlay {
             if let editor {
-                // Cancel/Save live in the window title bar (see the onChange
-                // accessory above); this overlay is just the editor canvas + tools.
+                // Cancel/Save live in the window title bar; this overlay is just
+                // the editor canvas + tools.
                 EditorOverlay(model: editor)
-                    .transition(.opacity)
             }
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editor != nil)
     }
 
     /// Size the window to the current surface's width (Home vs. project detail),
