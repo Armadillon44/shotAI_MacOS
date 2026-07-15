@@ -9,6 +9,30 @@ import ShotModel
 import SOPKit
 import UniformTypeIdentifiers
 
+/// Keeps the export Save dialog's suggested filename collision-free for whatever
+/// folder the user navigates into — so "keep both" stays the default beyond the
+/// initial `export/` folder. A name the user has typed themselves is left alone.
+@MainActor
+private final class ExportSavePanelNamer: NSObject, NSOpenSavePanelDelegate {
+    private let title: String
+    private let format: ExportFormat
+    private var lastAutoName: String
+    init(title: String, format: ExportFormat, initial: String) {
+        self.title = title
+        self.format = format
+        self.lastAutoName = initial
+    }
+    func panel(_ sender: Any, didChangeToDirectoryURL url: URL?) {
+        guard let panel = sender as? NSSavePanel, let dir = url?.path else { return }
+        // Only re-fill when the field still holds our last suggestion (the user
+        // hasn't customized it) — never clobber a name they typed themselves.
+        guard panel.nameFieldStringValue == lastAutoName else { return }
+        let next = availableExportFilename(inDirectory: dir, title: title, format: format)
+        lastAutoName = next
+        panel.nameFieldStringValue = next
+    }
+}
+
 /// UI-facing state for the Phase A read-only viewer: the project list and the
 /// currently opened project. All disk work happens inside the ProjectStore
 /// actor; this object just mirrors results onto the main actor.
@@ -181,8 +205,13 @@ final class AppModel {
         panel.prompt = "Save"
         // Pre-fill the next non-colliding name so re-exporting keeps both by
         // default (numbered) instead of prompting to overwrite the last export.
-        // The user can still type an existing name to replace it.
-        panel.nameFieldStringValue = availableExportFilename(inDirectory: exportDir, title: title, format: format)
+        // A delegate re-serializes it whenever the user navigates to a different
+        // folder, so "keep both" stays the default there too; a name the user
+        // typed is left alone. (Typing an existing name still overwrites it.)
+        let initialName = availableExportFilename(inDirectory: exportDir, title: title, format: format)
+        panel.nameFieldStringValue = initialName
+        let namer = ExportSavePanelNamer(title: title, format: format, initial: initialName)
+        panel.delegate = namer
         panel.directoryURL = URL(fileURLWithPath: exportDir)
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
@@ -195,7 +224,9 @@ final class AppModel {
         // the app isn't the active app and its title-bar controls (move/resize)
         // don't respond until it's clicked.
         NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        // Keep `namer` alive across runModal — NSSavePanel.delegate is weak.
+        let response = withExtendedLifetime(namer) { panel.runModal() }
+        guard response == .OK, let url = panel.url else { return nil }
         let stem = url.deletingPathExtension().lastPathComponent
         let parent = url.deletingLastPathComponent().path
         // Markdown writes a .md plus a sibling images folder. When the user picks
