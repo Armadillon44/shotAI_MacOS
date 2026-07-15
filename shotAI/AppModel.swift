@@ -22,11 +22,15 @@ private final class ExportSavePanelNamer: NSObject, NSOpenSavePanelDelegate {
         self.format = format
         self.lastAutoName = initial
     }
-    func panel(_ sender: Any, didChangeToDirectoryURL url: URL?) {
+    @objc func panel(_ sender: Any, didChangeToDirectoryURL url: URL?) {
         guard let panel = sender as? NSSavePanel, let dir = url?.path else { return }
         // Only re-fill when the field still holds our last suggestion (the user
         // hasn't customized it) — never clobber a name they typed themselves.
-        guard panel.nameFieldStringValue == lastAutoName else { return }
+        // NSSavePanel's nameFieldStringValue may drop the extension, so accept
+        // either the full "<name>.<ext>" or the bare "<name>" form we last set.
+        let stem = (lastAutoName as NSString).deletingPathExtension
+        let current = panel.nameFieldStringValue
+        guard current == lastAutoName || current == stem else { return }
         let next = availableExportFilename(inDirectory: dir, title: title, format: format)
         lastAutoName = next
         panel.nameFieldStringValue = next
