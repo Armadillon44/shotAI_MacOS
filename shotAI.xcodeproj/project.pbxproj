@@ -203,7 +203,7 @@
 				DEVELOPMENT_TEAM = JX6BU857VX;
 				ASSETCATALOG_COMPILER_APPICON_NAME = shotAI;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
@@ -212,7 +212,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = com.armadillon44.shotai;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -227,7 +227,7 @@
 				DEVELOPMENT_TEAM = JX6BU857VX;
 				ASSETCATALOG_COMPILER_APPICON_NAME = shotAI;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
@@ -236,7 +236,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = "1.0.0-rc3";
+				MARKETING_VERSION = "1.0.0-rc4";
 				PRODUCT_BUNDLE_IDENTIFIER = com.armadillon44.shotai;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
