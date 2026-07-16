@@ -37,7 +37,8 @@ func buildMarkdown(
         if !intro.body.isEmpty { lines.append(intro.body); lines.append("") }
     }
 
-    for it in items {
+    for (idx, it) in items.enumerated() {
+        if idx > 0 { lines.append("---"); lines.append("") }  // separate steps (#40)
         switch it {
         case .callout(let kind, let heading, let body):
             // Blockquote: bold glyph (+ heading) first, then a ">" separator line

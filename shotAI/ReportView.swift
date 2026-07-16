@@ -36,6 +36,10 @@ struct ReportView: View {
     /// Tab-between-fields state + the installed key-down monitor token.
     @State private var tabNav = TabNavigator()
     @State private var tabMonitor: Any?
+    /// The measured report column width (≤ 880), used to size each step figure so
+    /// it (and its zoom controls) always fit — even when the window is dragged
+    /// narrow. Seeded at the 880 cap; updated by the geometry probe below.
+    @State private var reportColumnWidth: CGFloat = 880
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
@@ -77,14 +81,14 @@ struct ReportView: View {
                 if steps.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "camera.viewfinder")
-                            .font(.system(size: 29))
+                            .font(.system(size: 30))
                             .foregroundStyle(Palette.accent)
                             .frame(width: 78, height: 78)
                             .background(Circle().fill(Palette.accentTint))
                             .accessibilityHidden(true)
-                        Text("No steps yet").font(.system(size: 15, weight: .semibold))
+                        Text("No steps yet").font(.system(size: 16, weight: .semibold))
                         Text("Record a process, or add a text block below to start building this guide.")
-                            .font(.callout)
+                            .font(.system(size: 13))
                             .foregroundStyle(Palette.ink2)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 420)
@@ -102,6 +106,10 @@ struct ReportView: View {
             }
             .padding(24)
             .frame(maxWidth: 880)
+            // Measure the (≤880) column so each figure can be sized to fit it.
+            .background(GeometryReader { g in
+                Color.clear.preference(key: ReportColumnWidthKey.self, value: g.size.width)
+            })
             .frame(maxWidth: .infinity)
             // A click anywhere off a field commits the active edit (macOS text
             // fields don't resign on a dead-space click). Field buttons/fields
@@ -137,6 +145,10 @@ struct ReportView: View {
             }
         }
         .background(Palette.surface)
+        .onPreferenceChange(ReportColumnWidthKey.self) { reportColumnWidth = $0 }
+        // Size every step figure to fill the live card so a full-width screenshot
+        // uses the whole width (and its zoom controls stay inside), at any window.
+        .environment(\.reportFigureFitWidth, max(160, reportColumnWidth - stepFigureGutter))
         .confirmationDialog(
             "Delete this step?",
             isPresented: Binding(get: { deleteStepTarget != nil }, set: { if !$0 { deleteStepTarget = nil } }),
@@ -188,11 +200,11 @@ struct ReportView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
                     Image(systemName: "sparkles").foregroundStyle(Palette.accent)
-                    Text("AI SOP").font(.system(size: 14, weight: .semibold))
+                    Text("AI SOP").font(.system(size: 15, weight: .semibold))
                     Spacer()
                     if model.sopBusy {
                         if let p = model.sopProgress {
-                            Text(p).font(.caption).foregroundStyle(Palette.ink2)
+                            Text(p).font(.system(size: 11)).foregroundStyle(Palette.ink2)
                         }
                         ProgressView().controlSize(.small)
                         Button("Cancel") { model.cancelSop() }
@@ -215,7 +227,7 @@ struct ReportView: View {
                 }
                 if !model.apiKeyPresent {
                     Text("Add your Anthropic API key in Settings ▸ AI, then Claude can turn these screenshots into a step-by-step SOP.")
-                        .font(.caption).foregroundStyle(Palette.ink3)
+                        .font(.system(size: 11)).foregroundStyle(Palette.ink3)
                 }
             }
             .padding(14)
@@ -276,7 +288,7 @@ struct ReportView: View {
     private var undoMergeBanner: some View {
         HStack(spacing: 10) {
             Image(systemName: "arrow.uturn.backward").foregroundStyle(Palette.ink2)
-            Text("Steps merged.").font(.callout).foregroundStyle(Palette.ink2)
+            Text("Steps merged.").font(.system(size: 13)).foregroundStyle(Palette.ink2)
             Spacer(minLength: 8)
             Button("Undo merge") { Task { await model.undoLastMerge() } }
         }
@@ -295,7 +307,7 @@ struct ReportView: View {
             InlineEditable(
                 text: opened.manifest.title,
                 placeholder: "Untitled guide",
-                font: .title.bold(),
+                font: .system(size: 23, weight: .bold),
                 id: "title",
                 focus: $focus
             ) { new in
@@ -316,7 +328,7 @@ struct ReportView: View {
                 }
                 Text("· \(numbers.count) numbered step\(numbers.count == 1 ? "" : "s")")
             }
-            .font(.callout)
+            .font(.system(size: 13))
             .foregroundStyle(Palette.ink2)
         }
     }
@@ -391,7 +403,7 @@ private struct InsertZone: View {
                 Button("Warning") { onInsert(.callout(.warning)) }
             } label: {
                 Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 18)) // ~20% larger than before
+                    .font(.system(size: 19)) // ~20% larger than before
                     .foregroundStyle(hovering ? Palette.accent : Palette.ink3)
             }
             .menuStyle(.borderlessButton)
@@ -426,14 +438,14 @@ private struct IntroBox: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("OVERVIEW")
-                    .font(.system(size: 11, weight: .bold)).kerning(0.6)
+                    .font(.system(size: 12, weight: .bold)).kerning(0.6)
                     .foregroundStyle(Palette.ink3)
                 Spacer()
                 Button("Remove") { onRemove() }
                     .buttonStyle(.borderless)
-                    .font(.caption)
+                    .font(.system(size: 11))
             }
-            InlineEditable(text: intro.heading, placeholder: "Overview heading…", font: .title3.bold(), id: "intro:h", focus: focus) { new in
+            InlineEditable(text: intro.heading, placeholder: "Overview heading…", font: .system(size: 16, weight: .bold), id: "intro:h", focus: focus) { new in
                 Task { await model.setIntro(heading: new, body: intro.body) }
             }
             InlineEditable(text: intro.body, placeholder: "Describe the overall goal of this guide…", multiline: true, id: "intro:b", focus: focus) { new in
@@ -446,6 +458,32 @@ private struct IntroBox: View {
         .overlay(alignment: .leading) { Rectangle().fill(Palette.accent).frame(width: 4) }
         .overlay { RoundedRectangle(cornerRadius: 8).stroke(Palette.hair) }
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// Horizontal chrome around the step figure: outer padding (24·2) + the rail
+/// gutter (badge 32 + spacing 14) + card padding (14·2) ≈ 122; 124 leaves a hair
+/// of margin. The figure fills the card content (column − gutter) so a full-width
+/// screenshot uses the whole card — and its floating zoom controls stay inside —
+/// shrinking with the window down to the 680 minimum. No fixed upper cap: the
+/// column is already bounded at 880, so the figure tops out ≈ 756.
+private let stepFigureGutter: CGFloat = 124
+
+/// Measured width of the report column (the maxWidth-880 content frame).
+private struct ReportColumnWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 880
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// The resolved per-step figure fit width, pushed down so StepFigure sizes itself
+/// to the live column without threading a parameter through StepRow/shotBlock.
+private struct ReportFigureFitWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 880 - stepFigureGutter
+}
+extension EnvironmentValues {
+    var reportFigureFitWidth: CGFloat {
+        get { self[ReportFigureFitWidthKey.self] }
+        set { self[ReportFigureFitWidthKey.self] = newValue }
     }
 }
 
@@ -464,12 +502,22 @@ private struct StepRow: View {
     @State private var dropTargeted = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        // Every step is a full-width card so steps read as distinct, aligned
+        // units (#40). The frame is tinted by type — the callout palette for
+        // note/caution/warning, the neutral surface for shots/text. The rail
+        // (number/glyph + drag grip) sits in a left gutter so the badges line up
+        // across all step types, and the ⋯ menu overlays the card's top-right
+        // corner (not a column) so a full-width screenshot uses the whole width.
+        let calloutKind = step.callout
+        let fill: Color = calloutKind.map { CalloutBox.palette($0).background } ?? Palette.surface2
+        let border: Color = calloutKind.map { CalloutBox.palette($0).border } ?? Palette.hair
+        let borderWidth: CGFloat = calloutKind == nil ? 1 : 1.5
+        return HStack(alignment: .top, spacing: 14) {
             rail
             VStack(alignment: .leading, spacing: 8) {
                 if step.kind == .text {
-                    if let callout = step.callout {
-                        CalloutBox(step: step, kind: callout, focus: focus)
+                    if let calloutKind {
+                        CalloutBox(step: step, kind: calloutKind, focus: focus)
                     } else {
                         textBlock
                     }
@@ -478,9 +526,22 @@ private struct StepRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            stepMenu
+            .padding(14)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(fill)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(border, lineWidth: borderWidth))
+            }
+            // Clip to the card. In steady state the figure is sized to the column
+            // (reportFigureFitWidth env) and sits ~20pt inside the border, so
+            // nothing (image or zoom controls) is cropped; the clip only bites the
+            // brief overflow while the window is being dragged narrower, before the
+            // measured column catches up — which otherwise spilled past the border.
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            // ⋯ overlaid on top of the clip so it's never clipped, in the card's
+            // top-right corner (aligned with the content inset).
+            .overlay(alignment: .topTrailing) { stepMenu.padding(14) }
         }
-        .padding(.vertical, 6)
         // A dragged step dropped on this row lands just before it; the accent
         // line shows where it will go.
         .overlay(alignment: .top) {
@@ -539,24 +600,27 @@ private struct StepRow: View {
         .help("Step actions")
     }
 
-    /// Left rail: a drag grip (reorder any step, callouts included) over the
-    /// step number for numbered steps, or a type glyph for callouts.
+    /// Left rail (in the gutter, outside the card): a drag grip (reorder any step,
+    /// callouts included) under the step number for numbered steps, or a type
+    /// glyph for callouts. The top inset matches the card's content padding so the
+    /// badge lines up with the step's first line across all step types.
     private var rail: some View {
         VStack(spacing: 6) {
             badge // number/glyph on top, aligned with the step's first line
             Image(systemName: "line.3.horizontal")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Palette.ink3)
                 .help("Drag to reorder")
                 .draggable(step.id) {
                     Text(dragPreview)
-                        .font(.callout)
+                        .font(.system(size: 13))
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(Palette.accentTint)
                         .foregroundStyle(Palette.accentInk)
                         .clipShape(Capsule())
                 }
         }
+        .padding(.top, 14)
     }
 
     /// A short label for the drag preview.
@@ -580,7 +644,7 @@ private struct StepRow: View {
     @ViewBuilder private var badge: some View {
         if let callout = step.callout, ReportPresentation.isCalloutStep(step) {
             Text(ReportPresentation.calloutGlyph(callout))
-                .font(.system(size: 15))
+                .font(.system(size: 16))
                 .frame(width: 32, height: 32)
                 .background(CalloutBox.palette(callout).background)
                 .clipShape(Circle())
@@ -597,19 +661,19 @@ private struct StepRow: View {
 
     private var textBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
-            InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .title3.bold(), id: "th:\(step.id)", focus: focus) { new in
+            InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .system(size: 16, weight: .bold), id: "th:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, heading: new) }
             }
+            .padding(.trailing, 28)  // clear the ⋯ overlay at the card's top-right
             InlineEditable(text: step.body ?? "", placeholder: "Empty — click to add text.", multiline: true, id: "tb:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, body: new) }
             }
         }
-        .padding(.top, 4)
     }
 
     @ViewBuilder private var shotBlock: some View {
         HStack(alignment: .top, spacing: 8) {
-            InlineEditable(text: step.caption, placeholder: "Add a caption…", font: .headline, id: "cap:\(step.id)", focus: focus) { new in
+            InlineEditable(text: step.caption, placeholder: "Add a caption…", font: .system(size: 14, weight: .bold), id: "cap:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, caption: new) }
             }
             Button("Edit", systemImage: "pencil") { onEdit(step) }
@@ -617,6 +681,7 @@ private struct StepRow: View {
                 .help("Annotate, redact, or crop this step")
                 .fixedSize()
         }
+        .padding(.trailing, 28)  // clear the ⋯ overlay at the card's top-right
         if let rel = ReportPresentation.displayImagePath(for: step) {
             // Force a fresh figure (new @State → reload) whenever the render
             // revision or path changes, so a re-saved redaction refreshes in
@@ -636,7 +701,7 @@ private struct StepRow: View {
         // still round-trips in the manifest; it's just no longer displayed.
         if let window = step.window, let line = windowLine(window) {
             Text(line)
-                .font(.caption)
+                .font(.system(size: 11))
                 .foregroundStyle(Palette.ink3)
                 .lineLimit(1)
         }
@@ -652,7 +717,7 @@ private struct StepRow: View {
             Image(systemName: "arrow.triangle.merge")
                 .foregroundStyle(Palette.accentInk)
             Text("This right-click likely opened a menu — merge it into the next step.")
-                .font(.callout)
+                .font(.system(size: 13))
                 .foregroundStyle(Palette.accentInk)
             Spacer(minLength: 8)
             Button("Merge ↓") { Task { await model.mergeIntoNext(id: step.id) } }
@@ -690,10 +755,13 @@ private struct CalloutBox: View {
     }
 
     var body: some View {
+        // The colored frame is now the enclosing step card (see StepRow) — this is
+        // just the callout's content (heading + type picker + body), so a callout
+        // is a full-width card with the ⋯ inside, consistent with other steps.
         let palette = Self.palette(kind)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
-                InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .headline, color: palette.text, id: "ch:\(step.id)", focus: focus) { new in
+                InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .system(size: 14, weight: .bold), color: palette.text, id: "ch:\(step.id)", focus: focus) { new in
                     Task { await model.editStepText(stepId: step.id, heading: new) }
                 }
                 Spacer(minLength: 8)
@@ -708,15 +776,13 @@ private struct CalloutBox: View {
                 .fixedSize()
                 .help("Change callout type")
             }
+            .padding(.trailing, 28)  // clear the ⋯ overlay at the card's top-right
+            .frame(minHeight: 28, alignment: .topLeading)  // keep the body below the ⋯
             InlineEditable(text: step.body ?? "", placeholder: "Callout text…", color: palette.text, multiline: true, id: "cb:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, body: new) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(palette.background)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.border, lineWidth: 1.5))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -785,7 +851,7 @@ private struct WindowAccessor: NSViewRepresentable {
 struct InlineEditable: View {
     let text: String
     var placeholder: String
-    var font: Font = .body
+    var font: Font = .system(size: 14)
     var color: Color = Palette.ink
     var multiline: Bool = false
     let id: String
@@ -860,7 +926,7 @@ private struct NumberBadge: View {
                     .textFieldStyle(.plain)
                     .multilineTextAlignment(.center)
                     .frame(width: 26)
-                    .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                    .font(.system(size: 15, weight: .semibold).monospacedDigit())
                     .foregroundStyle(Palette.onAccent)
                     .focused(focus, equals: fieldID)
                     .onKeyPress(.return, phases: .down) { _ in focus.wrappedValue = nil; return .handled }
@@ -869,7 +935,7 @@ private struct NumberBadge: View {
                     .onAppear { draft = String(number); DispatchQueue.main.async { focus.wrappedValue = fieldID } }
             } else {
                 Text(String(number))
-                    .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                    .font(.system(size: 15, weight: .semibold).monospacedDigit())
                     .foregroundStyle(Palette.onAccent)
                     .contentShape(Rectangle())
                     .onTapGesture { draft = String(number); editing = true }
@@ -896,6 +962,10 @@ private struct StepFigure: View {
     var onZoom: (Double) -> Void = { _ in }
     /// Persist the pan as fractions (0…1) of the scrollable range.
     var onReframe: (Double, Double) -> Void = { _, _ in }
+    /// Cap the at-zoom-1 fit width to the live report column so the figure (and
+    /// its floating zoom controls) never overflow the step card. Resolved by
+    /// ReportView from the measured column width.
+    @Environment(\.reportFigureFitWidth) private var fitWidth
 
     @State private var loaded: (image: NSImage, pixelSize: (width: Double, height: Double))?
     @State private var failed = false
@@ -910,7 +980,6 @@ private struct StepFigure: View {
     /// lags behind an async save+reload); cleared once the save round-trips. Lets
     /// rapid clicks compound off the pending value instead of coalescing.
     @State private var pendingZoom: Double?
-    @State private var hovering = false
 
     /// Effective zoom (optimistic pending, else persisted; never below fit).
     private var zoom: Double { pendingZoom ?? max(1, step.reportZoom ?? 1) }
@@ -920,7 +989,7 @@ private struct StepFigure: View {
 
     var body: some View {
         Group {
-            if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom) {
+            if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom, fitWidth: Double(fitWidth)) {
                 figure(loaded.image, loaded.pixelSize, viewport)
             } else if failed {
                 Label("Image missing: \(relPath)", systemImage: "photo.badge.exclamationmark")
@@ -974,13 +1043,13 @@ private struct StepFigure: View {
             .gesture(canPan ? panGesture(shown: shown, rangeX: rangeX, rangeY: rangeY) : nil)
 
             // Floating zoom controls (top-right, outside the clipped box so they
-            // don't pan). Faint until hover.
+            // don't pan). Always full-strength — fading the glass layer with
+            // .opacity mutes the Liquid Glass material; the individual buttons
+            // still light up on hover.
             zoomControls
                 .padding(6)
-                .opacity(hovering ? 1 : 0.35)
         }
         .frame(width: v.boxWidth, height: v.boxHeight, alignment: .topLeading)
-        .onHover { hovering = $0 }
     }
 
     private var zoomControls: some View {
@@ -990,8 +1059,7 @@ private struct StepFigure: View {
             CtlButton(icon: "arrow.counterclockwise", help: "Reset zoom", disabled: zoom == 1) { applyZoom(1) }
         }
         .padding(4)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Palette.hair))
+        .zoomControlBackground()
     }
 
     /// Apply a zoom optimistically (instant feedback + rapid clicks compound off
@@ -1052,6 +1120,19 @@ private struct StepFigure: View {
 
 /// A report zoom control button: highlights with the brand accent on hover when
 /// enabled; stays dimmed and inert when disabled.
+private extension View {
+    /// The zoom-control pill background: Liquid Glass on macOS 26+, a material
+    /// pill on 14–25. One place so both branches stay in sync.
+    @ViewBuilder func zoomControlBackground() -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular, in: Capsule())
+        } else {
+            background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().stroke(Palette.hair))
+        }
+    }
+}
+
 private struct CtlButton: View {
     let icon: String
     let help: String
@@ -1062,7 +1143,7 @@ private struct CtlButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .frame(width: 30, height: 28)
                 .contentShape(Rectangle())
         }
