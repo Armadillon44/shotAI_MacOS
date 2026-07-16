@@ -116,19 +116,6 @@ final class ExportKitTests: XCTestCase {
         XCTAssertEqual(nextAvailableStem(exportDir: dir, stem: "Doc", ext: ".html"), "Doc (2)")
     }
 
-    func testAvailableExportFilenameKeepsBoth() throws {
-        let dir = try makeProjectDir()
-        // No collision → the plain default.
-        XCTAssertEqual(availableExportFilename(inDirectory: dir, title: "Doc", format: .pdf), "Doc.pdf")
-        // A prior export of the same format numbers the next one (keep both).
-        try "x".write(toFile: (dir as NSString).appendingPathComponent("Doc.pdf"), atomically: true, encoding: .utf8)
-        XCTAssertEqual(availableExportFilename(inDirectory: dir, title: "Doc", format: .pdf), "Doc (1).pdf")
-        // Markdown steps past an existing "<stem>/" container, not just "<stem>.md".
-        try FileManager.default.createDirectory(
-            atPath: (dir as NSString).appendingPathComponent("Guide"), withIntermediateDirectories: true)
-        XCTAssertEqual(availableExportFilename(inDirectory: dir, title: "Guide", format: .markdown), "Guide (1).md")
-    }
-
     // MARK: - HTML export (numbering + escaping + skips)
 
     func testHtmlExportNumberingAndEscaping() async throws {

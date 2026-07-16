@@ -9,51 +9,6 @@ import ShotModel
 import SOPKit
 import UniformTypeIdentifiers
 
-/// Keeps the export Save dialog "keep both" no matter which folder the user saves
-/// into. The reliable hook is `userEnteredFilename:confirmed:`, which fires when
-/// the user clicks Save and lets us return a non-colliding name — so the native
-/// "Replace?" prompt never appears and each export is kept. `didChangeToDirectory`
-/// additionally freshens the visible suggestion while browsing, where AppKit
-/// calls it.
-@MainActor
-private final class ExportSavePanelNamer: NSObject, NSOpenSavePanelDelegate {
-    private let title: String
-    private let format: ExportFormat
-    private var lastAutoName: String
-    init(title: String, format: ExportFormat, initial: String) {
-        self.title = title
-        self.format = format
-        self.lastAutoName = initial
-    }
-
-    /// Fires on Save — return a name that doesn't collide in the chosen folder, so
-    /// re-exporting keeps both instead of prompting to overwrite. Serializes from
-    /// whatever the user entered/kept (a trailing " (n)" is normalized away).
-    @objc func panel(_ sender: Any, userEnteredFilename filename: String, confirmed okFlag: Bool) -> String? {
-        guard okFlag, let panel = sender as? NSSavePanel, let dir = panel.directoryURL?.path else { return filename }
-        let ext = format.ext
-        let base = filename.hasSuffix(ext) ? String(filename.dropLast(ext.count)) : filename
-        let stem = availableExportStem(inDirectory: dir, base: base, format: format)
-        lastAutoName = stem + ext
-        // Return the stem only — the panel appends the extension (allowedContentTypes),
-        // and exportProject re-derives the path from the stem + format regardless.
-        return stem
-    }
-
-    /// Freshen the visible suggestion as the user browses (best-effort; AppKit
-    /// doesn't always call this for sidebar navigation — the Save hook above is
-    /// the guarantee). Never clobbers a name the user typed themselves.
-    @objc func panel(_ sender: Any, didChangeToDirectoryURL url: URL?) {
-        guard let panel = sender as? NSSavePanel, let dir = url?.path else { return }
-        let stem = (lastAutoName as NSString).deletingPathExtension
-        let current = panel.nameFieldStringValue
-        guard current == lastAutoName || current == stem else { return }
-        let next = availableExportFilename(inDirectory: dir, title: title, format: format)
-        lastAutoName = next
-        panel.nameFieldStringValue = next
-    }
-}
-
 /// UI-facing state for the Phase A read-only viewer: the project list and the
 /// currently opened project. All disk work happens inside the ProjectStore
 /// actor; this object just mirrors results onto the main actor.
@@ -224,15 +179,7 @@ final class AppModel {
             ? "Choose where to save this export. Markdown is saved as a self-contained folder."
             : "Choose where to save this export."
         panel.prompt = "Save"
-        // Pre-fill the next non-colliding name so re-exporting keeps both by
-        // default (numbered) instead of prompting to overwrite the last export.
-        // A delegate re-serializes it whenever the user navigates to a different
-        // folder, so "keep both" stays the default there too; a name the user
-        // typed is left alone. (Typing an existing name still overwrites it.)
-        let initialName = availableExportFilename(inDirectory: exportDir, title: title, format: format)
-        panel.nameFieldStringValue = initialName
-        let namer = ExportSavePanelNamer(title: title, format: format, initial: initialName)
-        panel.delegate = namer
+        panel.nameFieldStringValue = defaultExportFilename(title: title, format: format)
         panel.directoryURL = URL(fileURLWithPath: exportDir)
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
@@ -245,9 +192,7 @@ final class AppModel {
         // the app isn't the active app and its title-bar controls (move/resize)
         // don't respond until it's clicked.
         NSApp.activate(ignoringOtherApps: true)
-        // Keep `namer` alive across runModal — NSSavePanel.delegate is weak.
-        let response = withExtendedLifetime(namer) { panel.runModal() }
-        guard response == .OK, let url = panel.url else { return nil }
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
         let stem = url.deletingPathExtension().lastPathComponent
         let parent = url.deletingLastPathComponent().path
         // Markdown writes a .md plus a sibling images folder. When the user picks

@@ -40,40 +40,6 @@ public func defaultExportFilename(title: String, format: ExportFormat) -> String
     safeFileBase(title) + format.stemSuffix + format.ext
 }
 
-/// The next non-colliding export filename (with extension) for `directory`, so a
-/// Save dialog defaults to "keep both" (numbered ` (1)`, ` (2)`, …) instead of
-/// prompting to overwrite a previous export. For Markdown it also steps past an
-/// existing `<stem>/` container or `<stem>-images/` folder, not just the `.md`.
-public func availableExportFilename(inDirectory directory: String, title: String, format: ExportFormat) -> String {
-    availableExportStem(inDirectory: directory, base: safeFileBase(title) + format.stemSuffix, format: format) + format.ext
-}
-
-/// The next non-colliding STEM (no extension) for `directory`, serialized from an
-/// arbitrary `base` — used to keep-both a name the user typed/kept in the Save
-/// dialog. A trailing " (n)" is stripped first so re-serializing an already-
-/// numbered name yields "Name (3)", not "Name (2) (1)". For Markdown it also
-/// steps past an existing "<stem>/" container or "<stem>-images/" folder.
-public func availableExportStem(inDirectory directory: String, base rawBase: String, format: ExportFormat) -> String {
-    var base = rawBase.replacingOccurrences(of: #"\s*\(\d+\)$"#, with: "", options: .regularExpression)
-    if base.isEmpty { base = rawBase.isEmpty ? "shotAI SOP" : rawBase }
-    let ext = format.ext
-    let fm = FileManager.default
-    func taken(_ stem: String) -> Bool {
-        if fm.fileExists(atPath: (directory as NSString).appendingPathComponent(stem + ext)) { return true }
-        if format == .markdown {
-            if fm.fileExists(atPath: (directory as NSString).appendingPathComponent(stem)) { return true }
-            if fm.fileExists(atPath: (directory as NSString).appendingPathComponent(stem + "-images")) { return true }
-        }
-        return false
-    }
-    var n = 0
-    while true {
-        let stem = n == 0 ? base : "\(base) (\(n))"
-        if !taken(stem) { return stem }
-        n += 1
-    }
-}
-
 /// The result of an export: which format + where the file landed.
 public struct ExportResult: Sendable {
     public var format: ExportFormat
