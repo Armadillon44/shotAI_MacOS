@@ -122,9 +122,26 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
         + "\n</main>\n</body>\n</html>\n"
 }
 
-/// Minimal-formatting HTML for pasting into Word / Google Docs: semantic tags
-/// only (h1/h2/p/img/blockquote/em), NO CSS/classes/styles, images inlined as
-/// data: URIs. Ported from export.ts buildPlainHtmlDoc.
+/// Minimal Arial stylesheet for the plain "HTML (for Word/Docs)" export — enough
+/// to read well on its own while staying paste-friendly (Word / Google Docs honor
+/// these basic tags + styles). Ported from the Windows app's PLAIN_CSS (shotAI PR
+/// #42); keep the two in sync.
+let PLAIN_CSS = """
+body{font-family:Arial,Helvetica,sans-serif;color:#1f2937;line-height:1.5;max-width:800px;margin:24px auto;padding:0 20px}
+h1{font-size:1.8rem;font-weight:700;margin:0 0 .3rem}
+h2{font-size:1.2rem;font-weight:700;margin:1.3rem 0 .4rem}
+p{margin:.5rem 0}
+strong{font-weight:700}
+img{max-width:100%;height:auto}
+blockquote{margin:1rem 0;padding:.4rem .85rem;border-left:3px solid #cbd5e1;color:#374151}
+hr{border:0;border-top:1px solid #e5e7eb;margin:1.4rem 0}
+"""
+
+/// Simple, lightly-styled standalone HTML for Word / Google Docs: semantic tags
+/// (h1/h2/p/img/blockquote/strong/hr) + the minimal Arial `PLAIN_CSS` for readable
+/// headers, bold, and spacing — images inlined as data: URIs. The markup stays
+/// class/inline-style-free so it still pastes cleanly (the destination editor's
+/// tools work on it). Ported from export.ts buildPlainHtmlDoc.
 func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws -> String {
     func br(_ s: String) -> String { escapeHTML(s).replacingOccurrences(of: "\n", with: "<br>") }
     var parts: [String] = ["<h1>\(escapeHTML(manifest.title))</h1>"]
@@ -161,7 +178,8 @@ func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws ->
         }
     }
     return "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
-        + "<title>\(escapeHTML(manifest.title))</title>\n</head>\n<body>\n"
+        + "<title>\(escapeHTML(manifest.title))</title>\n"
+        + "<style>\(PLAIN_CSS)</style>\n</head>\n<body>\n"
         + parts.joined(separator: "\n")
         + "\n</body>\n</html>\n"
 }
