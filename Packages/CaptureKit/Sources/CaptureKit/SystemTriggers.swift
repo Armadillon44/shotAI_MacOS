@@ -7,7 +7,7 @@ import ShotModel
 /// The real TriggerSource: a listen-only, MOUSE-ONLY CGEventTap (empirically
 /// needs no TCC grant in that exact configuration — adding any keyboard event
 /// type would silently re-gate it behind Input Monitoring) plus a Carbon
-/// RegisterEventHotKey ⌘⇧S (the same mechanism Electron's globalShortcut
+/// RegisterEventHotKey ⇧⌘S (the same mechanism Electron's globalShortcut
 /// uses; no TCC needed, not deprecated).
 ///
 /// Thread model: attach()/detach() are driven from the CaptureEngine actor's
@@ -181,7 +181,7 @@ public final class SystemTriggers: TriggerSource, @unchecked Sendable {
         handler?(TapEvent(location: event.location, button: button))
     }
 
-    // MARK: - Hotkey (⌘⇧S — parity with CommandOrControl+Shift+S)
+    // MARK: - Hotkey (⇧⌘S — parity with CommandOrControl+Shift+S)
     // All of these run on the MAIN thread (HIToolbox is not thread-safe) and
     // are FIFO-ordered on the main queue, so an install can't reorder past its
     // own uninstall.

@@ -29,8 +29,8 @@ struct RecordSheet: View {
             Text(insertingHere ? "Capture steps here" : "Record steps")
                 .font(.title2.bold())
             Text(insertingHere
-                ? "This window hides and a floating pill appears. Every click captures a screenshot step, inserted at this spot in order. ⌘⇧S captures without clicking. Use the pill to pause or stop when you're done."
-                : "Every click captures a screenshot step. ⌘⇧S captures without clicking. Use the floating pill to pause or stop.")
+                ? "This window hides and a floating pill appears. Every click captures a screenshot step, inserted at this spot in order. ⇧⌘S captures without clicking. Use the pill to pause or stop when you're done."
+                : "Every click captures a screenshot step. ⇧⌘S captures without clicking. Use the floating pill to pause or stop.")
                 .foregroundStyle(.secondary)
 
             Picker("Capture", selection: $mode) {

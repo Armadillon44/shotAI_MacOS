@@ -226,6 +226,10 @@ final class CaptureCoordinator {
                 // A successful step means capture recovered — clear any error
                 // the pill was showing so a transient hiccup doesn't linger.
                 if lastError != nil { clearError() }
+                // Confirm the capture on the pill (the main window is hidden, so
+                // this is the user's only feedback that the click/⇧⌘S landed).
+                // Only while a session is live — immediate captures have no pill.
+                if state.status != .idle { pill?.flash() }
                 onStepAdded?(step)
             case .error(let message):
                 lastError = message

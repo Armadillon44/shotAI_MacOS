@@ -14,8 +14,11 @@ final class CapturePillController {
     private let onAction: (PillAction) -> Void
     private var state = CaptureState.idle
     private var error: String?
+    /// Bumped once per captured step so the pill can replay a one-shot
+    /// confirmation flash (see `flash()`); reset to 0 at each session start.
+    private var flashToken = 0
 
-    static let pillSize = NSSize(width: 380, height: 52)
+    static let pillSize = NSSize(width: 380, height: 62)
 
     init(onAction: @escaping (PillAction) -> Void) {
         self.onAction = onAction
@@ -24,6 +27,7 @@ final class CapturePillController {
     func show(state: CaptureState, near mainWindow: NSWindow?) {
         self.state = state
         self.error = nil // a fresh session starts with a clean pill
+        self.flashToken = 0 // …and no leftover flash from a prior session
         let panel = ensurePanel()
         if !docked {
             dock(panel, near: mainWindow)
@@ -41,6 +45,16 @@ final class CapturePillController {
     /// Reflect the latest capture error on the pill (nil clears it).
     func update(error: String?) {
         self.error = error
+        render()
+    }
+
+    /// Play a one-shot capture-confirmation flash on the pill. Called once per
+    /// captured step during a live session — the pill is the only feedback the
+    /// user has that a click/hotkey registered (the main window is hidden).
+    /// Bumping the token remounts the flash overlay so the animation replays
+    /// even for rapid successive captures.
+    func flash() {
+        flashToken += 1
         render()
     }
 
@@ -89,7 +103,7 @@ final class CapturePillController {
 
     private func render() {
         guard let panel else { return }
-        let view = PillView(state: state, error: error, onAction: onAction)
+        let view = PillView(state: state, error: error, flashToken: flashToken, onAction: onAction)
         if let hosting = panel.contentView as? FirstMouseHostingView<PillView> {
             hosting.rootView = view
         } else {
@@ -119,6 +133,9 @@ struct PillView: View {
     /// pill is the only place an in-session error can surface — the "a long
     /// recording can never fail silently" invariant lives here.
     let error: String?
+    /// Incremented once per captured step; a change replays the confirmation
+    /// flash (see `CaptureFlash`). 0 means "no capture yet this session".
+    var flashToken = 0
     let onAction: (PillAction) -> Void
     @State private var pulsing = false
 
@@ -129,29 +146,40 @@ struct PillView: View {
     private var showError: Bool { active && error != nil }
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Drag region: grip + label (the panel is movable-by-background;
-            // the buttons swallow their own clicks).
+        VStack(alignment: .leading, spacing: 3) {
+            // Row 1 — status label (left) + controls (right).
             HStack(spacing: 8) {
-                gripView
-                label
+                // Drag region: grip + label (the panel is movable-by-background;
+                // the buttons swallow their own clicks).
+                HStack(spacing: 8) {
+                    gripView
+                    label
+                }
+                .padding(.leading, 4)
+                .layoutPriority(1)
+
+                if showError, let error {
+                    errorBadge(error)
+                }
+
+                Spacer(minLength: 4)
+
+                if active {
+                    controls
+                }
             }
-            .padding(.leading, 4)
-            .layoutPriority(1)
 
-            if showError, let error {
-                errorBadge(error)
-            }
-
-            Spacer(minLength: 4)
-
+            // Row 2 — the persistent "how to capture" hint. The interaction is
+            // otherwise taught only in the main window, which hides while
+            // recording. Muted so it reads as guidance, not a control; it drags
+            // the pill like the rest of the background.
             if active {
-                controls
+                hint
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .frame(width: 380, height: 52)
+        .frame(width: 380, height: 62)
         .background(Color(hex: "#1f2330"))
         .overlay(alignment: .top) {
             if active {
@@ -160,10 +188,28 @@ struct PillView: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            // One-shot green confirmation ring, replayed on each new token.
+            if flashToken > 0 {
+                CaptureFlash().id(flashToken)
+            }
+        }
         .onAppear { pulsing = true }
     }
 
-    /// A compact, dismissible error chip. The pill's fixed 380×52 has no room
+    private var hint: some View {
+        Text(paused
+             ? "Paused — press Resume to keep capturing"
+             : "Click anything to capture a step · ⇧⌘S")
+            .font(.system(size: 11))
+            .foregroundStyle(paused ? Color(hex: "#fcd34d") : Color(hex: "#aeb4c7"))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 4)
+    }
+
+    /// A compact, dismissible error chip. The pill's fixed 380×62 has no room
     /// for the full message beside the controls, so the chip shows a loud red
     /// glyph + "Error" and carries the full text in its tooltip; clicking it
     /// (like the alert's OK) clears the error. Uses .plain like the other pill
@@ -265,5 +311,24 @@ struct PillView: View {
         }
         .buttonStyle(.plain)
         .help(help)
+    }
+}
+
+/// A one-shot capture-confirmation ring: a green border that appears at full
+/// strength and fades out over ~0.7s (the macOS parity of the Windows pill's
+/// `toolbar__flash`). Mounted with a per-capture `.id(...)` so each new capture
+/// remounts it and replays the animation. An opacity-only fade (no motion) so
+/// it reads well and stays gentle under Reduce Motion.
+private struct CaptureFlash: View {
+    @State private var faded = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(Color(hex: "#34d399"), lineWidth: 2)
+            .opacity(faded ? 0 : 1)
+            .allowsHitTesting(false)
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.7)) { faded = true }
+            }
     }
 }
