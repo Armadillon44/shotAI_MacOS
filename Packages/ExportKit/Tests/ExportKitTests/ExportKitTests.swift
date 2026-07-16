@@ -143,7 +143,7 @@ final class ExportKitTests: XCTestCase {
         XCTAssertTrue(html.contains(DOC_CSS))
     }
 
-    func testPlainHtmlHasNoStyling() async throws {
+    func testPlainHtmlIsSemanticWithArialCss() async throws {
         let dir = try makeProjectDir()
         XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 20, h: 20))
         let m = manifest([
@@ -153,8 +153,12 @@ final class ExportKitTests: XCTestCase {
         let res = try await exportProject(dir: dir, manifest: m, format: .htmlPlain, generatedAt: fixedDate)
         XCTAssertTrue(res.outputPath.hasSuffix("/export/My SOP-plain.html"))
         let html = try String(contentsOfFile: res.outputPath, encoding: .utf8)
-        XCTAssertFalse(html.contains("<style>"))
+        // Now carries the minimal Arial stylesheet (parity with Windows PLAIN_CSS)…
+        XCTAssertTrue(html.contains("<style>"))
+        XCTAssertTrue(html.contains("font-family:Arial"))
+        // …but the markup stays class/inline-style-free so it still pastes cleanly.
         XCTAssertFalse(html.contains("class="))
+        XCTAssertFalse(html.contains("style=\""))
         XCTAssertTrue(html.contains("<h1>My SOP</h1>"))
         XCTAssertTrue(html.contains("<blockquote><p><strong>ℹ Note</strong>"))
         XCTAssertTrue(html.contains("<h2>1. Cap</h2>"))
