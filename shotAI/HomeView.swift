@@ -221,6 +221,7 @@ struct HomeView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!canStart || busy || capture.state.status != .idle)
+                .tourAnchor(.capture)
                 Button("Empty project") { createEmpty() }
                     .disabled(busy || capture.state.status != .idle)
             }
@@ -236,6 +237,7 @@ struct HomeView: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.accent.opacity(0.40)))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .cardElevation()
+        .tourAnchor(.hero)
     }
 
     private var modeRow: some View {
@@ -256,6 +258,7 @@ struct HomeView: View {
             }
             Spacer()
         }
+        .tourAnchor(.mode)
     }
 
     @ViewBuilder private var targetPicker: some View {

@@ -25,7 +25,9 @@ struct ShotAIApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        // Identified so the Settings ▸ "Show intro tour" replay can bring the main
+        // window forward (or reopen it if closed) via `openWindow(id:)`.
+        WindowGroup(id: "main") {
             ContentView()
                 .environment(model)
                 .environment(capture)
@@ -70,7 +72,7 @@ struct ShotAIApp: App {
                 }
                 .disabled(model.opened == nil || model.exporting)
                 Button("Import shotAI Package…") { model.promptImportPackage() }
-                    .disabled(model.exporting)
+                    .disabled(model.exporting || model.tourActive)
             }
             // Troubleshooting: dump this app's recent log to a file + reveal it,
             // so a user can send it (parity with the Windows log file).

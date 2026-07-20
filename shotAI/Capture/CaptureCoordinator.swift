@@ -202,7 +202,11 @@ final class CaptureCoordinator {
         NSApp.activate()
         let alert = NSAlert()
         alert.messageText = "Discard this capture?"
-        alert.informativeText = "Steps recorded in this session will be deleted."
+        // Warn honestly when Discard deletes the whole (new) project, not just
+        // this session's steps (Windows R5 parity).
+        alert.informativeText = state.willDeleteProjectOnDiscard
+            ? "This is a new project, so the entire project will be deleted."
+            : "Steps recorded in this session will be deleted."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Discard")
         alert.addButton(withTitle: "Cancel")

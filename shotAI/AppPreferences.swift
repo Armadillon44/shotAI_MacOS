@@ -47,6 +47,9 @@ struct AppPreferences: Codable, Equatable, Sendable {
     /// Keep the shotAI window visible during capture (default false = hide it so
     /// it isn't in the shot).
     var captureNoHide: Bool = false
+    /// Whether the first-run coach-mark tour has been shown/dismissed. Mirrors
+    /// the Windows `hasSeenTour`; the tour fires once until this is true.
+    var hasSeenTour: Bool = false
 
     /// Max characters kept for the display name.
     static let userNameMax = 120
@@ -79,5 +82,6 @@ struct AppPreferences: Codable, Equatable, Sendable {
         includeNameInReports = (try? c.decodeIfPresent(Bool.self, forKey: .includeNameInReports)) ?? d.includeNameInReports
         captureScale = (try? c.decodeIfPresent(Double.self, forKey: .captureScale)) ?? d.captureScale
         captureNoHide = (try? c.decodeIfPresent(Bool.self, forKey: .captureNoHide)) ?? d.captureNoHide
+        hasSeenTour = (try? c.decodeIfPresent(Bool.self, forKey: .hasSeenTour)) ?? d.hasSeenTour
     }
 }
