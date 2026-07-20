@@ -85,6 +85,15 @@ private struct AISettings: View {
                         if testing { ProgressView().controlSize(.small) }
                     }
                 }
+                // A stored key that couldn't be read (rare Keychain state) — warn
+                // and offer to clear the broken entry so a fresh key can be saved.
+                if model.apiKeyUnreadable {
+                    Label("A previously saved key couldn't be read.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(Palette.draftInk)
+                    Button("Clear stored key", role: .destructive) {
+                        keyMessage = model.clearApiKey() ?? "Stored key cleared."
+                    }
+                }
                 HStack {
                     SecureField("sk-ant-…", text: $keyInput)
                     Button("Save") {
@@ -98,17 +107,35 @@ private struct AISettings: View {
                 }
                 Text("Stored in your macOS Keychain — never shown again, never logged, and sent only to api.anthropic.com.")
                     .font(.caption).foregroundStyle(.secondary)
+                Link("Create an API key at console.anthropic.com",
+                     destination: URL(string: "https://console.anthropic.com/settings/keys")!)
+                    .font(.caption)
             }
 
             Section("Generation") {
-                Picker("Model", selection: $model.sopSettings.model) {
-                    ForEach(SOP_MODELS, id: \.id) { Text($0.label).tag($0.id) }
+                VStack(alignment: .leading, spacing: 3) {
+                    Picker("Model", selection: $model.sopSettings.model) {
+                        ForEach(SOP_MODELS, id: \.id) { Text($0.label).tag($0.id) }
+                    }
+                    if let b = SOP_MODELS.first(where: { $0.id == model.sopSettings.model })?.blurb {
+                        Text(b).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                Picker("Tone", selection: $model.sopSettings.tone) {
-                    ForEach(SOP_TONES, id: \.id) { Text($0.label).tag($0.id) }
+                VStack(alignment: .leading, spacing: 3) {
+                    Picker("Tone", selection: $model.sopSettings.tone) {
+                        ForEach(SOP_TONES, id: \.id) { Text($0.label).tag($0.id) }
+                    }
+                    if let b = SOP_TONES.first(where: { $0.id == model.sopSettings.tone })?.blurb {
+                        Text(b).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                Picker("Effort", selection: $model.sopSettings.effort) {
-                    ForEach(SOP_EFFORTS, id: \.id) { Text($0.label).tag($0.id) }
+                VStack(alignment: .leading, spacing: 3) {
+                    Picker("Effort", selection: $model.sopSettings.effort) {
+                        ForEach(SOP_EFFORTS, id: \.id) { Text($0.label).tag($0.id) }
+                    }
+                    if let b = SOP_EFFORTS.first(where: { $0.id == model.sopSettings.effort })?.blurb {
+                        Text(b).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Custom instructions (optional)").font(.caption).foregroundStyle(.secondary)
