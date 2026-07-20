@@ -5,30 +5,40 @@ import SwiftUI
 // the capture → annotate → AI → export path. Fires once (persisted
 // `hasSeenTour`), skippable (Skip / Esc / click-outside), replayable from
 // Settings ▸ General. macOS has no in-window Settings gear (it's ⌘,), so the
-// final step is centered rather than anchored.
+// last two steps are centered rather than anchored.
 
 // MARK: - Anchors
 
-/// Home controls the tour can spotlight. Published by `.tourAnchor(_:)` and
-/// resolved against the overlay's geometry.
+/// Home controls the tour can spotlight.
 enum TourAnchor: Hashable {
     case hero, capture, mode
 }
 
-struct TourAnchorKey: PreferenceKey {
-    static let defaultValue: [TourAnchor: Anchor<CGRect>] = [:]
-    static func reduce(
-        value: inout [TourAnchor: Anchor<CGRect>],
-        nextValue: () -> [TourAnchor: Anchor<CGRect>]
-    ) {
+/// The coordinate space the tour draws in. Anchored controls publish their
+/// frames in this space (which accounts for their ScrollView offset), and the
+/// overlay resolves + draws in the same space — so the spotlight lands exactly.
+enum TourSpace { static let name = "tour" }
+
+/// Collected frames of the anchored controls, in the `TourSpace` coordinate space.
+struct TourFrameKey: PreferenceKey {
+    static let defaultValue: [TourAnchor: CGRect] = [:]
+    static func reduce(value: inout [TourAnchor: CGRect], nextValue: () -> [TourAnchor: CGRect]) {
         value.merge(nextValue()) { _, new in new }
     }
 }
 
 extension View {
-    /// Publish this view's bounds so the first-run tour can spotlight it.
+    /// Publish this view's frame (in the tour coordinate space) so the first-run
+    /// tour can spotlight it. Uses a background GeometryReader rather than an
+    /// `Anchor` so it resolves correctly through the Home ScrollView.
     func tourAnchor(_ id: TourAnchor) -> some View {
-        anchorPreference(key: TourAnchorKey.self, value: .bounds) { [id: $0] }
+        background(
+            GeometryReader { g in
+                Color.clear.preference(
+                    key: TourFrameKey.self,
+                    value: [id: g.frame(in: .named(TourSpace.name))])
+            }
+        )
     }
 }
 
@@ -73,8 +83,10 @@ private let bubbleW: CGFloat = 330
 private let bubbleGap: CGFloat = 14
 
 struct TourOverlay: View {
-    let anchors: [TourAnchor: Anchor<CGRect>]
-    let proxy: GeometryProxy
+    /// Anchored-control frames, in `TourSpace` (= this overlay's local space).
+    let frames: [TourAnchor: CGRect]
+    /// The overlay's own size (same space as `frames`).
+    let size: CGSize
     let onFinish: () -> Void
 
     @State private var i = 0
@@ -82,10 +94,7 @@ struct TourOverlay: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var step: TourStep { tourSteps[min(i, tourSteps.count - 1)] }
-    private var spot: CGRect? {
-        guard let a = step.anchor, let anchor = anchors[a] else { return nil }
-        return proxy[anchor]
-    }
+    private var spot: CGRect? { step.anchor.flatMap { frames[$0] } }
 
     private var stepAnim: Animation? { reduceMotion ? nil : .easeInOut(duration: 0.18) }
     private func next() {
@@ -94,7 +103,6 @@ struct TourOverlay: View {
     private func back() { if i > 0 { withAnimation(stepAnim) { i -= 1 } } }
 
     var body: some View {
-        let size = proxy.size
         ZStack(alignment: .topLeading) {
             // Dim + spotlight cutout (full dim when the step is centered).
             dim
@@ -112,9 +120,9 @@ struct TourOverlay: View {
             bubble
                 .frame(width: bubbleW)
                 .background(bubbleHeightReader)
-                .position(bubbleCenter(in: size))
+                .position(bubbleCenter)
         }
-        .ignoresSafeArea()
+        .frame(width: size.width, height: size.height)
     }
 
     // MARK: dim
@@ -157,8 +165,8 @@ struct TourOverlay: View {
                 Button(i == tourSteps.count - 1 ? "Done" : "Next") { next() }
                     .buttonStyle(.borderedProminent)
                 // NB: intentionally no .defaultAction (Return) shortcut — the Home
-                // name field can retain focus behind the dim, and Return would then
-                // also fire its onSubmit (starting a capture). Click Next to advance.
+                // controls are disabled while the tour is up (ContentView), but
+                // avoiding a global Return binding keeps it unambiguous. Click Next.
             }
             .font(.system(size: 12, weight: .medium))
             .padding(.top, 2)
@@ -211,7 +219,7 @@ struct TourOverlay: View {
 
     /// Below the anchor if there's room, else above; horizontally clamped.
     /// Centered when the step has no anchor.
-    private func bubbleCenter(in size: CGSize) -> CGPoint {
+    private var bubbleCenter: CGPoint {
         guard let spot else { return CGPoint(x: size.width / 2, y: size.height / 2) }
         let below = spot.maxY + bubbleGap + bubbleH + 16 <= size.height
         let cx = min(max(spot.midX, 12 + bubbleW / 2), size.width - 12 - bubbleW / 2)

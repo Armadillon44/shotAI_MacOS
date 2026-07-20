@@ -198,10 +198,14 @@ struct ContentView: View {
         }
         // First-run coach-mark tour (Windows Tour.tsx parity). Anchors live on
         // Home, so it only shows there and never over the permissions wizard.
-        .overlayPreferenceValue(TourAnchorKey.self) { anchors in
+        // The named coordinate space lets the anchored controls' frames resolve
+        // correctly through the Home ScrollView, and the overlay draws in that
+        // same space so the spotlight lands exactly.
+        .coordinateSpace(name: TourSpace.name)
+        .overlayPreferenceValue(TourFrameKey.self) { frames in
             if model.tourActive && model.opened == nil && !capture.showWizard {
                 GeometryReader { proxy in
-                    TourOverlay(anchors: anchors, proxy: proxy) { model.finishTour() }
+                    TourOverlay(frames: frames, size: proxy.size) { model.finishTour() }
                 }
                 .transition(.opacity)
             }
