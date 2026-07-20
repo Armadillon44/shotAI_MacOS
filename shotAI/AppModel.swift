@@ -353,6 +353,9 @@ final class AppModel {
     /// Observable mirror of the Keychain key status (so UI re-renders on change).
     private(set) var apiKeyPresent = false
     private(set) var apiKeySource: ApiKeySource = .none
+    /// A key is stored in the Keychain but couldn't be read — the UI warns and
+    /// offers to Clear the broken entry.
+    private(set) var apiKeyUnreadable = false
     /// True while any SOP op (prepare/generate/revert) is in flight.
     private(set) var sopBusy = false
     /// Human-readable progress line shown while generating.
@@ -454,6 +457,7 @@ final class AppModel {
         let s = apiKeyStore.status()
         apiKeyPresent = s.hasKey
         apiKeySource = s.source
+        apiKeyUnreadable = s.storedButUnreadable
     }
 
     /// Store the key (Keychain). Returns an error message, or nil on success. The

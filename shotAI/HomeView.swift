@@ -42,6 +42,11 @@ struct HomeView: View {
     // separate "select mode"); the bulk bar appears whenever something is picked.
     @State private var selection = Set<String>()
     @State private var bulkDeleteConfirm = false
+    /// Anchor for shift-click range selection (the last card whose checkbox was clicked).
+    @State private var lastClickedPath: String?
+    /// Rows with an in-flight per-row action (archive/restore/delete) — shown as
+    /// "Working…" with their buttons disabled.
+    @State private var busyPaths = Set<String>()
     /// Path of the card the cursor is over, for the hover-lift.
     @State private var hoveredPath: String?
 
@@ -113,7 +118,7 @@ struct HomeView: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                if let t = deleteTarget { Task { await model.deleteProject(path: t.path) } }
+                if let t = deleteTarget { runRowAction(t.path) { await model.deleteProject(path: t.path) } }
                 deleteTarget = nil
             }
             Button("Cancel", role: .cancel) { deleteTarget = nil }
@@ -385,8 +390,10 @@ struct HomeView: View {
     /// Blank normally (the tab chips carry the totals); "· 3 of 12" while a
     /// search is narrowing the current tab.
     private var countSuffix: String {
-        guard isSearching else { return "" }
         let total = tabProjects.count
+        // While searching, show "shown of total" when the query narrows the list;
+        // otherwise always show the plain count (parity with the Windows list head).
+        guard isSearching else { return total > 0 ? "  ·  \(total)" : "" }
         let shown = filteredProjects.count
         return shown != total ? "  ·  \(shown) of \(total)" : "  ·  \(total)"
     }
@@ -507,18 +514,48 @@ struct HomeView: View {
     private var selectionAnim: Animation? { reduceMotion ? nil : Self.selectAnim }
 
     private func toggle(_ p: ProjectSummary) {
+        // Shift-click selects the contiguous run (in visible order) from the last
+        // clicked row to this one — parity with the Windows range-select.
+        let shiftHeld = NSEvent.modifierFlags.contains(.shift)
         withAnimation(selectionAnim) {
-            if selection.contains(p.path) { selection.remove(p.path) } else { selection.insert(p.path) }
+            if shiftHeld, let anchor = lastClickedPath, anchor != p.path {
+                let order = visibleOrder
+                if let i = order.firstIndex(of: anchor), let j = order.firstIndex(of: p.path) {
+                    selection.formUnion(order[min(i, j)...max(i, j)])
+                } else if selection.contains(p.path) { // anchor no longer visible → plain toggle
+                    selection.remove(p.path)
+                } else {
+                    selection.insert(p.path)
+                }
+            } else if selection.contains(p.path) {
+                selection.remove(p.path)
+            } else {
+                selection.insert(p.path)
+            }
         }
+        lastClickedPath = p.path
     }
 
     private func selectAllVisible() {
         withAnimation(selectionAnim) { selection = Set(filteredProjects.map(\.path)) }
     }
 
-    /// Clear the selection (hides the bulk bar).
+    /// Clear the selection (hides the bulk bar). Also drops the range-select
+    /// anchor so the next shift-click starts fresh instead of reviving a run from
+    /// the pre-clear anchor.
     private func clearSelection() {
         withAnimation(selectionAnim) { selection.removeAll() }
+        lastClickedPath = nil
+    }
+
+    /// Run a per-row async action (archive/restore/delete) while marking that row
+    /// "Working…" and disabling its buttons until it finishes.
+    private func runRowAction(_ path: String, _ action: @escaping () async -> Void) {
+        busyPaths.insert(path)
+        Task {
+            await action()
+            busyPaths.remove(path)
+        }
     }
 
     // MARK: - Project list
@@ -556,6 +593,7 @@ struct HomeView: View {
     private func card(_ p: ProjectSummary) -> some View {
         let isSelected = selection.contains(p.path)
         let isHover = hoveredPath == p.path
+        let isBusy = busyPaths.contains(p.path)
         return HStack(spacing: 12) {
             Button { toggle(p) } label: {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
@@ -582,14 +620,19 @@ struct HomeView: View {
                         StatusBadge(hasSop: p.hasSop)
                     }
                 }
-                Text("\(p.stepCount) step\(p.stepCount == 1 ? "" : "s")\(Self.metaDate(p.updatedAt).map { " · \(p.archived ? "archived" : "modified") \($0)" } ?? "")")
-                    .font(.caption)
-                    .foregroundStyle(Palette.ink3)
+                if isBusy {
+                    Text("Working…").font(.caption).foregroundStyle(Palette.ink3)
+                } else {
+                    Text("\(p.stepCount) step\(p.stepCount == 1 ? "" : "s")\(Self.metaDate(p.updatedAt).map { " · \(p.archived ? "archived" : "modified") \($0)" } ?? "")")
+                        .font(.caption)
+                        .foregroundStyle(Palette.ink3)
+                }
             }
             Spacer(minLength: 8)
             Button("Open") { onOpen(p.path) }
                 .buttonStyle(.borderedProminent)
                 .help(p.archived ? "Restores this project from the Archive and opens it" : "Open this project")
+                .disabled(isBusy)
             Menu {
                 Button("Rename") { startRename(p) }
                 Button("Reveal in Finder") { model.revealInFinder(path: p.path) }
@@ -603,6 +646,7 @@ struct HomeView: View {
             .menuStyle(.borderlessButton)
             .frame(width: 28)
             .help("More actions")
+            .disabled(isBusy)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -632,9 +676,9 @@ struct HomeView: View {
     @ViewBuilder
     private func archiveMenuItem(_ p: ProjectSummary) -> some View {
         if p.archived {
-            Button("Restore") { Task { await model.unarchiveProject(path: p.path) } }
+            Button("Restore") { runRowAction(p.path) { await model.unarchiveProject(path: p.path) } }
         } else {
-            Button("Archive") { Task { await model.archiveProject(path: p.path) } }
+            Button("Archive") { runRowAction(p.path) { await model.archiveProject(path: p.path) } }
                 .disabled(!canArchive)
         }
     }
@@ -770,7 +814,17 @@ struct HomeView: View {
         let grouped = DateGroups.group(sortedProjects, now: Date()) {
             Self.isoDate(sortKey == .created ? $0.createdAt : $0.updatedAt)
         }
-        return grouped.map { (label: $0.label.rawValue, items: $0.items) }
+        // DateGroups returns buckets newest→oldest (This Week … Older). Under
+        // ascending sort the items within are oldest-first, so reverse the bucket
+        // order too (Older first) or the whole list reads inconsistently.
+        let ordered = sortAsc ? Array(grouped.reversed()) : grouped
+        return ordered.map { (label: $0.label.rawValue, items: $0.items) }
+    }
+
+    /// Paths in the exact order rows are shown (flattened across date buckets) —
+    /// the anchor order for shift-click range selection.
+    private var visibleOrder: [String] {
+        groupedProjects.flatMap { $0.items.map(\.path) }
     }
 
     // MARK: - Actions

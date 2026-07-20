@@ -14,9 +14,14 @@ public enum ApiKeySource: String, Sendable { case stored, env, none }
 public struct ApiKeyStatus: Sendable, Equatable {
     public let hasKey: Bool
     public let source: ApiKeySource
-    public init(hasKey: Bool, source: ApiKeySource) {
+    /// A key IS stored in the Keychain but couldn't be read (item present yet the
+    /// read failed or the value is undecodable). The macOS analog of the Windows
+    /// "previously saved key couldn't be read" state — the UI should offer Clear.
+    public let storedButUnreadable: Bool
+    public init(hasKey: Bool, source: ApiKeySource, storedButUnreadable: Bool = false) {
         self.hasKey = hasKey
         self.source = source
+        self.storedButUnreadable = storedButUnreadable
     }
 }
 
@@ -64,17 +69,23 @@ public struct KeychainApiKeyStore: ApiKeyStore {
         ]
     }
 
-    private func stored() -> String? {
+    /// The stored key's state: readable value, genuinely absent, or present but
+    /// unreadable (read error, or a value we can't decode).
+    private enum StoredState { case ok(String), missing, unreadable }
+
+    private func storedState() -> StoredState {
         var q = baseQuery()
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data,
+        let status = SecItemCopyMatching(q as CFDictionary, &item)
+        if status == errSecItemNotFound { return .missing }
+        guard status == errSecSuccess else { return .unreadable } // e.g. interactionNotAllowed
+        guard let data = item as? Data,
               let s = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !s.isEmpty
-        else { return nil }
-        return s
+        else { return .unreadable } // item present but empty/undecodable
+        return .ok(s)
     }
 
     private func envKey() -> String? {
@@ -83,12 +94,19 @@ public struct KeychainApiKeyStore: ApiKeyStore {
         return k
     }
 
-    public func key() -> String? { stored() ?? envKey() }
+    public func key() -> String? {
+        if case .ok(let s) = storedState() { return s }
+        return envKey()
+    }
 
     public func status() -> ApiKeyStatus {
-        if stored() != nil { return ApiKeyStatus(hasKey: true, source: .stored) }
-        if envKey() != nil { return ApiKeyStatus(hasKey: true, source: .env) }
-        return ApiKeyStatus(hasKey: false, source: .none)
+        let stored = storedState()
+        if case .ok = stored { return ApiKeyStatus(hasKey: true, source: .stored) }
+        let unreadable = { if case .unreadable = stored { return true } else { return false } }()
+        // A broken stored item doesn't block the env-var fallback, but still flag
+        // it so the UI can offer to Clear the unreadable Keychain entry.
+        if envKey() != nil { return ApiKeyStatus(hasKey: true, source: .env, storedButUnreadable: unreadable) }
+        return ApiKeyStatus(hasKey: false, source: .none, storedButUnreadable: unreadable)
     }
 
     public func set(_ key: String) throws {
