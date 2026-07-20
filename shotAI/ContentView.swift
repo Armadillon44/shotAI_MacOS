@@ -111,6 +111,10 @@ struct ContentView: View {
                 HomeView(capture: capture, onOpen: { path in
                     Task { await model.open(path: path) }
                 })
+                // While the first-run tour is up it must read as modal: disable the
+                // underlying Home controls so a click or Return (the focused name
+                // field's onSubmit → startCapture) can't fire behind the dim.
+                .disabled(model.tourActive)
             }
         }
         .navigationTitle(model.opened?.manifest.title ?? "shotAI")
@@ -131,6 +135,9 @@ struct ContentView: View {
             applyWindowWidth(w, animated: false)
         })
         .onChange(of: model.opened?.dir) {
+            // Returning to Home (e.g. replay-tour from Settings calls closeToHome
+            // while the editor overlay is up) must not strand the editor overlay.
+            if model.opened == nil { editor = nil }
             guard let window else { return }
             // Defer to the next runloop tick so the resize animation runs AFTER
             // the Home⇄detail content swap settles. Entering a project happens
@@ -189,6 +196,18 @@ struct ContentView: View {
                 EditorOverlay(model: editor)
             }
         }
+        // First-run coach-mark tour (Windows Tour.tsx parity). Anchors live on
+        // Home, so it only shows there and never over the permissions wizard.
+        .overlayPreferenceValue(TourAnchorKey.self) { anchors in
+            if model.tourActive && model.opened == nil && !capture.showWizard {
+                GeometryReader { proxy in
+                    TourOverlay(anchors: anchors, proxy: proxy) { model.finishTour() }
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.tourActive)
+        .task { model.startTourIfFirstRun() }
     }
 
     /// Size the window to the current surface's width (Home vs. project detail),
@@ -253,11 +272,16 @@ struct ContentView: View {
             ToolbarItem(placement: .primaryAction) { reportExportMenu }
         } else {
             // Home (project list): open a project, import a package, refresh.
+            // Disabled during the first-run tour — the dim doesn't cover the
+            // title-bar toolbar, so these would otherwise stay clickable.
             ToolbarItemGroup(placement: .primaryAction) {
                 Button("Open Project…", systemImage: "folder.badge.plus") { showOpenPanel = true }
+                    .disabled(model.tourActive)
                 Button("Import Package…", systemImage: "square.and.arrow.down") { model.promptImportPackage() }
                     .help("Import a shotAI package (.zip)")
+                    .disabled(model.tourActive)
                 Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refresh() } }
+                    .disabled(model.tourActive)
             }
         }
     }

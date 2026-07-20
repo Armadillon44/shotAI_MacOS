@@ -21,6 +21,9 @@ final class AppModel {
     private(set) var opened: ProjectStore.OpenedProject?
     var selectedPath: String?
     var errorMessage: String?
+    /// First-run coach-mark tour visibility (see `Tour.swift`). Shown once on
+    /// first launch and replayable from Settings ▸ General.
+    var tourActive = false
 
     var projectsDirDisplay: String {
         (settings.projectsDir() as NSString).abbreviatingWithTildeInPath
@@ -397,6 +400,31 @@ final class AppModel {
         if let data = try? JSONEncoder().encode(preferences) {
             UserDefaults.standard.set(data, forKey: Self.preferencesKey)
         }
+    }
+
+    // MARK: - First-run tour
+
+    /// Show the tour once on first launch (its anchors live on Home, so only
+    /// when no project is open). Called from ContentView once per launch.
+    func startTourIfFirstRun() {
+        guard !preferences.hasSeenTour, opened == nil, !tourActive else { return }
+        tourActive = true
+    }
+
+    /// Dismiss/complete the tour and remember it so it doesn't re-fire.
+    func finishTour() {
+        tourActive = false
+        if !preferences.hasSeenTour {
+            preferences.hasSeenTour = true
+            savePreferences()
+        }
+    }
+
+    /// Replay from Settings ▸ General: return to Home (where the anchors live)
+    /// and show the tour. The caller brings the main window forward.
+    func replayTour() {
+        closeToHome()
+        tourActive = true
     }
 
     /// Change the projects folder (Settings ▸ General). Persists the new root and

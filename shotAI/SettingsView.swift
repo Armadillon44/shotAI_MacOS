@@ -201,6 +201,7 @@ private struct CaptureSettings: View {
 
 private struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
     // Local mirror so the label updates immediately after Change… — reading
     // model.settings.projectsDir() directly registers no observation dependency
     // (settings is a `let`, and it reads UserDefaults), so the view wouldn't
@@ -267,6 +268,22 @@ private struct GeneralSettings: View {
                 .frame(maxWidth: 340, alignment: .leading)
                 .onChange(of: archiveAge) { _, v in model.setArchiveAgeDays(v) }
                 Text("On launch, projects you haven't touched in this long are compressed into the Archive to save disk — their screenshots are zipped in place and restore automatically when you open the project.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Getting started").font(.headline)
+                Button("Show intro tour") {
+                    model.replayTour()
+                    // The tour renders only in the main window — bring it forward
+                    // (or reopen it if the user closed it) so the tour is visible.
+                    openWindow(id: "main")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                .controlSize(.small)
+                Text("Replay the first-run walkthrough of capture, modes, the recording pill, and SOP generation.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
