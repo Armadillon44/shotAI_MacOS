@@ -22,14 +22,26 @@ public struct CaptureState: Equatable, Sendable {
     public var projectPath: String?
     public var projectTitle: String?
     public var stepCount: Int
+    /// True when discarding this session deletes the WHOLE project (a project
+    /// created this session with no pre-existing steps), not just this session's
+    /// steps — so the pill's Discard confirmation can warn honestly. Mirrors the
+    /// Windows `willDeleteProjectOnDiscard` (R5).
+    public var willDeleteProjectOnDiscard: Bool
 
     public static let idle = CaptureState(status: .idle, projectPath: nil, projectTitle: nil, stepCount: 0)
 
-    public init(status: Status, projectPath: String?, projectTitle: String?, stepCount: Int) {
+    public init(
+        status: Status,
+        projectPath: String?,
+        projectTitle: String?,
+        stepCount: Int,
+        willDeleteProjectOnDiscard: Bool = false
+    ) {
         self.status = status
         self.projectPath = projectPath
         self.projectTitle = projectTitle
         self.stepCount = stepCount
+        self.willDeleteProjectOnDiscard = willDeleteProjectOnDiscard
     }
 }
 

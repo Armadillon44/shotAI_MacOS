@@ -353,6 +353,30 @@ import ShotModel
         h.cleanup()
     }
 
+    // The pill's Discard-confirmation wording keys off state.willDeleteProjectOnDiscard;
+    // it must match discard()'s own whole-project predicate.
+    @Test func stateFlagsWholeProjectDiscardForFreshProject() async throws {
+        let h = try EngineHarness()
+        let created = try await h.store.createProject(title: "Fresh")
+        try await h.engine.start(
+            projectPath: created.path, attachHook: false, createdThisSession: true)
+        _ = try await h.engine.captureStep(trigger: .hotkey, point: nil)
+        #expect(await h.engine.state().willDeleteProjectOnDiscard) // whole-project discard
+        h.cleanup()
+    }
+
+    @Test func stateDoesNotFlagWholeProjectDiscardWithPriorSteps() async throws {
+        let h = try EngineHarness()
+        try await h.store.addStep(
+            at: h.projectDir,
+            ProjectStep(id: "old", order: 0, screenshot: "", trigger: .hotkey))
+        // Not created this session (default), and it has a pre-existing step.
+        try await h.engine.start(projectPath: h.projectDir, attachHook: false)
+        _ = try await h.engine.captureStep(trigger: .hotkey, point: nil)
+        #expect(!(await h.engine.state().willDeleteProjectOnDiscard)) // session-only discard
+        h.cleanup()
+    }
+
     @Test func immediateCaptureInsertsClicklessStepAtIndex() async throws {
         let h = try EngineHarness()
         for id in ["a", "b"] {

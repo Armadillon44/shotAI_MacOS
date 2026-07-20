@@ -177,7 +177,10 @@ public actor CaptureEngine {
             // report the project's running total (a fresh recording pill would read
             // "4" on a 4-step project). addedStepIds is appended only on a
             // committed step, so its count is the true session progress.
-            stepCount: s.addedStepIds.count
+            stepCount: s.addedStepIds.count,
+            // Same predicate discard() uses for whole-project deletion, surfaced
+            // so the pill can warn that Discard deletes the entire new project.
+            willDeleteProjectOnDiscard: s.createdThisSession && s.stepCountAtStart == 0
         )
     }
 
