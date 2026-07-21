@@ -12,6 +12,12 @@ struct ShotAIApp: App {
 
     init() {
         Log.bootstrap() // banner + uncaught-exception handler, as early as possible
+        // Don't persist/restore window state across quit. We size and route the
+        // window ourselves and always open to Home, so restoration adds nothing —
+        // and after an unclean exit (crash/force-quit) macOS would otherwise paint
+        // a blank placeholder at the restored frame until the first redraw (#56).
+        // Registered (lowest-priority) so an explicit user/system value still wins.
+        UserDefaults.standard.register(defaults: ["NSQuitAlwaysKeepsWindows": false])
         let model = AppModel()
         _model = State(initialValue: model)
         let capture = CaptureCoordinator(store: model.store)
