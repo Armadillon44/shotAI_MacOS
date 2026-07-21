@@ -11,14 +11,15 @@ API, and only when you ask shotAI to write the SOP. This is a native Swift/Swift
 the [Windows app](https://github.com/Armadillon44/shotAI); `project.json` is
 byte-compatible, so projects **round-trip between platforms**.
 
-> **Status:** **1.0.0-rc3** (build 3) — release candidate. Capture engine, native SwiftUI
+> **Status:** **1.0.0** — first stable release. Capture engine, native SwiftUI
 > annotation editor, redaction (manual + local Vision OCR auto-redact), Claude SOP
 > generation with review-before-send + one-click revert, element-at-point captions (native
 > Accessibility), export to HTML / PDF / Markdown / "HTML for Word" + a shareable
-> round-trip `.zip` package, project archiving, and light/dark theming are all implemented.
-> **Distribution is not finished yet:** the current release DMGs are **ad-hoc signed**, so
-> Gatekeeper blocks the first launch until you clear quarantine (see [Install](#install)).
-> Developer ID signing + notarization is the remaining ship step
+> round-trip `.zip` package, project archiving, a first-run tour, and light/dark theming are
+> all implemented.
+> **Distribution note:** the release DMG is currently **ad-hoc signed**, so Gatekeeper
+> blocks the first launch until you clear quarantine (see [Install](#install)). Developer ID
+> signing + notarization is the remaining polish step
 > ([docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)).
 
 ## How it works
@@ -103,7 +104,7 @@ the Claude client, never surfaced back to the UI. No telemetry.
 1. Download the latest `shotAI-<version>.dmg` from
    [GitHub Releases](https://github.com/Armadillon44/shotAI_MacOS/releases) and drag
    **shotAI** into `/Applications`.
-2. **Clear the Gatekeeper quarantine.** Because this RC is **ad-hoc signed** (Developer ID
+2. **Clear the Gatekeeper quarantine.** Because this build is **ad-hoc signed** (Developer ID
    notarization is still pending), macOS blocks the first launch. Either:
 
    ```sh
