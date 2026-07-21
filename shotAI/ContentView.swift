@@ -352,11 +352,22 @@ struct ContentView: View {
 private struct WindowAccessor: NSViewRepresentable {
     let onResolve: (NSWindow) -> Void
     func makeNSView(context: Context) -> NSView {
-        let v = NSView()
-        DispatchQueue.main.async { if let w = v.window { onResolve(w) } }
+        let v = WindowResolvingView()
+        v.onResolve = onResolve
         return v
     }
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { if let w = nsView.window { onResolve(w) } }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+/// Marks the host window non-restorable the instant it attaches (in
+/// `viewDidMoveToWindow`, earlier than a deferred main-queue hop), then hands it
+/// to `onResolve` for sizing — part of the #56 no-restoration-placeholder fix.
+private final class WindowResolvingView: NSView {
+    var onResolve: ((NSWindow) -> Void)?
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let w = window else { return }
+        w.isRestorable = false
+        onResolve?(w)
     }
 }

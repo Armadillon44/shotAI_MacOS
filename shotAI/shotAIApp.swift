@@ -12,6 +12,13 @@ struct ShotAIApp: App {
 
     init() {
         Log.bootstrap() // banner + uncaught-exception handler, as early as possible
+        // Don't persist/restore window state across quit. We size and route the
+        // window ourselves and always open to Home, so restoration adds nothing —
+        // and after an unclean exit (crash/force-quit) macOS would otherwise paint
+        // a blank placeholder at the restored frame until the first redraw (#56).
+        // Registered (lowest-priority) so an explicit user/system value still wins.
+        UserDefaults.standard.register(defaults: ["NSQuitAlwaysKeepsWindows": false])
+        Self.pruneOrphanedWindowState()
         let model = AppModel()
         _model = State(initialValue: model)
         let capture = CaptureCoordinator(store: model.store)
@@ -100,6 +107,26 @@ struct ShotAIApp: App {
                 .environment(model)
                 .preferredColorScheme(model.preferences.theme.colorScheme)
         }
+    }
+
+    /// One-time purge of window/split-view autosave records left by EARLIER app
+    /// architectures — the old `NavigationSplitView` sidebar (…`SidebarNavigationSplitView`)
+    /// and pre-`WindowGroup(id:)` frame identities (`NSWindow Frame SwiftUI.ModifiedContent…`).
+    /// The current UI has no split view and the window is now `main-AppWindow-1`, so these
+    /// are orphaned, but AppKit still replayed them on launch into a hierarchy that no longer
+    /// matches — flashing a blank placeholder in the Home window (#56). Runs before the window
+    /// is created (App.init) so this launch is already clean. KEEPS the current window frame
+    /// (`main-AppWindow-1`) and the Settings frame, so window size/position memory is preserved.
+    private static func pruneOrphanedWindowState() {
+        let d = UserDefaults.standard
+        guard !d.bool(forKey: "windowStateCleanup.v1") else { return }
+        for key in d.dictionaryRepresentation().keys
+        where key.contains("SidebarNavigationSplitView")
+            || key.hasPrefix("NSWindow Frame SwiftUI.ModifiedContent")
+            || key.hasPrefix("NSSplitView Subview Frames SwiftUI.ModifiedContent") {
+            d.removeObject(forKey: key)
+        }
+        d.set(true, forKey: "windowStateCleanup.v1")
     }
 
     /// The native About panel — it reads the app icon, name, version, and
