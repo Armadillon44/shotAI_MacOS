@@ -19,6 +19,7 @@ struct ShotAIApp: App {
         // Registered (lowest-priority) so an explicit user/system value still wins.
         UserDefaults.standard.register(defaults: ["NSQuitAlwaysKeepsWindows": false])
         Self.pruneOrphanedWindowState()
+        Self.coerceMainWindowWidthToHome()
         let model = AppModel()
         _model = State(initialValue: model)
         let capture = CaptureCoordinator(store: model.store)
@@ -127,6 +128,32 @@ struct ShotAIApp: App {
             d.removeObject(forKey: key)
         }
         d.set(true, forKey: "windowStateCleanup.v1")
+    }
+
+    /// The main window's frame is autosaved by SwiftUI (`NSWindow Frame
+    /// main-AppWindow-1`) and restored on launch. We ALWAYS open to Home (the
+    /// narrow `WindowLayout.home` width), but the app may have been quit while a
+    /// project was open at the wide `.detail` width — so the restored frame can be
+    /// too wide, and `ContentView.applyWindowWidth` (which runs when the window
+    /// attaches) races AppKit's frame restore, correcting it only *sometimes* and
+    /// leaving Home wide on a fresh open. Fix it at the source: BEFORE the window
+    /// is created, rewrite the persisted frame's WIDTH to the Home width (keeping
+    /// position center + height), so AppKit restores the right size — no race, no
+    /// visible snap. The `NSWindow Frame …` string is `x y w h screenX screenY
+    /// screenW screenH`; we only touch w (and shift x to preserve the center).
+    private static func coerceMainWindowWidthToHome() {
+        let key = "NSWindow Frame main-AppWindow-1"
+        let d = UserDefaults.standard
+        guard let saved = d.string(forKey: key) else { return }
+        let parts = saved.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count >= 4,
+              let x = Double(parts[0]), let w = Double(parts[2]) else { return }
+        let home = Double(WindowLayout.home)
+        guard abs(w - home) > 0.5 else { return }        // already Home width
+        let newX = Int((x + (w - home) / 2).rounded())   // preserve horizontal center
+        var out = [String(newX), parts[1], String(Int(home)), parts[3]]
+        out.append(contentsOf: parts[4...])              // keep the screen-frame suffix verbatim
+        d.set(out.joined(separator: " "), forKey: key)
     }
 
     /// The native About panel — it reads the app icon, name, version, and
