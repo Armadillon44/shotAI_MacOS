@@ -25,7 +25,7 @@ body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-s
 .step__main--caution{background:#fffbeb;border-color:#fcd34d;color:#92400e}
 .step__main--warning{background:#fef2f2;border-color:#fca5a5;color:#991b1b}
 .step__title{font-size:1.15rem;margin:0 0 10px}
-.step__img{display:block;max-width:100%;height:auto;border:1px solid #e5e7eb;border-radius:8px}
+.step__img{display:block;max-width:100%;height:auto;margin-inline:auto;border:1px solid #e5e7eb;border-radius:8px}
 .step__instr{margin:10px 0 0;white-space:pre-wrap;font-size:1.02rem}
 .step--textonly .step__instr{margin-top:0}
 .step__note{margin:8px 0 0;color:#6b7280;font-size:.92rem;white-space:pre-wrap}

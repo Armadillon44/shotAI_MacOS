@@ -141,6 +141,8 @@ final class ExportKitTests: XCTestCase {
         XCTAssertTrue(html.contains("data:image/png;base64,"))           // inlined image
         XCTAssertTrue(html.contains("class=\"doc__intro-b\">first<br>second<")) // intro br
         XCTAssertTrue(html.contains(DOC_CSS))
+        // #59: a narrow capture centers in the column (equal L/R padding).
+        XCTAssertTrue(DOC_CSS.contains(".step__img{") && DOC_CSS.contains("margin-inline:auto"))
     }
 
     func testPlainHtmlIsSemanticWithArialCss() async throws {

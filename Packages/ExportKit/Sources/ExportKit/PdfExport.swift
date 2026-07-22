@@ -328,7 +328,9 @@ private final class PdfCanvas {
             cursorY = top - headerH
             if imgW > 0, let image {
                 advance(10)
-                let r = CGRect(x: innerX, y: cursorY - imgH, width: imgW, height: imgH)
+                // Center a capture narrower than the content column (#59).
+                let imgX = innerX + max(0, (innerW - imgW) / 2)
+                let r = CGRect(x: imgX, y: cursorY - imgH, width: imgW, height: imgH)
                 ctx.draw(image, in: r)
                 ctx.setStrokeColor(Ink.hair.cgColor); ctx.setLineWidth(0.5); ctx.stroke(r)
                 cursorY -= imgH
@@ -347,7 +349,9 @@ private final class PdfCanvas {
             cursorY = top - headerH
             if fImgW > 0, let image {
                 advance(10)
-                let r = CGRect(x: mainX, y: cursorY - fImgH, width: fImgW, height: fImgH)
+                // Center a capture narrower than the content column (#59).
+                let fImgX = mainX + max(0, (mainW - fImgW) / 2)
+                let r = CGRect(x: fImgX, y: cursorY - fImgH, width: fImgW, height: fImgH)
                 ctx.draw(image, in: r)
                 ctx.setStrokeColor(Ink.hair.cgColor); ctx.setLineWidth(0.5); ctx.stroke(r)
                 cursorY -= fImgH

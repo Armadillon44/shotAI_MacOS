@@ -1068,7 +1068,11 @@ private struct StepFigure: View {
     var body: some View {
         Group {
             if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom, fitWidth: Double(fitWidth)) {
+                // Center a capture narrower than the column so it gets equal L/R
+                // padding instead of hugging the left edge (#59). A full-width
+                // capture fills the column, so centering is a no-op for it.
                 figure(loaded.image, loaded.pixelSize, viewport)
+                    .frame(maxWidth: .infinity, alignment: .center)
             } else if failed {
                 Label("Image missing: \(relPath)", systemImage: "photo.badge.exclamationmark")
                     .foregroundStyle(.secondary)
