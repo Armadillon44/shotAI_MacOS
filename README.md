@@ -11,12 +11,16 @@ API, and only when you ask shotAI to write the SOP. This is a native Swift/Swift
 the [Windows app](https://github.com/Armadillon44/shotAI); `project.json` is
 byte-compatible, so projects **round-trip between platforms**.
 
-> **Status:** **1.0.0** — first stable release. Capture engine, native SwiftUI
+> **Status:** **1.1.0.** Capture engine, native SwiftUI
 > annotation editor, redaction (manual + local Vision OCR auto-redact), Claude SOP
 > generation with review-before-send + one-click revert, element-at-point captions (native
 > Accessibility), export to HTML / PDF / Markdown / "HTML for Word" + a shareable
 > round-trip `.zip` package, project archiving, a first-run tour, and light/dark theming are
 > all implemented.
+> **New in 1.1.0:** non-counted **section dividers** (phase headings that aren't numbered
+> steps — Claude uses them to group a procedure into phases); narrow captures are centered
+> at a uniform width across the report and exports; and the "HTML for Word" export sizes its
+> images to match the styled HTML export.
 > **Distribution note:** the release DMG is currently **ad-hoc signed**, so Gatekeeper
 > blocks the first launch until you clear quarantine (see [Install](#install)). Developer ID
 > signing + notarization is the remaining polish step
@@ -36,7 +40,9 @@ byte-compatible, so projects **round-trip between platforms**.
    collapsed into one.
 
 2. **Review & annotate.** Each step is a card in the report — retitle it, edit the
-   instruction, or edit the project title in the header. Open the native image editor to
+   instruction, or edit the project title in the header. Insert **section dividers** to mark
+   where the procedure shifts to a new phase (they're headings, not numbered steps), plus
+   text blocks and note/caution/warning callouts between steps. Open the native image editor to
    draw **boxes**, **arrows**, **numbers**, and **text**, adjust the click **marker**,
    **crop**, or **redact/blur** sensitive regions. Redactions are **baked into a flattened
    PNG** copy of the screenshot; the original pixels never leave your machine for any export
