@@ -1,5 +1,24 @@
 import Foundation
+import ImageIO
 import ShotModel
+
+/// The styled export displays step images at up to the width of a step card's
+/// content column: `.doc` 880 − 64 (doc padding) − 30 (badge) − 16 (gap) − 32
+/// (card padding) = 738px (see DOC_CSS). The plain / Word-paste export caps images
+/// to the SAME width so the two match — but via explicit width/height ATTRIBUTES,
+/// because Word/Google Docs drop CSS `max-width` on paste and would otherwise
+/// render the image at its full native pixel size. Keep in sync with DOC_CSS.
+private let plainExportImageMaxWidth = 738
+
+/// The image's pixel dimensions, read from its metadata without decoding pixels.
+private func imagePixelDimensions(_ data: Data) -> (w: Int, h: Int)? {
+    guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+          let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+          let w = props[kCGImagePropertyPixelWidth] as? Int,
+          let h = props[kCGImagePropertyPixelHeight] as? Int,
+          w > 0, h > 0 else { return nil }
+    return (w, h)
+}
 
 /// The report stylesheet — ported character-for-character from export.ts DOC_CSS
 /// so the HTML/PDF export renders identically to the Windows app. Trimmed of its
@@ -186,7 +205,19 @@ func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws ->
             let bytes = try imageBytes(image)
             let dataUri = "data:\(image.mediaType);base64,\(bytes.base64EncodedString())"
             parts.append("<h2>\(n). \(escapeHTML(caption.isEmpty ? "Step \(n)" : caption))</h2>")
-            parts.append("<p><img src=\"\(dataUri)\" alt=\"Screenshot for step \(n)\"></p>")
+            // Size the image with width/height ATTRIBUTES (not CSS) so it matches
+            // the styled export and survives a Word/Docs paste, which drops CSS
+            // max-width. Cap at the styled column width, preserving aspect; a
+            // capture already narrower than the cap keeps its native size.
+            let sizeAttr: String
+            if let px = imagePixelDimensions(bytes) {
+                let scale = min(1.0, Double(plainExportImageMaxWidth) / Double(px.w))
+                sizeAttr = " width=\"\(Int((Double(px.w) * scale).rounded()))\""
+                    + " height=\"\(Int((Double(px.h) * scale).rounded()))\""
+            } else {
+                sizeAttr = ""
+            }
+            parts.append("<p><img src=\"\(dataUri)\"\(sizeAttr) alt=\"Screenshot for step \(n)\"></p>")
             if !body.isEmpty { parts.append("<p>\(br(body))</p>") }
             if !note.isEmpty { parts.append("<p><em>\(br(note))</em></p>") }
         }

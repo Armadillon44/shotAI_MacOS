@@ -166,6 +166,26 @@ final class ExportKitTests: XCTestCase {
         XCTAssertTrue(html.contains("<h2>1. Cap</h2>"))
     }
 
+    func testPlainHtmlImageSizedToMatchStyled() async throws {
+        let dir = try makeProjectDir()
+        // Wide capture (wider than the 738px styled column) + a narrow one.
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 1476, h: 900))
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/narrow.png"), w: 400, h: 300))
+        let m = manifest([
+            shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide"),
+            shotStep(id: "n", order: 1, screenshot: "shots/narrow.png", caption: "Narrow"),
+        ])
+        let res = try await exportProject(dir: dir, manifest: m, format: .htmlPlain, generatedAt: fixedDate)
+        let html = try String(contentsOfFile: res.outputPath, encoding: .utf8)
+        // Wide is capped to the styled column (738), aspect preserved (1476×900 → 738×450).
+        XCTAssertTrue(html.contains("width=\"738\" height=\"450\""))
+        // Narrow keeps its native size (already under the cap).
+        XCTAssertTrue(html.contains("width=\"400\" height=\"300\""))
+        // Still paste-clean: no classes / inline styles.
+        XCTAssertFalse(html.contains("class="))
+        XCTAssertFalse(html.contains("style=\""))
+    }
+
     // MARK: - Markdown export
 
     func testMarkdownExportWritesImages() async throws {
