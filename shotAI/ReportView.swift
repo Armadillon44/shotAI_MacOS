@@ -398,6 +398,7 @@ private struct InsertZone: View {
                 Button("Image…") { onInsert(.image) }
                 Divider()
                 Button("Text block") { onInsert(.text) }
+                Button("Section heading") { onInsert(.callout(.section)) }
                 Button("Note") { onInsert(.callout(.note)) }
                 Button("Caution") { onInsert(.callout(.caution)) }
                 Button("Warning") { onInsert(.callout(.warning)) }
@@ -508,11 +509,65 @@ private struct StepRow: View {
         // (number/glyph + drag grip) sits in a left gutter so the badges line up
         // across all step types, and the ⋯ menu overlays the card's top-right
         // corner (not a column) so a full-width screenshot uses the whole width.
-        let calloutKind = step.callout
+        Group {
+            if step.callout == .section {
+                sectionRow          // full-width, borderless phase divider (no card/rail)
+            } else {
+                standardRow(step.callout)
+            }
+        }
+        // A dragged step dropped on this row lands just before it; the accent
+        // line shows where it will go.
+        .overlay(alignment: .top) {
+            if dropTargeted { Rectangle().fill(Palette.accent).frame(height: 2) }
+        }
+        .dropDestination(for: String.self) { ids, _ in
+            guard let dragged = ids.first, dragged != step.id else { return false }
+            autoScroller.reset()
+            Task { await model.dropStep(dragged, before: step.id) }
+            return true
+        } isTargeted: { targeted in
+            dropTargeted = targeted
+            autoScroller.noteHover(targeted) // runs edge auto-scroll while a drag is active
+        }
+    }
+
+    /// A section divider: a borderless phase heading (rule above, bold heading,
+    /// muted body) — no card — aligned with the other steps' content column via a
+    /// grip-only rail (no number badge). Keeps drag-to-reorder; the left gutter
+    /// stays clear so the divider doesn't overflow into the number column.
+    private var sectionRow: some View {
+        HStack(alignment: .top, spacing: 14) {
+            // Rail: a drag grip only (a section carries no number), sized to the
+            // badge column so the divider lines up with the other steps' content.
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Palette.ink3)
+                .frame(width: 32)
+                .help("Drag to reorder")
+                .draggable(step.id) {
+                    Text(dragPreview)
+                        .font(.system(size: 13))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Palette.accentTint)
+                        .foregroundStyle(Palette.accentInk)
+                        .clipShape(Capsule())
+                }
+                .padding(.top, 16)
+            SectionBox(step: step, focus: focus)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .topTrailing) { stepMenu.padding(.top, 8) }
+        }
+        .padding(.top, 12)
+    }
+
+    /// Every non-section step: a full-width card with the number/glyph rail in a
+    /// left gutter and the ⋯ menu overlaid top-right.
+    @ViewBuilder private func standardRow(_ calloutKind: CalloutKind?) -> some View {
         let fill: Color = calloutKind.map { CalloutBox.palette($0).background } ?? Palette.surface2
         let border: Color = calloutKind.map { CalloutBox.palette($0).border } ?? Palette.hair
         let borderWidth: CGFloat = calloutKind == nil ? 1 : 1.5
-        return HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: 14) {
             rail
             VStack(alignment: .leading, spacing: 8) {
                 if step.kind == .text {
@@ -542,20 +597,6 @@ private struct StepRow: View {
             // top-right corner (aligned with the content inset).
             .overlay(alignment: .topTrailing) { stepMenu.padding(14) }
         }
-        // A dragged step dropped on this row lands just before it; the accent
-        // line shows where it will go.
-        .overlay(alignment: .top) {
-            if dropTargeted { Rectangle().fill(Palette.accent).frame(height: 2) }
-        }
-        .dropDestination(for: String.self) { ids, _ in
-            guard let dragged = ids.first, dragged != step.id else { return false }
-            autoScroller.reset()
-            Task { await model.dropStep(dragged, before: step.id) }
-            return true
-        } isTargeted: { targeted in
-            dropTargeted = targeted
-            autoScroller.noteHover(targeted) // runs edge auto-scroll while a drag is active
-        }
     }
 
     /// Per-step actions: reorder (move up/down) and delete.
@@ -574,11 +615,14 @@ private struct StepRow: View {
                 Divider()
                 if step.callout == nil {
                     Menu("Convert to callout") {
-                        ForEach(CalloutKind.allCases, id: \.self) { kind in
+                        ForEach(CalloutKind.annotationKinds, id: \.self) { kind in
                             Button(kind.rawValue.capitalized) {
                                 Task { await model.setStepCallout(stepId: step.id, to: kind) }
                             }
                         }
+                    }
+                    Button("Convert to section") {
+                        Task { await model.setStepCallout(stepId: step.id, to: .section) }
                     }
                 } else {
                     Button("Convert to plain text") {
@@ -642,6 +686,8 @@ private struct StepRow: View {
     }
 
     @ViewBuilder private var badge: some View {
+        // NB: a section renders as a full-width divider with no rail, so this
+        // never runs for a section (the rail is only built for non-section rows).
         if let callout = step.callout, ReportPresentation.isCalloutStep(step) {
             Text(ReportPresentation.calloutGlyph(callout))
                 .font(.system(size: 16))
@@ -751,6 +797,10 @@ private struct CalloutBox: View {
             Colors(background: Palette.cautBg, border: Palette.cautBd, text: Palette.cautFg)
         case .warning:
             Colors(background: Palette.warnBg, border: Palette.warnBd, text: Palette.warnFg)
+        // A section is a phase divider, not a colored callout — neutral surface.
+        // Its content is drawn by `SectionBox`, not `CalloutBox`.
+        case .section:
+            Colors(background: Palette.surface2, border: Palette.hair, text: Palette.ink)
         }
     }
 
@@ -766,7 +816,9 @@ private struct CalloutBox: View {
                 }
                 Spacer(minLength: 8)
                 Menu {
-                    ForEach(CalloutKind.allCases, id: \.self) { k in
+                    // Only the colored annotation kinds — a section isn't a box type
+                    // (switch to/from a section via the ⋯ menu instead).
+                    ForEach(CalloutKind.annotationKinds, id: \.self) { k in
                         Button(k.rawValue.capitalized) { Task { await model.editStepText(stepId: step.id, callout: k) } }
                     }
                 } label: {
@@ -779,6 +831,32 @@ private struct CalloutBox: View {
             .padding(.trailing, 28)  // clear the ⋯ overlay at the card's top-right
             .frame(minHeight: 28, alignment: .topLeading)  // keep the body below the ⋯
             InlineEditable(text: step.body ?? "", placeholder: "Callout text…", color: palette.text, multiline: true, id: "cb:\(step.id)", focus: focus) { new in
+                Task { await model.editStepText(stepId: step.id, body: new) }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A text step styled as a SECTION DIVIDER — a phase heading that is NOT a
+/// numbered step and NOT a colored callout. A thin full-width rule ABOVE a bold
+/// heading, then a muted body, editable in place. Borderless (no card) so it
+/// reads as a phase break and matches the HTML/PDF export (`CalloutKind.section`).
+private struct SectionBox: View {
+    let step: ProjectStep
+    var focus: FocusState<String?>.Binding
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Rectangle()
+                .fill(Palette.hair)
+                .frame(height: 2)   // divider rule ABOVE the heading (export parity)
+            InlineEditable(text: step.heading ?? "", placeholder: "Section heading", font: .system(size: 17, weight: .bold), color: Palette.ink, id: "ch:\(step.id)", focus: focus) { new in
+                Task { await model.editStepText(stepId: step.id, heading: new) }
+            }
+            .padding(.trailing, 28)  // clear the ⋯ overlay at the top-right
+            InlineEditable(text: step.body ?? "", placeholder: "Section description (optional)…", color: Palette.ink2, multiline: true, id: "cb:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, body: new) }
             }
         }
@@ -990,7 +1068,11 @@ private struct StepFigure: View {
     var body: some View {
         Group {
             if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom, fitWidth: Double(fitWidth)) {
+                // Center a capture narrower than the column so it gets equal L/R
+                // padding instead of hugging the left edge (#59). A full-width
+                // capture fills the column, so centering is a no-op for it.
                 figure(loaded.image, loaded.pixelSize, viewport)
+                    .frame(maxWidth: .infinity, alignment: .center)
             } else if failed {
                 Label("Image missing: \(relPath)", systemImage: "photo.badge.exclamationmark")
                     .foregroundStyle(.secondary)

@@ -30,11 +30,13 @@ public enum ReportPresentation {
     }
 
     /// Rail badge glyph per callout kind (the box color already conveys it).
+    /// A `section` divider has no rail badge (it renders as a heading, not a box).
     public static func calloutGlyph(_ kind: CalloutKind) -> String {
         switch kind {
         case .note: "ℹ"
         case .caution: "⚠"
         case .warning: "⛔"
+        case .section: ""
         }
     }
 

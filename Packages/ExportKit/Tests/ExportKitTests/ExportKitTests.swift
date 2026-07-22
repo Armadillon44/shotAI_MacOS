@@ -141,6 +141,8 @@ final class ExportKitTests: XCTestCase {
         XCTAssertTrue(html.contains("data:image/png;base64,"))           // inlined image
         XCTAssertTrue(html.contains("class=\"doc__intro-b\">first<br>second<")) // intro br
         XCTAssertTrue(html.contains(DOC_CSS))
+        // #59: a narrow capture centers in the column (equal L/R padding).
+        XCTAssertTrue(DOC_CSS.contains(".step__img{") && DOC_CSS.contains("margin-inline:auto"))
     }
 
     func testPlainHtmlIsSemanticWithArialCss() async throws {
@@ -164,6 +166,26 @@ final class ExportKitTests: XCTestCase {
         XCTAssertTrue(html.contains("<h2>1. Cap</h2>"))
     }
 
+    func testPlainHtmlImageSizedToMatchStyled() async throws {
+        let dir = try makeProjectDir()
+        // Wide capture (wider than the 738px styled column) + a narrow one.
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 1476, h: 900))
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/narrow.png"), w: 400, h: 300))
+        let m = manifest([
+            shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide"),
+            shotStep(id: "n", order: 1, screenshot: "shots/narrow.png", caption: "Narrow"),
+        ])
+        let res = try await exportProject(dir: dir, manifest: m, format: .htmlPlain, generatedAt: fixedDate)
+        let html = try String(contentsOfFile: res.outputPath, encoding: .utf8)
+        // Wide is capped to the styled column (738), aspect preserved (1476×900 → 738×450).
+        XCTAssertTrue(html.contains("width=\"738\" height=\"450\""))
+        // Narrow keeps its native size (already under the cap).
+        XCTAssertTrue(html.contains("width=\"400\" height=\"300\""))
+        // Still paste-clean: no classes / inline styles.
+        XCTAssertFalse(html.contains("class="))
+        XCTAssertFalse(html.contains("style=\""))
+    }
+
     // MARK: - Markdown export
 
     func testMarkdownExportWritesImages() async throws {
@@ -181,6 +203,76 @@ final class ExportKitTests: XCTestCase {
         let imgPath = (dir as NSString)
             .appendingPathComponent("export/My SOP-images/step-01-abc.png")
         XCTAssertTrue(FileManager.default.fileExists(atPath: imgPath))
+    }
+
+    // MARK: - Section dividers (non-counted phase headings)
+
+    func testSectionRendersAsHeadingNotNumberedCallout() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 20, h: 20))
+        let m = manifest([
+            shotStep(id: "s1", order: 0, screenshot: "shots/a.png", caption: "First", body: "b"),
+            textStep(id: "sec", order: 1, heading: "Phase Two", body: "Now configure it.", callout: .section),
+            textStep(id: "t1", order: 2, heading: "Wrap up", body: "done"),
+        ])
+
+        // Styled HTML: a section divider, NOT a numbered step and NOT a colored box.
+        let html = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(html.contains("<section class=\"section\">"))
+        XCTAssertTrue(html.contains("<h2 class=\"section__h\">Phase Two</h2>"))
+        XCTAssertTrue(html.contains("<p class=\"section__b\">Now configure it.</p>"))
+        XCTAssertFalse(html.contains("step__num--section"))   // no colored callout badge
+        XCTAssertFalse(html.contains("step__main--section"))  // no colored callout box
+        XCTAssertTrue(html.contains("<div class=\"step__num\">1</div>"))  // shot = 1
+        XCTAssertTrue(html.contains("<div class=\"step__num\">2</div>"))  // text = 2 (section skipped)
+
+        // Plain HTML (Word/Docs): a bare heading + paragraph, no glyph blockquote.
+        let plain = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .htmlPlain, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(plain.contains("<h2>Phase Two</h2>"))
+        XCTAssertTrue(plain.contains("<p>Now configure it.</p>"))
+
+        // Markdown: a `##` heading, not a `>` blockquote callout.
+        let md = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .markdown, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(md.contains("## Phase Two"))
+        XCTAssertTrue(md.contains("Now configure it."))
+        XCTAssertFalse(md.contains("> **"))  // section is never a blockquote callout
+    }
+
+    func testEmptySectionIsSkipped() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 20, h: 20))
+        // An empty section (no heading, no body) must NOT emit a stray divider rule.
+        let m = manifest([
+            shotStep(id: "s1", order: 0, screenshot: "shots/a.png", caption: "First", body: "b"),
+            textStep(id: "sec", order: 1, heading: "  ", body: "", callout: .section),
+        ])
+        let html = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertFalse(html.contains("<section class=\"section\">"))  // skipped entirely
+        let md = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .markdown, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertFalse(md.contains("---"))  // no stray separator for the empty section
+    }
+
+    func testPdfWithSectionRenders() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 40, h: 30))
+        let m = manifest([
+            shotStep(id: "s1", order: 0, screenshot: "shots/a.png", caption: "First", body: "b"),
+            textStep(id: "sec", order: 1, heading: "Phase Two", body: "Now configure it.", callout: .section),
+            shotStep(id: "s2", order: 2, screenshot: "shots/a.png", caption: "Second", body: "b2"),
+        ])
+        let res = try await exportProject(dir: dir, manifest: m, format: .pdf, generatedAt: fixedDate)
+        let size = (try FileManager.default.attributesOfItem(atPath: res.outputPath)[.size] as? NSNumber)?.intValue ?? 0
+        XCTAssertGreaterThan(size, 0)  // drawSection ran without crashing; fail-closed gate passed
     }
 
     // MARK: - Fail-closed gate

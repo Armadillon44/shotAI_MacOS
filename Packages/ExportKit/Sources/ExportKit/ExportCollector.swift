@@ -14,11 +14,16 @@ func collectSteps(dir: String, manifest: ProjectManifest) throws -> [ExportItem]
 
     for step in manifest.steps {
         if ReportPresentation.isCalloutStep(step), let kind = step.callout {
-            // Callout — un-numbered, kept even if empty.
+            let heading = (step.heading ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = (step.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            // A note/caution/warning box is meaningful even when empty (the colored
+            // box carries the signal), but an empty SECTION is just a stray divider
+            // rule with no text — skip it (mirrors the empty plain-text-step skip).
+            if kind == .section, heading.isEmpty, body.isEmpty { continue }
+            // Callout — un-numbered.
             items.append(.callout(
                 kind: CalloutKindExport(rawValue: kind.rawValue) ?? .note,
-                heading: (step.heading ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
-                body: (step.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)))
+                heading: heading, body: body))
         } else if step.kind == .text {
             // Plain text step — skip when entirely empty (no number consumed).
             let heading = (step.heading ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

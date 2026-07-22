@@ -86,7 +86,16 @@ final class ApplyRevertTests: XCTestCase {
         XCTAssertEqual(m.steps[0].note, "")  // note is never AI-written; original (empty) preserved
         XCTAssertEqual(m.steps[1].kind, .text)
         XCTAssertEqual(m.steps[1].heading, "Phase 2")
+        XCTAssertEqual(m.steps[1].body, "Now finalize")
         XCTAssertEqual(m.steps[1].aiInserted, true)
+        // The AI section insert is a NON-COUNTED phase divider (callout .section),
+        // not a numbered text step — so the two shots stay 1 and 2.
+        XCTAssertEqual(m.steps[1].callout, .section)
+        XCTAssertTrue(ReportPresentation.isCalloutStep(m.steps[1]))
+        let nums = ReportPresentation.displayNumbers(for: m.steps)
+        XCTAssertEqual(nums[m.steps[0].id], 1)
+        XCTAssertEqual(nums[m.steps[2].id], 2)
+        XCTAssertNil(nums[m.steps[1].id])  // section is not numbered
         XCTAssertEqual(m.steps[2].caption, "Confirm")
         // Backup snapshot of the pristine 2-shot state.
         XCTAssertEqual(m.sopBackup?.steps.count, 2)

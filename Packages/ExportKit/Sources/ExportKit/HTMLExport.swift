@@ -1,5 +1,24 @@
 import Foundation
+import ImageIO
 import ShotModel
+
+/// The styled export displays step images at up to the width of a step card's
+/// content column: `.doc` 880 − 64 (doc padding) − 30 (badge) − 16 (gap) − 32
+/// (card padding) = 738px (see DOC_CSS). The plain / Word-paste export caps images
+/// to the SAME width so the two match — but via explicit width/height ATTRIBUTES,
+/// because Word/Google Docs drop CSS `max-width` on paste and would otherwise
+/// render the image at its full native pixel size. Keep in sync with DOC_CSS.
+private let plainExportImageMaxWidth = 738
+
+/// The image's pixel dimensions, read from its metadata without decoding pixels.
+private func imagePixelDimensions(_ data: Data) -> (w: Int, h: Int)? {
+    guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+          let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+          let w = props[kCGImagePropertyPixelWidth] as? Int,
+          let h = props[kCGImagePropertyPixelHeight] as? Int,
+          w > 0, h > 0 else { return nil }
+    return (w, h)
+}
 
 /// The report stylesheet — ported character-for-character from export.ts DOC_CSS
 /// so the HTML/PDF export renders identically to the Windows app. Trimmed of its
@@ -8,16 +27,13 @@ let DOC_CSS = """
 *{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;background:#fff;line-height:1.6}
-.doc{max-width:820px;margin:0 auto;padding:40px 32px 64px}
+.doc{max-width:880px;margin:0 auto;padding:40px 32px 64px}
 .doc__title{font-size:1.9rem;line-height:1.25;margin:0 0 4px}
 .doc__meta{color:#6b7280;font-size:.85rem;margin:0 0 28px}
 .doc__intro{margin:0 0 28px;padding:14px 18px;border:1px solid #e7e4f2;border-left:4px solid #6344f1;border-radius:8px;background:#efeafe}
 .doc__intro-eyebrow{text-transform:uppercase;letter-spacing:.6px;font-size:.7rem;font-weight:700;color:#6b7280;margin:0 0 6px}
 .doc__intro-h{margin:0 0 6px;font-size:1.15rem}
 .doc__intro-b{margin:0;color:#374151;white-space:pre-wrap}
-.section{margin:26px 0}
-.section__h{font-size:1.3rem;margin:0 0 6px;color:#111827}
-.section__b{white-space:pre-wrap;margin:0}
 .step{display:flex;gap:16px;margin:0 0 18px;align-items:flex-start;page-break-inside:avoid;break-inside:avoid}
 .step__num{flex:0 0 auto;width:30px;height:30px;margin-top:14px;border-radius:50%;background:#6344f1;color:#fff;font-weight:600;display:flex;align-items:center;justify-content:center;font-size:.95rem}
 .step__num--note{background:#ecfdf5;color:#065f46;border:1px solid #6ee7b7}
@@ -28,13 +44,16 @@ body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-s
 .step__main--caution{background:#fffbeb;border-color:#fcd34d;color:#92400e}
 .step__main--warning{background:#fef2f2;border-color:#fca5a5;color:#991b1b}
 .step__title{font-size:1.15rem;margin:0 0 10px}
-.step__img{display:block;max-width:100%;height:auto;border:1px solid #e5e7eb;border-radius:8px}
+.step__img{display:block;max-width:100%;height:auto;margin-inline:auto;border:1px solid #e5e7eb;border-radius:8px}
 .step__instr{margin:10px 0 0;white-space:pre-wrap;font-size:1.02rem}
 .step--textonly .step__instr{margin-top:0}
 .step__note{margin:8px 0 0;color:#6b7280;font-size:.92rem;white-space:pre-wrap}
 .callout__h{display:block;font-weight:700;margin-bottom:.25rem}
 .callout__b{white-space:pre-wrap}
-@media print{.doc{max-width:none;padding:0 6px}}
+.section{margin:28px 0 4px 46px;padding:14px 16px 0;border-top:2px solid #e7e4f2}
+.section__h{font-size:1.2rem;font-weight:700;margin:0 0 4px;color:#191826}
+.section__b{margin:0;color:#5a5772;white-space:pre-wrap}
+@media print{.doc{max-width:none;padding:0 6px}.section{break-inside:avoid}}
 """
 
 /// The rail-badge glyph for a callout — same mapping as shared/project CALLOUT_GLYPH.
@@ -43,6 +62,7 @@ func calloutGlyphExport(_ kind: CalloutKindExport) -> String {
     case .note: "ℹ"
     case .caution: "⚠"
     case .warning: "⛔"
+    case .section: ""
     }
 }
 
@@ -53,6 +73,13 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
     for it in items {
         switch it {
         case .callout(let kind, let heading, let body):
+            if kind == .section {
+                // A section divider — a full-width phase heading, not a colored box.
+                let h = heading.isEmpty ? "" : "<h2 class=\"section__h\">\(escapeHTML(heading))</h2>"
+                let b = body.isEmpty ? "" : "<p class=\"section__b\">\(escapeHTML(body))</p>"
+                parts.append("<section class=\"section\">\(h)\(b)</section>")
+                break
+            }
             // A colored glyph badge in the gutter + the tinted callout card (the
             // step__main itself is the colored box, matching the in-app report).
             let glyph = calloutGlyphExport(kind)
@@ -153,6 +180,12 @@ func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws ->
         if idx > 0 { parts.append("<hr>") }  // separate steps from one another (#40)
         switch it {
         case .callout(let kind, let heading, let body):
+            if kind == .section {
+                // Section divider → a plain heading (no number, no glyph, no box).
+                if !heading.isEmpty { parts.append("<h2>\(escapeHTML(heading))</h2>") }
+                if !body.isEmpty { parts.append("<p>\(br(body))</p>") }
+                break
+            }
             let glyph = calloutGlyphExport(kind)
             let h = "<strong>\(glyph)\(heading.isEmpty ? "" : " \(escapeHTML(heading))")</strong>"
             let b = body.isEmpty ? "" : br(body)
@@ -172,7 +205,19 @@ func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws ->
             let bytes = try imageBytes(image)
             let dataUri = "data:\(image.mediaType);base64,\(bytes.base64EncodedString())"
             parts.append("<h2>\(n). \(escapeHTML(caption.isEmpty ? "Step \(n)" : caption))</h2>")
-            parts.append("<p><img src=\"\(dataUri)\" alt=\"Screenshot for step \(n)\"></p>")
+            // Size the image with width/height ATTRIBUTES (not CSS) so it matches
+            // the styled export and survives a Word/Docs paste, which drops CSS
+            // max-width. Cap at the styled column width, preserving aspect; a
+            // capture already narrower than the cap keeps its native size.
+            let sizeAttr: String
+            if let px = imagePixelDimensions(bytes) {
+                let scale = min(1.0, Double(plainExportImageMaxWidth) / Double(px.w))
+                sizeAttr = " width=\"\(Int((Double(px.w) * scale).rounded()))\""
+                    + " height=\"\(Int((Double(px.h) * scale).rounded()))\""
+            } else {
+                sizeAttr = ""
+            }
+            parts.append("<p><img src=\"\(dataUri)\"\(sizeAttr) alt=\"Screenshot for step \(n)\"></p>")
             if !body.isEmpty { parts.append("<p>\(br(body))</p>") }
             if !note.isEmpty { parts.append("<p><em>\(br(note))</em></p>") }
         }

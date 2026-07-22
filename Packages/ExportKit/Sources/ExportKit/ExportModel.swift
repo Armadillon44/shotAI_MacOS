@@ -90,4 +90,4 @@ enum ExportItem {
 
 /// The three callout kinds, re-exposed so ExportKit doesn't leak the ShotModel
 /// enum through its item type. Mapped 1:1 from ShotModel.CalloutKind.
-enum CalloutKindExport: String { case note, caution, warning }
+enum CalloutKindExport: String { case note, caution, warning, section }

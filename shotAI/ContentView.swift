@@ -133,6 +133,11 @@ struct ContentView: View {
             // blank placeholder for any transient sheet/overlay that was open.
             w.isRestorable = false
             applyWindowWidth(w, animated: false)
+            // Safety net for the wide-Home-on-launch race (the init-time frame
+            // coercion normally pre-empts it): if AppKit restored a stale wide
+            // frame around now, correct it on the next tick, once the restore has
+            // settled. A no-op in the common case (already at Home width).
+            DispatchQueue.main.async { applyWindowWidth(w, animated: false) }
         })
         .onChange(of: model.opened?.dir) {
             // Returning to Home (e.g. replay-tour from Settings calls closeToHome

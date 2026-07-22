@@ -41,6 +41,15 @@ func buildMarkdown(
         if idx > 0 { lines.append("---"); lines.append("") }  // separate steps (#40)
         switch it {
         case .callout(let kind, let heading, let body):
+            if kind == .section {
+                // Section divider → a plain heading (no number, no glyph, no box).
+                if !heading.isEmpty {
+                    lines.append("## \(escapeMarkdown(collapseHeading(heading)))")
+                    lines.append("")
+                }
+                if !body.isEmpty { lines.append(body); lines.append("") }
+                break
+            }
             // Blockquote: bold glyph (+ heading) first, then a ">" separator line
             // and the body (adjacent quoted lines would otherwise merge).
             let glyph = calloutGlyphExport(kind)
