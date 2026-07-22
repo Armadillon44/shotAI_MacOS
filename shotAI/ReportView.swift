@@ -532,14 +532,33 @@ private struct StepRow: View {
         }
     }
 
-    /// A section divider: a full-width, borderless phase heading (rule above, bold
-    /// heading, muted body) — no card, no rail — so it reads as a phase break and
-    /// matches the exports. Reorder via the ⋯ menu (Move up/down); no drag grip.
+    /// A section divider: a borderless phase heading (rule above, bold heading,
+    /// muted body) — no card — aligned with the other steps' content column via a
+    /// grip-only rail (no number badge). Keeps drag-to-reorder; the left gutter
+    /// stays clear so the divider doesn't overflow into the number column.
     private var sectionRow: some View {
-        SectionBox(step: step, focus: focus)
-            .overlay(alignment: .topTrailing) { stepMenu.padding(.top, 8) }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 12)
+        HStack(alignment: .top, spacing: 14) {
+            // Rail: a drag grip only (a section carries no number), sized to the
+            // badge column so the divider lines up with the other steps' content.
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Palette.ink3)
+                .frame(width: 32)
+                .help("Drag to reorder")
+                .draggable(step.id) {
+                    Text(dragPreview)
+                        .font(.system(size: 13))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Palette.accentTint)
+                        .foregroundStyle(Palette.accentInk)
+                        .clipShape(Capsule())
+                }
+                .padding(.top, 16)
+            SectionBox(step: step, focus: focus)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .topTrailing) { stepMenu.padding(.top, 8) }
+        }
+        .padding(.top, 12)
     }
 
     /// Every non-section step: a full-width card with the number/glyph rail in a

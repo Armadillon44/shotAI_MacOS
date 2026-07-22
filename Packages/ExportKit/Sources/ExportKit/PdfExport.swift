@@ -402,16 +402,20 @@ private final class PdfCanvas {
         }
     }
 
-    /// A section divider — a full-width phase heading (NOT a numbered step and NOT
-    /// a colored callout box): a top hairline rule, a bold heading, then a muted
-    /// body. Mirrors the report/HTML `.section` styling. Flows a long body across
-    /// pages. Draws at full content width (no badge gutter indent).
+    /// A section divider — a phase heading (NOT a numbered step and NOT a colored
+    /// callout box): a top hairline rule, a bold heading, then a muted body.
+    /// Mirrors the report/HTML `.section`. Drawn in the STEP content column (rule
+    /// spans the step-card box width; text inset like a card) so it aligns with the
+    /// steps and never overflows into the number-badge gutter. Flows a long body.
     func drawSection(heading: String, body: String, separator: Bool) {
         guard let ctx else { return }
+        let innerPad: CGFloat = 12                 // match drawStep/drawCallout text inset
+        let textX = mainX + innerPad
+        let textW = mainW - innerPad * 2
         let headAttr = heading.isEmpty ? nil : Ink.attr(heading, size: 15, weight: .bold, color: Ink.title)
         let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: Ink.meta)
-        let hH = headAttr.map { Self.measure($0, width: contentW) } ?? 0
-        let bH = bodyAttr.map { Self.measure($0, width: contentW) } ?? 0
+        let hH = headAttr.map { Self.measure($0, width: textW) } ?? 0
+        let bH = bodyAttr.map { Self.measure($0, width: textW) } ?? 0
         let ruleGap: CGFloat = 10     // rule → heading
         let hbGap: CGFloat = (hH > 0 && bH > 0) ? 4 : 0
         let leadGap: CGFloat = separator ? 20 : 6
@@ -423,16 +427,16 @@ private final class PdfCanvas {
             advance(leadGap)
             ctx.setStrokeColor(Ink.hair.cgColor)
             ctx.setLineWidth(2)
-            ctx.move(to: CGPoint(x: margin, y: cursorY))
-            ctx.addLine(to: CGPoint(x: margin + contentW, y: cursorY))
+            ctx.move(to: CGPoint(x: mainX, y: cursorY))
+            ctx.addLine(to: CGPoint(x: mainX + mainW, y: cursorY))
             ctx.strokePath()
             advance(ruleGap)
         }
         if let headAttr {
-            drawAt(headAttr, x: margin, width: contentW, height: hH, top: cursorY, ctx: ctx)
+            drawAt(headAttr, x: textX, width: textW, height: hH, top: cursorY, ctx: ctx)
             cursorY -= hH
         }
-        if let bodyAttr { advance(hbGap); drawFlowing(bodyAttr, x: margin, width: contentW) }
+        if let bodyAttr { advance(hbGap); drawFlowing(bodyAttr, x: textX, width: textW) }
     }
 
     /// The overview box (report parity): an "OVERVIEW" eyebrow + heading + body in

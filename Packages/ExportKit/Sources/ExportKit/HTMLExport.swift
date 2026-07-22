@@ -31,7 +31,7 @@ body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-s
 .step__note{margin:8px 0 0;color:#6b7280;font-size:.92rem;white-space:pre-wrap}
 .callout__h{display:block;font-weight:700;margin-bottom:.25rem}
 .callout__b{white-space:pre-wrap}
-.section{margin:28px 0 4px;padding-top:14px;border-top:2px solid #e7e4f2}
+.section{margin:28px 0 4px 46px;padding:14px 16px 0;border-top:2px solid #e7e4f2}
 .section__h{font-size:1.2rem;font-weight:700;margin:0 0 4px;color:#191826}
 .section__b{margin:0;color:#5a5772;white-space:pre-wrap}
 @media print{.doc{max-width:none;padding:0 6px}.section{break-inside:avoid}}
