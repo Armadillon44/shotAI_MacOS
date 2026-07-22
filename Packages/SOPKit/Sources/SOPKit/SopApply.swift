@@ -15,12 +15,14 @@ public enum SopApplyError: Error, LocalizedError, Equatable {
     }
 }
 
-/// A fresh AI-inserted text step (intro/section). `aiInserted` marks it so the
-/// next generation's base-rebuild drops it (no compounding).
-private func makeAITextStep(heading: String, body: String) -> ProjectStep {
+/// A fresh AI-inserted section divider — a text step tagged `callout: .section`
+/// so the report/exports render it as a non-counted phase heading (not a numbered
+/// step). `aiInserted` marks it so the next generation's base-rebuild drops it
+/// (no compounding).
+private func makeAISectionStep(heading: String, body: String) -> ProjectStep {
     ProjectStep(
         id: UUID().uuidString.lowercased(), order: 0, kind: .text, screenshot: "",
-        trigger: .hotkey, heading: heading, body: body, aiInserted: true)
+        trigger: .hotkey, heading: heading, body: body, callout: .section, aiInserted: true)
 }
 
 /// Apply the plan IN-LINE: snapshot the pristine pre-AI state for revert, set the
@@ -58,7 +60,7 @@ public func applySopEdits(
             if step.kind == .text { next.append(step); continue }  // author text passes through
             guard let e = editByNum[i + 1] else { next.append(step); continue }
             if let sh = e.sectionHeading, !sh.isEmpty {
-                next.append(makeAITextStep(heading: sh, body: e.sectionBody ?? ""))
+                next.append(makeAISectionStep(heading: sh, body: e.sectionBody ?? ""))
             }
             var edited = step
             let cap = e.caption.trimmingCharacters(in: .whitespacesAndNewlines)

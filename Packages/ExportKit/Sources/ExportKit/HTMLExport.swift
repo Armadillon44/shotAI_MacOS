@@ -34,7 +34,10 @@ body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-s
 .step__note{margin:8px 0 0;color:#6b7280;font-size:.92rem;white-space:pre-wrap}
 .callout__h{display:block;font-weight:700;margin-bottom:.25rem}
 .callout__b{white-space:pre-wrap}
-@media print{.doc{max-width:none;padding:0 6px}}
+.section{margin:28px 0 4px;padding-top:14px;border-top:2px solid #e7e4f2}
+.section__h{font-size:1.2rem;font-weight:700;margin:0 0 4px;color:#191826}
+.section__b{margin:0;color:#5a5772;white-space:pre-wrap}
+@media print{.doc{max-width:none;padding:0 6px}.section{break-inside:avoid}}
 """
 
 /// The rail-badge glyph for a callout — same mapping as shared/project CALLOUT_GLYPH.
@@ -43,6 +46,7 @@ func calloutGlyphExport(_ kind: CalloutKindExport) -> String {
     case .note: "ℹ"
     case .caution: "⚠"
     case .warning: "⛔"
+    case .section: ""
     }
 }
 
@@ -53,6 +57,13 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
     for it in items {
         switch it {
         case .callout(let kind, let heading, let body):
+            if kind == .section {
+                // A section divider — a full-width phase heading, not a colored box.
+                let h = heading.isEmpty ? "" : "<h2 class=\"section__h\">\(escapeHTML(heading))</h2>"
+                let b = body.isEmpty ? "" : "<p class=\"section__b\">\(escapeHTML(body))</p>"
+                parts.append("<section class=\"section\">\(h)\(b)</section>")
+                break
+            }
             // A colored glyph badge in the gutter + the tinted callout card (the
             // step__main itself is the colored box, matching the in-app report).
             let glyph = calloutGlyphExport(kind)
@@ -153,6 +164,12 @@ func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws ->
         if idx > 0 { parts.append("<hr>") }  // separate steps from one another (#40)
         switch it {
         case .callout(let kind, let heading, let body):
+            if kind == .section {
+                // Section divider → a plain heading (no number, no glyph, no box).
+                if !heading.isEmpty { parts.append("<h2>\(escapeHTML(heading))</h2>") }
+                if !body.isEmpty { parts.append("<p>\(br(body))</p>") }
+                break
+            }
             let glyph = calloutGlyphExport(kind)
             let h = "<strong>\(glyph)\(heading.isEmpty ? "" : " \(escapeHTML(heading))")</strong>"
             let b = body.isEmpty ? "" : br(body)

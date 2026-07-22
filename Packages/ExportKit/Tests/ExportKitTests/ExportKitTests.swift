@@ -183,6 +183,76 @@ final class ExportKitTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: imgPath))
     }
 
+    // MARK: - Section dividers (non-counted phase headings)
+
+    func testSectionRendersAsHeadingNotNumberedCallout() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 20, h: 20))
+        let m = manifest([
+            shotStep(id: "s1", order: 0, screenshot: "shots/a.png", caption: "First", body: "b"),
+            textStep(id: "sec", order: 1, heading: "Phase Two", body: "Now configure it.", callout: .section),
+            textStep(id: "t1", order: 2, heading: "Wrap up", body: "done"),
+        ])
+
+        // Styled HTML: a section divider, NOT a numbered step and NOT a colored box.
+        let html = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(html.contains("<section class=\"section\">"))
+        XCTAssertTrue(html.contains("<h2 class=\"section__h\">Phase Two</h2>"))
+        XCTAssertTrue(html.contains("<p class=\"section__b\">Now configure it.</p>"))
+        XCTAssertFalse(html.contains("step__num--section"))   // no colored callout badge
+        XCTAssertFalse(html.contains("step__main--section"))  // no colored callout box
+        XCTAssertTrue(html.contains("<div class=\"step__num\">1</div>"))  // shot = 1
+        XCTAssertTrue(html.contains("<div class=\"step__num\">2</div>"))  // text = 2 (section skipped)
+
+        // Plain HTML (Word/Docs): a bare heading + paragraph, no glyph blockquote.
+        let plain = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .htmlPlain, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(plain.contains("<h2>Phase Two</h2>"))
+        XCTAssertTrue(plain.contains("<p>Now configure it.</p>"))
+
+        // Markdown: a `##` heading, not a `>` blockquote callout.
+        let md = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .markdown, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(md.contains("## Phase Two"))
+        XCTAssertTrue(md.contains("Now configure it."))
+        XCTAssertFalse(md.contains("> **"))  // section is never a blockquote callout
+    }
+
+    func testEmptySectionIsSkipped() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 20, h: 20))
+        // An empty section (no heading, no body) must NOT emit a stray divider rule.
+        let m = manifest([
+            shotStep(id: "s1", order: 0, screenshot: "shots/a.png", caption: "First", body: "b"),
+            textStep(id: "sec", order: 1, heading: "  ", body: "", callout: .section),
+        ])
+        let html = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertFalse(html.contains("<section class=\"section\">"))  // skipped entirely
+        let md = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .markdown, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertFalse(md.contains("---"))  // no stray separator for the empty section
+    }
+
+    func testPdfWithSectionRenders() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 40, h: 30))
+        let m = manifest([
+            shotStep(id: "s1", order: 0, screenshot: "shots/a.png", caption: "First", body: "b"),
+            textStep(id: "sec", order: 1, heading: "Phase Two", body: "Now configure it.", callout: .section),
+            shotStep(id: "s2", order: 2, screenshot: "shots/a.png", caption: "Second", body: "b2"),
+        ])
+        let res = try await exportProject(dir: dir, manifest: m, format: .pdf, generatedAt: fixedDate)
+        let size = (try FileManager.default.attributesOfItem(atPath: res.outputPath)[.size] as? NSNumber)?.intValue ?? 0
+        XCTAssertGreaterThan(size, 0)  // drawSection ran without crashing; fail-closed gate passed
+    }
+
     // MARK: - Fail-closed gate
 
     func testUnbakedRedactionRefused() async throws {

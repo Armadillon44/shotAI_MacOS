@@ -39,6 +39,22 @@ import Testing
         #expect(nums == ["a": 1, "b": 2, "d": 3])
     }
 
+    @Test func sectionsAreNotNumbered() {
+        // A section heading is a non-counted phase divider — like a callout, it's
+        // skipped by the 1..N numbering (that's the whole point of the feature).
+        let steps = [
+            shotStep(id: "a"),
+            textStep(id: "sec", callout: .section), // phase divider — not counted
+            shotStep(id: "b"),
+            textStep(id: "sec2", callout: .section),
+            shotStep(id: "c"),
+        ]
+        let nums = ReportPresentation.displayNumbers(for: steps)
+        #expect(nums == ["a": 1, "b": 2, "c": 3])
+        #expect(ReportPresentation.isCalloutStep(steps[1]))       // section counts as a callout step
+        #expect(ReportPresentation.calloutGlyph(.section) == "")  // no rail badge glyph
+    }
+
     @Test func markerColorMatchesAnnotationsTs() {
         #expect(ReportPresentation.markerColorHex(for: shotStep(click: click(1, 1))) == "#e11d48")
         #expect(ReportPresentation.markerColorHex(for: shotStep(click: click(1, 1, button: .right))) == "#2563eb")

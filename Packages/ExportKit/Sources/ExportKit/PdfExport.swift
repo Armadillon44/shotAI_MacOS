@@ -47,7 +47,11 @@ func renderPdf(
                 caption: heading, image: nil, body: body, note: "", separator: separator)
 
         case .callout(let kind, let heading, let body):
-            pdf.drawCallout(kind: kind, heading: heading, body: body, separator: separator)
+            if kind == .section {
+                pdf.drawSection(heading: heading, body: body, separator: separator)
+            } else {
+                pdf.drawCallout(kind: kind, heading: heading, body: body, separator: separator)
+            }
         }
     }
 
@@ -87,6 +91,9 @@ private enum Ink {
         case .note:    Callout(bg: color("#ecfdf5"), border: color("#6ee7b7"), text: color("#065f46"))
         case .caution: Callout(bg: color("#fffbeb"), border: color("#fcd34d"), text: color("#92400e"))
         case .warning: Callout(bg: color("#fef2f2"), border: color("#fca5a5"), text: color("#991b1b"))
+        // A section divider is drawn by `drawSection`, never through the callout
+        // card path — this neutral case only keeps the switch exhaustive.
+        case .section: Callout(bg: color("#ffffff"), border: hair, text: title)
         }
     }
 
@@ -393,6 +400,39 @@ private final class PdfCanvas {
             }
             if let bodyAttr { advance(6); drawFlowing(bodyAttr, x: mainX, width: mainW) }
         }
+    }
+
+    /// A section divider — a full-width phase heading (NOT a numbered step and NOT
+    /// a colored callout box): a top hairline rule, a bold heading, then a muted
+    /// body. Mirrors the report/HTML `.section` styling. Flows a long body across
+    /// pages. Draws at full content width (no badge gutter indent).
+    func drawSection(heading: String, body: String, separator: Bool) {
+        guard let ctx else { return }
+        let headAttr = heading.isEmpty ? nil : Ink.attr(heading, size: 15, weight: .bold, color: Ink.title)
+        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: Ink.meta)
+        let hH = headAttr.map { Self.measure($0, width: contentW) } ?? 0
+        let bH = bodyAttr.map { Self.measure($0, width: contentW) } ?? 0
+        let ruleGap: CGFloat = 10     // rule → heading
+        let hbGap: CGFloat = (hH > 0 && bH > 0) ? 4 : 0
+        let leadGap: CGFloat = separator ? 20 : 6
+
+        // Reserve room for the rule + heading (body can flow); a page break makes
+        // its own separation, so suppress the leading gap and rule after one.
+        let broke = ensureRoom(leadGap + 2 + ruleGap + max(hH, 12))
+        if !broke {
+            advance(leadGap)
+            ctx.setStrokeColor(Ink.hair.cgColor)
+            ctx.setLineWidth(2)
+            ctx.move(to: CGPoint(x: margin, y: cursorY))
+            ctx.addLine(to: CGPoint(x: margin + contentW, y: cursorY))
+            ctx.strokePath()
+            advance(ruleGap)
+        }
+        if let headAttr {
+            drawAt(headAttr, x: margin, width: contentW, height: hH, top: cursorY, ctx: ctx)
+            cursorY -= hH
+        }
+        if let bodyAttr { advance(hbGap); drawFlowing(bodyAttr, x: margin, width: contentW) }
     }
 
     /// The overview box (report parity): an "OVERVIEW" eyebrow + heading + body in

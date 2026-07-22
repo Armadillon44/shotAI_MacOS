@@ -227,9 +227,19 @@ public enum StepKind: String, Codable, Sendable {
     case shot, text
 }
 
-/// Pre-formatted callout style for a text step. Absent = plain text step.
+/// Pre-formatted style for a text step. Absent = plain (numbered) text step.
+/// note/caution/warning are the colored annotation callouts; `section` is a
+/// non-counted phase/section heading (a divider between groups of steps). All
+/// four are "callout steps" — text-only and NOT numbered (see `isCalloutStep`).
 public enum CalloutKind: String, Codable, Sendable, CaseIterable {
-    case note, caution, warning
+    case note, caution, warning, section
+
+    /// The three colored annotation callouts (excludes `section`) — used where a
+    /// picker/insert menu offers note/caution/warning as a group.
+    public static let annotationKinds: [CalloutKind] = [.note, .caution, .warning]
+
+    /// A structural section divider rather than a colored annotation box.
+    public var isSection: Bool { self == .section }
 }
 
 // MARK: - SOP intro / backup

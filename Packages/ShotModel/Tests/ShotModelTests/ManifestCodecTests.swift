@@ -158,6 +158,32 @@ enum Fixture {
         #expect(a == b)
     }
 
+    @Test func sectionCalloutRoundTrips() throws {
+        // A `section` callout is a non-counted phase divider; it must decode to the
+        // typed case and re-encode byte-for-byte (the cross-platform promise).
+        let json = """
+        {
+          "version": 1, "id": "p1", "title": "T", "createdWith": "shotAI",
+          "createdAt": "", "updatedAt": "", "captureSettings": null,
+          "steps": [{
+            "id": "s1", "order": 1, "kind": "text", "screenshot": "",
+            "trigger": "hotkey", "click": null, "monitor": null, "window": null,
+            "element": {"available": false, "name": null, "controlType": null, "bounds": null},
+            "caption": "", "note": "", "heading": "Phase 2", "body": "Now configure it.",
+            "callout": "section", "crop": null, "annotations": []
+          }],
+          "intro": null, "sopBackup": null, "archived": false, "archivedAt": null
+        }
+        """
+        let m = try ProjectJSON.decodeManifest(Data(json.utf8))
+        #expect(m.steps[0].callout == .section)
+        #expect(m.steps[0].kind == .text)
+        // Re-encode → the "section" value survives verbatim.
+        let a = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? NSDictionary
+        let b = try JSONSerialization.jsonObject(with: ProjectJSON.encodeManifest(m)) as? NSDictionary
+        #expect(a == b)
+    }
+
     @Test func corruptFieldsDegradeInsteadOfFailingTheOpen() throws {
         // Mirrors the Windows readManifest/coerce* defensive reads.
         let json = """
