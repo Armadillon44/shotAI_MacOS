@@ -8,16 +8,13 @@ let DOC_CSS = """
 *{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;background:#fff;line-height:1.6}
-.doc{max-width:820px;margin:0 auto;padding:40px 32px 64px}
+.doc{max-width:880px;margin:0 auto;padding:40px 32px 64px}
 .doc__title{font-size:1.9rem;line-height:1.25;margin:0 0 4px}
 .doc__meta{color:#6b7280;font-size:.85rem;margin:0 0 28px}
 .doc__intro{margin:0 0 28px;padding:14px 18px;border:1px solid #e7e4f2;border-left:4px solid #6344f1;border-radius:8px;background:#efeafe}
 .doc__intro-eyebrow{text-transform:uppercase;letter-spacing:.6px;font-size:.7rem;font-weight:700;color:#6b7280;margin:0 0 6px}
 .doc__intro-h{margin:0 0 6px;font-size:1.15rem}
 .doc__intro-b{margin:0;color:#374151;white-space:pre-wrap}
-.section{margin:26px 0}
-.section__h{font-size:1.3rem;margin:0 0 6px;color:#111827}
-.section__b{white-space:pre-wrap;margin:0}
 .step{display:flex;gap:16px;margin:0 0 18px;align-items:flex-start;page-break-inside:avoid;break-inside:avoid}
 .step__num{flex:0 0 auto;width:30px;height:30px;margin-top:14px;border-radius:50%;background:#6344f1;color:#fff;font-weight:600;display:flex;align-items:center;justify-content:center;font-size:.95rem}
 .step__num--note{background:#ecfdf5;color:#065f46;border:1px solid #6ee7b7}

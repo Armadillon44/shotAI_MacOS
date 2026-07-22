@@ -509,17 +509,50 @@ private struct StepRow: View {
         // (number/glyph + drag grip) sits in a left gutter so the badges line up
         // across all step types, and the ⋯ menu overlays the card's top-right
         // corner (not a column) so a full-width screenshot uses the whole width.
-        let calloutKind = step.callout
+        Group {
+            if step.callout == .section {
+                sectionRow          // full-width, borderless phase divider (no card/rail)
+            } else {
+                standardRow(step.callout)
+            }
+        }
+        // A dragged step dropped on this row lands just before it; the accent
+        // line shows where it will go.
+        .overlay(alignment: .top) {
+            if dropTargeted { Rectangle().fill(Palette.accent).frame(height: 2) }
+        }
+        .dropDestination(for: String.self) { ids, _ in
+            guard let dragged = ids.first, dragged != step.id else { return false }
+            autoScroller.reset()
+            Task { await model.dropStep(dragged, before: step.id) }
+            return true
+        } isTargeted: { targeted in
+            dropTargeted = targeted
+            autoScroller.noteHover(targeted) // runs edge auto-scroll while a drag is active
+        }
+    }
+
+    /// A section divider: a full-width, borderless phase heading (rule above, bold
+    /// heading, muted body) — no card, no rail — so it reads as a phase break and
+    /// matches the exports. Reorder via the ⋯ menu (Move up/down); no drag grip.
+    private var sectionRow: some View {
+        SectionBox(step: step, focus: focus)
+            .overlay(alignment: .topTrailing) { stepMenu.padding(.top, 8) }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 12)
+    }
+
+    /// Every non-section step: a full-width card with the number/glyph rail in a
+    /// left gutter and the ⋯ menu overlaid top-right.
+    @ViewBuilder private func standardRow(_ calloutKind: CalloutKind?) -> some View {
         let fill: Color = calloutKind.map { CalloutBox.palette($0).background } ?? Palette.surface2
         let border: Color = calloutKind.map { CalloutBox.palette($0).border } ?? Palette.hair
         let borderWidth: CGFloat = calloutKind == nil ? 1 : 1.5
-        return HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: 14) {
             rail
             VStack(alignment: .leading, spacing: 8) {
                 if step.kind == .text {
-                    if calloutKind == .section {
-                        SectionBox(step: step, focus: focus)
-                    } else if let calloutKind {
+                    if let calloutKind {
                         CalloutBox(step: step, kind: calloutKind, focus: focus)
                     } else {
                         textBlock
@@ -544,20 +577,6 @@ private struct StepRow: View {
             // ⋯ overlaid on top of the clip so it's never clipped, in the card's
             // top-right corner (aligned with the content inset).
             .overlay(alignment: .topTrailing) { stepMenu.padding(14) }
-        }
-        // A dragged step dropped on this row lands just before it; the accent
-        // line shows where it will go.
-        .overlay(alignment: .top) {
-            if dropTargeted { Rectangle().fill(Palette.accent).frame(height: 2) }
-        }
-        .dropDestination(for: String.self) { ids, _ in
-            guard let dragged = ids.first, dragged != step.id else { return false }
-            autoScroller.reset()
-            Task { await model.dropStep(dragged, before: step.id) }
-            return true
-        } isTargeted: { targeted in
-            dropTargeted = targeted
-            autoScroller.noteHover(targeted) // runs edge auto-scroll while a drag is active
         }
     }
 
@@ -648,14 +667,9 @@ private struct StepRow: View {
     }
 
     @ViewBuilder private var badge: some View {
-        if step.callout == .section {
-            // A phase divider — a flag marker in the gutter (not a numbered badge).
-            Image(systemName: "flag.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Palette.ink3)
-                .frame(width: 32, height: 32)
-                .help("Section — a phase heading, not a numbered step")
-        } else if let callout = step.callout, ReportPresentation.isCalloutStep(step) {
+        // NB: a section renders as a full-width divider with no rail, so this
+        // never runs for a section (the rail is only built for non-section rows).
+        if let callout = step.callout, ReportPresentation.isCalloutStep(step) {
             Text(ReportPresentation.calloutGlyph(callout))
                 .font(.system(size: 16))
                 .frame(width: 32, height: 32)
@@ -806,23 +820,23 @@ private struct CalloutBox: View {
 }
 
 /// A text step styled as a SECTION DIVIDER — a phase heading that is NOT a
-/// numbered step and NOT a colored callout. A bold heading over a thin rule, with
-/// a muted body, editable in place. Marks where the procedure shifts to a new
-/// phase (`CalloutKind.section`).
+/// numbered step and NOT a colored callout. A thin full-width rule ABOVE a bold
+/// heading, then a muted body, editable in place. Borderless (no card) so it
+/// reads as a phase break and matches the HTML/PDF export (`CalloutKind.section`).
 private struct SectionBox: View {
     let step: ProjectStep
     var focus: FocusState<String?>.Binding
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            Rectangle()
+                .fill(Palette.hair)
+                .frame(height: 2)   // divider rule ABOVE the heading (export parity)
             InlineEditable(text: step.heading ?? "", placeholder: "Section heading", font: .system(size: 17, weight: .bold), color: Palette.ink, id: "ch:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, heading: new) }
             }
-            .padding(.trailing, 28)  // clear the ⋯ overlay at the card's top-right
-            Rectangle()
-                .fill(Palette.hair)
-                .frame(height: 2)
+            .padding(.trailing, 28)  // clear the ⋯ overlay at the top-right
             InlineEditable(text: step.body ?? "", placeholder: "Section description (optional)…", color: Palette.ink2, multiline: true, id: "cb:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, body: new) }
             }
