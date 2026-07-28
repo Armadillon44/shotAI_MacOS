@@ -12,7 +12,7 @@ the [Windows app](https://github.com/Armadillon44/shotAI); `project.json` is
 byte-compatible, so projects **round-trip between platforms**.
 
 > **Status:** **1.1.0.** Capture engine, native SwiftUI
-> annotation editor, redaction (manual + local Vision OCR auto-redact), Claude SOP
+> annotation editor, manual redaction (blur or solid box, baked into a flattened copy), Claude SOP
 > generation with review-before-send + one-click revert, element-at-point captions (native
 > Accessibility), export to HTML / PDF / Markdown / "HTML for Word" + a shareable
 > round-trip `.zip` package, project archiving, a first-run tour, and light/dark theming are
@@ -47,8 +47,7 @@ byte-compatible, so projects **round-trip between platforms**.
    **crop**, or **redact/blur** sensitive regions. Redactions are **baked into a flattened
    PNG** copy of the screenshot; the original pixels never leave your machine for any export
    or AI request (the send/export path is **fail-closed** and refuses a step whose
-   redactions aren't baked). **Auto-redact** runs the **Vision framework locally** (offline)
-   to find and suggest sensitive text. Each report step supports liquid-glass image zoom
+   redactions aren't baked). Each report step supports liquid-glass image zoom
    with drag-to-pan.
 
 3. **Generate the SOP (optional).** With **your own** Anthropic API key, Claude reads the
@@ -88,8 +87,9 @@ the Claude client, never surfaced back to the UI. No telemetry.
   - **CaptureKit** — the recording engine: **ScreenCaptureKit** screenshots, **Accessibility**
     element-at-point captions, a **CGEvent** tap for clicks, a **Carbon** ⇧⌘S hotkey, and
     the TCC permission surface.
-  - **EditorKit** — the annotation flatten/redaction pipeline and **Vision** OCR
-    auto-redaction.
+  - **EditorKit** — the annotation flatten/redaction pipeline (redactions baked into a
+    flattened PNG). It also contains a local **Vision** OCR redaction-detection pass that
+    is built and tested but **not currently surfaced in the UI**.
   - **SOPKit** — the Anthropic Messages API client (URLSession, pinned host), Keychain key
     store, cost estimator, and prompt assembly.
   - **ExportKit** — the HTML / PDF / Markdown / "HTML for Word" renderers and the `.zip`
@@ -168,7 +168,7 @@ shotAI.xcodeproj / shotAI/    SwiftUI app target: Home, report + editor,
                                 capture UI (pill/overlay/permissions wizard), Settings
 Packages/ShotModel/           Codable project.json schema, path confinement, ProjectStore
 Packages/CaptureKit/          capture engine (SCK / AX / CGEvent tap / Carbon hotkey / TCC)
-Packages/EditorKit/           annotation flatten + redaction bake + Vision OCR
+Packages/EditorKit/           annotation flatten + redaction bake (+ unsurfaced Vision OCR detection)
 Packages/SOPKit/              Anthropic client (pinned), Keychain key store, cost/prompt
 Packages/ExportKit/           HTML / PDF / Markdown / HTML-for-Word + .zip package
 Scripts/dist.sh               Developer ID sign → notarize → staple → DMG/pkg
