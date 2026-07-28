@@ -5,8 +5,8 @@ Native Swift/SwiftUI port of **shotAI** — Dylan's local-first, Scribe-style SO
 ## This repo
 
 - `FEASIBILITY.md` — the full port assessment (2026-07-02). **Read this first**; it contains the component-by-component API mapping, permissions/distribution story, risks, and the phased plan.
-- `PARITY.md` — Windows→macOS parity roadmap (2026-07-08). The macOS port targets the **shipped Windows release** (currently **v1.0.2**); this is the surface-by-surface gap analysis + prioritized P0–P3 plan. Read it before UI/feature work.
-- `shotAI-original/` — reference clone of the Windows Electron app (github.com/Armadillon44/shotAI, private). The source of truth for behavior, data model, and security invariants; **kept synced to the shipped release (currently v1.0.2 / `753c399`)**, not pinned to rc1. Do not modify it; it's a read-only reference (advance it only by checking out a newer shipped tag).
+- `PARITY.md` — Windows→macOS parity roadmap (re-audited 2026-07-28). The macOS port targets the **shipped Windows release** (currently **v1.1.3**); this is the surface-by-surface gap analysis. Read it before UI/feature work.
+- `shotAI-original/` — reference clone of the Windows Electron app (github.com/Armadillon44/shotAI, private). The source of truth for behavior, data model, and security invariants; **kept synced to the shipped release (currently v1.1.3 / `4ef65fe`)**, not pinned to rc1. Do not modify it; it's a read-only reference (advance it only by checking out a newer shipped tag).
 
 ## Key decisions (from FEASIBILITY.md)
 
