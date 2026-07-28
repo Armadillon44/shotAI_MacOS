@@ -150,15 +150,13 @@ final class AppModel {
                 return  // user cancelled the Save dialog
             }
             let result = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline, to: dest)
-            // For a custom Markdown save, reveal the self-contained folder itself;
-            // otherwise reveal the written file.
-            let revealPath: String
-            if case .custom(let d, _) = dest, format == .markdown {
-                revealPath = d
-            } else {
-                revealPath = result.outputPath
-            }
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: revealPath)])
+            // Reveal the written file for EVERY format — `outputPath` is the export
+            // itself (for Markdown, the `.md` inside its self-contained folder), so
+            // Finder opens that folder with the file selected. Matches the Windows
+            // app's `shell.showItemInFolder(outputPath)`. Do NOT pass a directory
+            // here: activateFileViewerSelecting would open its PARENT and merely
+            // highlight it — one level too high (see the bulk path below).
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: result.outputPath)])
             // If we just re-flattened the project that's on screen, refresh it.
             if opened?.dir == loaded.dir { await reloadOpened() }
             Log.store.notice("exported \(format.rawValue, privacy: .public) (\(manifest.steps.count, privacy: .public) steps)")
@@ -198,19 +196,17 @@ final class AppModel {
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         let stem = url.deletingPathExtension().lastPathComponent
         let parent = url.deletingLastPathComponent().path
-        // Markdown writes a .md plus a sibling images folder. When the user picks
-        // an arbitrary location, nest BOTH inside a single self-contained
-        // <name>/ folder so the chosen spot stays tidy (one item, not two loose
-        // ones). The default export/ folder is already dedicated, so it's left flat.
+        // Markdown lands as a self-contained "<stem>/" folder (<stem>.md +
+        // images/) — ExportKit nests it, so we pass the PARENT here like every
+        // other format. The Save panel's overwrite prompt guarded "<stem>.md", not
+        // that folder, so confirm replacing an existing one ourselves; otherwise a
+        // re-export would silently overwrite a prior (possibly edited) Markdown
+        // export and wipe its images.
         if format == .markdown {
             let container = (parent as NSString).appendingPathComponent(stem)
-            // The Save panel's overwrite prompt guarded "<stem>.md", but we write
-            // into the "<stem>/" folder instead — so confirm replacement of an
-            // existing export folder ourselves, or a re-export would silently
-            // overwrite a prior (possibly edited) Markdown export + wipe its images.
             let fm = FileManager.default
             let mdInside = (container as NSString).appendingPathComponent("\(stem).md")
-            let imgsInside = (container as NSString).appendingPathComponent("\(stem)-images")
+            let imgsInside = (container as NSString).appendingPathComponent("images")
             if fm.fileExists(atPath: mdInside) || fm.fileExists(atPath: imgsInside) {
                 let alert = NSAlert()
                 alert.alertStyle = .warning
@@ -220,7 +216,6 @@ final class AppModel {
                 alert.addButton(withTitle: "Cancel")
                 guard alert.runModal() == .alertFirstButtonReturn else { return nil }
             }
-            return .custom(directory: container, stem: stem)
         }
         return .custom(directory: parent, stem: stem)
     }
@@ -859,9 +854,7 @@ final class AppModel {
         var n = 2
         while taken(stem) { stem = "\(base) (\(n))"; n += 1 }
         used.insert(stem.lowercased())
-        if format == .markdown {
-            return .custom(directory: (directory as NSString).appendingPathComponent(stem), stem: stem)
-        }
+        // Always the PARENT dir — ExportKit nests Markdown into "<stem>/" itself.
         return .custom(directory: directory, stem: stem)
     }
 

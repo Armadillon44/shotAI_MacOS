@@ -5,7 +5,7 @@ import Foundation
 public enum ExportFormat: String, CaseIterable, Sendable {
     case html            // self-contained styled HTML, images inlined as data URIs
     case htmlPlain = "html-plain" // semantic-only HTML for pasting into Word/Docs
-    case markdown        // .md + a sibling <stem>-images/ folder
+    case markdown        // a self-contained <stem>/ folder: <stem>.md + images/
     case pdf             // rendered from the styled HTML (X2)
 
     public var ext: String {
@@ -24,12 +24,13 @@ public enum ExportFormat: String, CaseIterable, Sendable {
 /// Where a document export is written.
 public enum ExportDestination: Sendable {
     /// The project's own `export/` folder, auto-named with collision numbering
-    /// (the historical default).
+    /// (the historical default). Markdown gets folder-level numbering.
     case projectFolder
-    /// A user-chosen location (e.g. from a Save dialog): write `<stem><ext>` (and,
-    /// for Markdown, a sibling `<stem>-images/`) into `directory`, OVERWRITING an
-    /// existing file of that name — the Save dialog already handled the overwrite
-    /// prompt.
+    /// A user-chosen location (e.g. from a Save dialog): write `<stem><ext>` into
+    /// `directory` — or, for Markdown, the self-contained folder
+    /// `directory/<stem>/` (`<stem>.md` + `images/`). OVERWRITES an existing item
+    /// of that name; the Save dialog already handled the overwrite prompt. Pass the
+    /// PARENT directory for every format — ExportKit appends the Markdown folder.
     case custom(directory: String, stem: String)
 }
 

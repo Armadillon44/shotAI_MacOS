@@ -188,21 +188,63 @@ final class ExportKitTests: XCTestCase {
 
     // MARK: - Markdown export
 
-    func testMarkdownExportWritesImages() async throws {
+    func testMarkdownExportWritesSelfContainedFolder() async throws {
         let dir = try makeProjectDir()
         XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 20, h: 20))
         let m = manifest([
             shotStep(id: "abc", order: 0, screenshot: "shots/a.png", caption: "Cap*ital", body: "raw *body*"),
         ])
         let res = try await exportProject(dir: dir, manifest: m, format: .markdown, generatedAt: fixedDate)
-        XCTAssertTrue(res.outputPath.hasSuffix("/export/My SOP.md"))
+        // Windows parity: a self-contained "<name>/" folder holding "<name>.md"
+        // plus an "images/" subfolder — never a loose .md beside a sibling dir.
+        // outputPath must stay the .md INSIDE that folder (not the folder itself):
+        // the app reveals it in Finder, and revealing a directory would open its
+        // parent and merely highlight it — one level too high.
+        XCTAssertTrue(res.outputPath.hasSuffix("/export/My SOP/My SOP.md"), res.outputPath)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: res.outputPath))
         let md = try String(contentsOfFile: res.outputPath, encoding: .utf8)
         XCTAssertTrue(md.contains("## 1. Cap\\*ital"))         // heading escaped
         XCTAssertTrue(md.contains("raw *body*"))               // body raw
-        XCTAssertTrue(md.contains("(<My SOP-images/step-01-abc.png>)"))
+        XCTAssertTrue(md.contains("(<images/step-01-abc.png>)"))
         let imgPath = (dir as NSString)
-            .appendingPathComponent("export/My SOP-images/step-01-abc.png")
+            .appendingPathComponent("export/My SOP/images/step-01-abc.png")
         XCTAssertTrue(FileManager.default.fileExists(atPath: imgPath))
+        // Nothing loose left in export/: no stray .md, no "<stem>-images" dir.
+        let listed = try FileManager.default.contentsOfDirectory(
+            atPath: (dir as NSString).appendingPathComponent("export"))
+        XCTAssertEqual(listed.sorted(), ["My SOP"])
+    }
+
+    func testMarkdownFolderCollisionNumbers() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 20, h: 20))
+        let m = manifest([shotStep(id: "abc", order: 0, screenshot: "shots/a.png", caption: "Cap")])
+        // A second export into the same project must not overwrite the first —
+        // collision numbering is FOLDER-level for Markdown.
+        let first = try await exportProject(dir: dir, manifest: m, format: .markdown, generatedAt: fixedDate)
+        let second = try await exportProject(dir: dir, manifest: m, format: .markdown, generatedAt: fixedDate)
+        XCTAssertTrue(first.outputPath.hasSuffix("/export/My SOP/My SOP.md"), first.outputPath)
+        XCTAssertTrue(second.outputPath.hasSuffix("/export/My SOP (1)/My SOP (1).md"), second.outputPath)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.outputPath))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: (dir as NSString).appendingPathComponent("export/My SOP (1)/images/step-01-abc.png")))
+    }
+
+    func testMarkdownCustomDestinationNestsFolder() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 20, h: 20))
+        let m = manifest([shotStep(id: "abc", order: 0, screenshot: "shots/a.png", caption: "Cap")])
+        // A Save-As destination passes the PARENT dir; ExportKit nests "<stem>/".
+        let picked = (dir as NSString).appendingPathComponent("picked")
+        try FileManager.default.createDirectory(atPath: picked, withIntermediateDirectories: true)
+        let res = try await exportProject(
+            dir: dir, manifest: m, format: .markdown, generatedAt: fixedDate,
+            to: .custom(directory: picked, stem: "Chosen Name"))
+        XCTAssertEqual(res.outputPath, (picked as NSString).appendingPathComponent("Chosen Name/Chosen Name.md"))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: (picked as NSString).appendingPathComponent("Chosen Name/images/step-01-abc.png")))
+        let listed = try FileManager.default.contentsOfDirectory(atPath: picked)
+        XCTAssertEqual(listed.sorted(), ["Chosen Name"])  // one tidy item, not two
     }
 
     // MARK: - Section dividers (non-counted phase headings)

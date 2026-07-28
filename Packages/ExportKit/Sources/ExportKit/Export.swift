@@ -35,20 +35,30 @@ public func exportProject(
     let items = try collectSteps(dir: dir, manifest: manifest)
     let createdLine = buildCreatedLine(generatedAt: generatedAt, byline: byline)
 
-    // Resolve the target directory + filename stem. `.projectFolder` keeps the
+    // Resolve the parent directory + filename stem. `.projectFolder` keeps the
     // historical export/ + collision-numbered naming; `.custom` writes exactly
     // where the user chose (overwriting — the Save dialog owns that prompt).
-    let outDir: String
+    let parentDir: String
     let stem: String
     switch destination {
     case .projectFolder:
-        outDir = (dir as NSString).appendingPathComponent("export")
+        parentDir = (dir as NSString).appendingPathComponent("export")
         let base = safeFileBase(manifest.title)
-        stem = nextAvailableStem(exportDir: outDir, stem: base + format.stemSuffix, ext: format.ext)
+        // Markdown occupies a FOLDER, so its collision numbering is folder-level.
+        stem = format == .markdown
+            ? nextAvailableDir(parent: parentDir, base: base)
+            : nextAvailableStem(exportDir: parentDir, stem: base + format.stemSuffix, ext: format.ext)
     case .custom(let directory, let chosenStem):
-        outDir = directory
+        parentDir = directory
         stem = chosenStem
     }
+    // Markdown is a SELF-CONTAINED FOLDER (`<stem>/<stem>.md` + `images/`) for
+    // EVERY destination — the .md and its images stay together wherever they land
+    // (Windows parity: export.ts writes markdown into one `<name>/` folder too).
+    // Every other format is a single self-contained file written into parentDir.
+    let outDir = format == .markdown
+        ? (parentDir as NSString).appendingPathComponent(stem)
+        : parentDir
     do {
         try FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
     } catch {
