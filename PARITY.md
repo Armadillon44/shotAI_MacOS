@@ -63,7 +63,7 @@ The only hard ship gate is **distribution** — Developer ID + notarization
 | Settings (tabbed) | ✅ matched | General / AI / Capture / Appearance / Permissions; AI tab has key-create link, per-option blurbs, unreadable-key / secure-storage states. |
 | Recording pill | ✅ matched | Two-row hint, per-capture green flash (both apps), whole-project discard warning. **Ahead:** non-activating panel + in-session capture-error badge (Windows shows neither — its mid-record errors go to the hidden main window). |
 | SOP generation (Claude) | 🟡 partial | Secure + complete: host pinned, Keychain key, cost estimate, review-before-send, generate/revert, tone/effort/custom-instructions, fail-closed gate; user note sent as input. Note-writing removed on **both** apps (v1.1.0 Windows / macOS), so that's parity now. **Gap:** the pre-send review shows totals only; Windows shows a per-step thumbnail+caption preview. |
-| Export | 🟡 partial | HTML, PDF (native CoreText/CG), Markdown, "HTML for Word/Docs", `.zip` package (round-trips with Windows) — all through the shared fail-closed gate; dimensions + centering + sections match Windows. **Ahead:** the "HTML for Word/Docs" export caps image dimensions via width/height attributes (Windows doesn't). **Minor:** macOS leaves Markdown as a loose `.md` + `<stem>-images/` in `export/` (only wraps into one folder on Save-As); Windows always wraps into `<name>/`. |
+| Export | 🟡 partial | HTML, PDF (native CoreText/CG), Markdown, "HTML for Word/Docs", `.zip` package (round-trips with Windows) — all through the shared fail-closed gate; dimensions + centering + sections match Windows. **Markdown is a self-contained `<name>/` folder** (`<name>.md` + `images/`) for every destination, with folder-level collision numbering — matches Windows exactly. **Ahead:** the "HTML for Word/Docs" export caps image dimensions via width/height attributes (Windows doesn't). |
 | Native Office export (`.docx` / `.pptx`) | 🔴 macOS gap | **Windows ships both** (Word via `docx`, PowerPoint via `pptxgenjs`; both render cards, sections, centered captures, callouts, and safely handle a macOS-authored section). macOS defers both (→ #53); "HTML for Word/Docs" is the interim paste path. |
 | App menu + create/naming | 🟡 partial | Create/naming at parity. **Gaps:** Import lacks `⌘O` (Windows binds it); label "Import shotAI Package…" vs Windows "Import Project…" (partly a real difference — macOS imports a `.zip` package, Windows a project folder). |
 | Annotation / redaction editor | 🟡 partial | All 8 tools + fail-closed flatten. **Deliberate gap:** the Vision auto-redact OCR trigger stays unsurfaced (built + tested, no UI caller — by design). Minor: blur softness, crop-box color, per-tool hints. |
@@ -81,7 +81,6 @@ The only hard ship gate is **distribution** — Developer ID + notarization
 
 ### Fidelity / polish gaps
 - **SOP review preview** — add the per-step "exactly what is sent" preview (thumbnails + captions) to the pre-send gate (Windows shows it; macOS shows totals).
-- **Markdown packaging** — optionally wrap the default Markdown export into a single `<name>/` folder to match Windows (currently loose `.md` + `<stem>-images/` in `export/`).
 - **App menu** — bind `⌘O` to Import; reconsider the "Import Project…" label.
 
 ### Needs live validation

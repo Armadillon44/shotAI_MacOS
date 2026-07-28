@@ -31,6 +31,20 @@ func nextAvailableStem(exportDir: String, stem: String, ext: String) -> String {
     }
 }
 
+/// First non-existent `<base>` DIRECTORY in `parent`, appending ` (1)`, ` (2)`, …
+/// on collision. The folder-level analogue of `nextAvailableStem`, for the
+/// self-contained Markdown export (a `<name>/` folder holding the .md + images).
+/// Ported from export.ts nextAvailableDir.
+func nextAvailableDir(parent: String, base: String) -> String {
+    var n = 0
+    while true {
+        let candidate = n == 0 ? base : "\(base) (\(n))"
+        let path = (parent as NSString).appendingPathComponent(candidate)
+        if !FileManager.default.fileExists(atPath: path) { return candidate }
+        n += 1
+    }
+}
+
 /// HTML-escape text for the templates. Order matters (ampersand first). Single
 /// quotes are intentionally NOT escaped — every attribute in the templates uses
 /// double quotes (keep that invariant if you touch them).

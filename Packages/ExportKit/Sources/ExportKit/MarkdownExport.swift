@@ -8,17 +8,21 @@ private func collapseHeading(_ s: String) -> String {
     s.replacingOccurrences(of: "\\s*\\n\\s*", with: " ", options: .regularExpression)
 }
 
-/// Assemble the Markdown document, copying each image into a per-export
-/// `<stem>-images/` folder next to the `.md`. Ported from export.ts buildMarkdown.
+/// Assemble the Markdown document into the SELF-CONTAINED folder `outDir`:
+/// `<stem>.md` alongside an `images/` subfolder. Keeping both inside one folder
+/// (rather than a loose .md + images dir) keeps the destination tidy — the caller
+/// resolves that folder, so every destination gets the same layout. Ported from
+/// export.ts buildMarkdown, images dir name included.
 /// Only title / created-line / headings / captions are escapeMarkdown'd; all body
 /// & note text is emitted RAW so authored Markdown renders. Returns the .md path.
 func buildMarkdown(
     outDir: String, manifest: ProjectManifest, items: [ExportItem], stem: String, createdLine: String
 ) throws -> String {
     let fm = FileManager.default
-    let imagesDirName = "\(stem)-images"
+    let imagesDirName = "images"
     let imagesDir = (outDir as NSString).appendingPathComponent(imagesDirName)
-    // Per-export images dir (stem is unique) — wipe any prior contents first.
+    // Wipe any prior images so a re-export into the same folder can't leave
+    // orphans from a longer previous run.
     try? fm.removeItem(atPath: imagesDir)
     do {
         try fm.createDirectory(atPath: imagesDir, withIntermediateDirectories: true)
