@@ -23,10 +23,10 @@ capture-error surface on the pill — verified row-by-row in source.
 **The one feature-level gap: native `.docx` and `.pptx` export.** Windows
 ships real Word (via the `docx` lib) and PowerPoint (via `pptxgenjs`) exporters; macOS defers
 both (issue #53) and offers "HTML for Word/Docs" as the paste-in substitute. Deferred by
-decision. Three smaller Windows-ahead gaps remain, all recorded in the matrix below: the
-pre-send SOP review has no per-step preview, `⌘O` isn't bound to Import, and macOS still
-carries the legacy per-step **`note`** field that Windows deleted outright in v1.1.0 (see
-"Step `note` divergence" below — the one item here with a data-model consequence).
+decision. Two smaller Windows-ahead gaps remain, both recorded in the matrix below: the
+pre-send SOP review has no per-step preview, and `⌘O` isn't bound to Import. macOS also still
+carries the inert legacy per-step **`note`** field that Windows deleted in v1.1.0, which by
+decision stays as-is (see "Step `note` field" below).
 
 **macOS still leads Windows v1.1.4** on: the **Liquid Glass** app icon, and the Home
 **window-width launch fix** (N/A on Windows — it creates its window at the list width and
@@ -51,26 +51,27 @@ have no Windows analog.
   `-webkit-app-region: drag` is hit-tested by the OS for window moves and never receives the
   hover that fires a native tooltip. No macOS analog needed; noted for context.
 
-### Step `note` divergence (open decision) ⚠️
+### Step `note` field — inert legacy, staying as-is (settled)
 
-Windows **removed the per-step `note` field end-to-end** in v1.1.0 (`9549d56`, "remove the
-per-step note field entirely"): it's gone from `ProjectStep` in `src/shared/project.ts`, from
-`StepPatch`, from the exports, and the `User note:` line no longer goes to Claude. That commit
-asks the port to mirror it: *"The macOS port must treat step.note as absent/optional to stay
-interoperable."*
+Windows removed the per-step `note` field end-to-end in v1.1.0 (`9549d56`): gone from
+`ProjectStep`, `StepPatch`, its exporters, and the `User note:` line to Claude. macOS never
+mirrored the removal, so `ProjectStep.note` still exists here.
 
-macOS has **not** mirrored it. `ProjectStep.note` is still a non-optional `String`
-(`ProjectSchema.swift`), is **unconditionally encoded** into every manifest write, is still
-sent to Claude (`RequestAssembler.swift`) and advertised in the system prompt, still renders in
-the HTML/Markdown/PDF exports, and still feeds Home search. Only the AI's *writing* of a note
-was dropped — which is what an earlier audit mistook for parity.
+**In practice it is inert on macOS.** Nothing can create one: there is no UI to author or edit
+a step note (the report shows caption + instruction only; the "Note" in the ＋ menu is the
+`CalloutKind.note` box, a different feature), capture always writes `note: ""`, and Claude no
+longer writes one either. Every consumer that still reads it (HTML/Markdown/PDF exporters, the
+Claude request assembler, Home search) is guarded by `!note.isEmpty`, so all of them are no-ops
+for anything captured on macOS. A non-empty note can only arrive from a project authored by
+**Windows before v1.1.0**, or from hand-edited JSON.
 
-Practical effect: a note authored on macOS is invisible on Windows, and macOS keeps emitting a
-key Windows no longer models. Not a crash and not data loss (Windows' `normalizeSteps` spreads
-unknown keys through), but it is a real schema divergence. Resolving it is a **breaking change**
-touching the schema, three exporters, the SOP input, and search — and it would strand notes in
-existing projects, so it needs an explicit decision (mirror the removal / keep it macOS-only /
-migrate notes into step bodies) rather than a silent fix.
+The only thing that always happens is `ProjectSchema.swift` encoding `"note": ""` into each
+step on write. Harmless: Windows' `normalizeSteps` passes unknown keys straight through.
+
+**Decision (2026-07-28): leave it alone.** Removing the field would be the only change with a
+real downside, since it would drop legacy notes carried by pre-v1.1.0 Windows projects from the
+report and exports. Keeping the read path costs nothing and preserves them. Recorded here so
+it isn't re-litigated as a "gap" by a future audit; **do not "fix" it.**
 
 The only hard ship gate is **distribution** — Developer ID + notarization
 (`docs/DISTRIBUTION.md`). The shipped DMGs (1.0.0, 1.1.0, 1.1.1) are ad-hoc signed.
@@ -92,7 +93,7 @@ The only hard ship gate is **distribution** — Developer ID + notarization
 | Coordinate / geometry | ✅ matched | `capture-geometry.ts` ported formula-for-formula; round-trips with Windows physical-px projects. |
 | Permissions / TCC | ✅ matched | Live-polling wizard + Settings pane. macOS-native surface (Windows needs no capture permission). |
 | Region / area select | ✅ matched | Per-screen overlay excluded from capture; drag/confirm/cancel + size badge. |
-| Data model / `project.json` | 🟡 partial | Mirror on everything but one legacy field: typed `archived`/`archivedAt` and the 4-value `CalloutKind` union (incl. `section`) match, tolerant decode reproduces the Windows coercions, unknown keys round-trip via `extra`. **Divergence:** macOS still declares and always writes `ProjectStep.note`, which Windows deleted end-to-end in v1.1.0 — see "Step `note` divergence" above. |
+| Data model / `project.json` | ✅ matched | Typed `archived`/`archivedAt` and the 4-value `CalloutKind` union (incl. `section`) match; tolerant decode reproduces the Windows coercions; unknown keys round-trip via `extra`. One accepted difference: macOS still writes the inert legacy `ProjectStep.note` key (always `""` for anything captured here) that Windows dropped in v1.1.0 — staying as-is by decision, see "Step `note` field" above. |
 | Archive system | ✅ matched | Pack/unpack (hybrid DEFLATE/STORED, hardened), decodes Windows JSZip archives, auto-unarchive on open. |
 | App shell & navigation | ✅ matched | Home⇄detail width swap (800⇄1040) + native toolbars; Settings as a native scene. Persisted window width coerced to Home on launch (`coerceMainWindowWidthToHome`). |
 | Report / SOP viewer | ✅ matched | Full editing loop — inline caption/instruction + editable title, insert/import/delete/reorder/merge, text steps, callouts, **section dividers** (both apps), per-step zoom + drag-to-pan, overview intro. |
@@ -104,7 +105,7 @@ The only hard ship gate is **distribution** — Developer ID + notarization
 | Theme system & dark mode | ✅ matched | `Theme.swift` maps the `project.css` COLOR tokens as dynamic colors (all but `--danger-bd`, unused on macOS); violet accent; light/dark/system. Shape/shadow tokens (`--radius*`, `--shadow*`) are re-derived natively rather than ported. Two intentional dark-legibility tweaks. |
 | Settings (tabbed) | ✅ matched | General / AI / Capture / Appearance / Permissions; AI tab has key-create link, per-option blurbs, unreadable-key / secure-storage states. |
 | Recording pill | ✅ matched | Two-row hint, per-capture green flash, whole-project discard warning, and an **in-session capture-error surface** on both (Windows added it in v1.1.4; same clear-on-step / clear-on-session / dismiss semantics + red accent bar, but it shows the message inline in row 2 rather than a row-1 chip + tooltip — its 380px row 1 can't fit both). **Ahead:** non-activating panel. |
-| SOP generation (Claude) | 🟡 partial | Secure + complete: host pinned, Keychain key, cost estimate, review-before-send, generate/revert, tone/effort/custom-instructions, fail-closed gate. Neither app lets Claude *write* a per-step note any more. **Gaps:** (1) the pre-send review shows token/cost totals only — Windows renders a per-step list with a thumbnail, window title and caption for everything being sent (`SopPanel.tsx`); (2) macOS still feeds a legacy per-step `note` to Claude and still advertises it in the system prompt, whereas Windows deleted the field in v1.1.0 — see the divergence note above. |
+| SOP generation (Claude) | 🟡 partial | Secure + complete: host pinned, Keychain key, cost estimate, review-before-send, generate/revert, tone/effort/custom-instructions, fail-closed gate. Neither app lets Claude *write* a per-step note any more. **Gap:** the pre-send review shows token/cost totals only; Windows renders a per-step list with a thumbnail, window title and caption for everything being sent (`SopPanel.tsx`). (macOS would still forward a legacy per-step `note` as context if one existed, but nothing on macOS creates one — see "Step `note` field" above.) |
 | Export (HTML / PDF / Markdown / Word-HTML / `.zip`) | ✅ matched | All five through the shared fail-closed gate; dimensions + centering + sections match Windows. **Markdown is a self-contained `<name>/` folder** (`<name>.md` + `images/`) for every destination, with folder-level collision numbering (macOS 1.1.1) — matches Windows. The plain-export **738px width/height image cap now matches on both** (Windows v1.1.4). `.zip` packages round-trip between platforms. *Note:* the PDF is drawn natively (CoreText/CG) rather than print-to-PDF, so it is not pixel-identical to Windows' — same content and layout, different rasterizer. Native Office formats are a separate row. |
 | Native Office export (`.docx` / `.pptx`) | 🔴 macOS gap | **Windows ships both** (Word via `docx`, PowerPoint via `pptxgenjs`; both render cards, sections, centered captures, callouts, and safely handle a macOS-authored section). macOS defers both (→ #53); "HTML for Word/Docs" is the interim paste path. |
 | App menu + create/naming | 🟡 partial | Create/naming at parity. **Gap:** Import lacks `⌘O` (Windows binds `CmdOrCtrl+O`). The label differs — "Import shotAI Package…" vs Windows "Import Project…" — but that's cosmetic only: both open a `.zip` package picker (Windows' handler filters to `zip` with `openFile`, same mechanism as macOS). |
@@ -115,8 +116,8 @@ The only hard ship gate is **distribution** — Developer ID + notarization
 ### The one Windows-ahead feature
 - **Native `.docx` / `.pptx` export** — [#53](https://github.com/Armadillon44/shotAI_MacOS/issues/53). Windows now ships both; macOS defers. Feasible dependency-free via the existing DEFLATE zip writer (OOXML is zip-of-XML) — do **not** import an Office library. "HTML for Word/Docs" is the interim path.
 
-### Open decision (cross-platform schema)
-- **Step `note` divergence** — Windows deleted `ProjectStep.note` end-to-end in v1.1.0 and asked the port to mirror it; macOS still declares, writes, exports, indexes, and sends it. Needs a call: mirror the removal (breaking — schema + 3 exporters + SOP input + search, and it strands notes in existing projects), keep it as a macOS-only field, or migrate notes into step bodies. See the divergence note in the Verdict.
+### Settled, no action
+- **Step `note` field** — Windows deleted it in v1.1.0; macOS keeps an inert copy (no UI creates one, capture writes `""`, every reader is empty-guarded). **Decided 2026-07-28: leave as-is** — removing it would only strand legacy notes from pre-v1.1.0 Windows projects. See "Step `note` field" in the Verdict; not a gap, don't re-open it.
 
 ### Deferred by decision
 - **`.shotAI` registered file type** (double-click to import) — [#49](https://github.com/Armadillon44/shotAI_MacOS/issues/49).
