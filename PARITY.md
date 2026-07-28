@@ -1,6 +1,6 @@
 # Windows → macOS parity
 
-**Audit date:** 2026-07-28 · **Target:** shipped Windows **v1.1.3** · **Reference:** `shotAI-original/` (v1.1.3 / `4ef65fe`) · **macOS build:** `1.1.0` (build 6)
+**Audit date:** 2026-07-28 · **Target:** shipped Windows **v1.1.3** · **Reference:** `shotAI-original/` (v1.1.3 / `4ef65fe`) · **macOS build:** `1.1.1` (build 7)
 
 Roadmap of record for the macOS port's parity with the shipped Windows app. Full
 surface-by-surface re-audit (Windows v1.1.3 read from source, verified against the current
