@@ -122,6 +122,9 @@ The only hard ship gate is **distribution** — Developer ID + notarization
 ### Deferred by decision
 - **`.shotAI` registered file type** (double-click to import) — [#49](https://github.com/Armadillon44/shotAI_MacOS/issues/49).
 
+### macOS-only planned work (not a Windows gap)
+- **Update / auto-update** — [#62](https://github.com/Armadillon44/shotAI_MacOS/issues/62), investigated 2026-07-28. Neither platform has an updater today, so this is not a parity gap in either direction; it's macOS-only planned work. **Self-installing update is hard-blocked on Phase E** (Developer ID + notarization): the ad-hoc signature's designated requirement is a bare cdhash, so every update would orphan all three TCC grants (Screen Recording / Accessibility / Input Monitoring) and silently break the app. Once signed with Developer ID the requirement becomes bundle-id + team-OU and grants survive updates, which is also what `Intune/shotAI-PPPC.mobileconfig` already pins. A **notify-only** checker (dependency-free, GitHub Releases API) is shippable now and is the recommended first step. If a self-installer is ever built, note it as a deliberate platform-specific feature rather than a Windows gap — Windows has no TCC, so the constraint driving the design doesn't exist there.
+
 ### Deliberate deferral
 - **Editor Auto-redact trigger** — the OCR pre-scan is built + tested but intentionally not surfaced (Dylan's call). Re-exposing it is a one-line UI add if wanted.
 
