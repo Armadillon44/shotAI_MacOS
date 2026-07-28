@@ -82,9 +82,6 @@ hard ship gate is **distribution** — Developer ID + notarization — tracked i
 ### Needs live validation
 - **Auto capture across a multi-monitor arrangement** (the one untested capture path).
 
-### Doc hygiene
-- Stale header comments that claim unfinished/verbatim work: `Archive.swift` still says "READ side only … packing lands next phase" (packing shipped + tested); `SystemPrompt.swift` still claims "ported character-for-character" but base-prompt paragraph 2 has intentionally diverged (dropped the `note` clause, added title-derivation guidance). `RequestAssembler.swift` is fine (lineage note only).
-
 ## Design system (implemented)
 
 The Windows token system (`:root` light + `[data-theme=dark]`) is reproduced natively in

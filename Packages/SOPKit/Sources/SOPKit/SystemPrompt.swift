@@ -1,8 +1,11 @@
 import Foundation
 
-// The SOP system prompt — ported verbatim from claude-service.ts BASE_SYSTEM_PROMPT
-// + the tone/custom composition. Kept character-for-character so the macOS app
-// produces the same SOPs as the Windows app for the same project.
+// The SOP system prompt — adapted from claude-service.ts BASE_SYSTEM_PROMPT + the
+// tone/custom composition. Most paragraphs match the Windows prompt, but it has
+// intentionally diverged: paragraph 2 adds the title-derivation guidance (don't
+// reuse the auto-generated placeholder name) and drops the Windows per-step `note`
+// clause, since the macOS AI output schema no longer writes notes back. SOPs track
+// the Windows app closely but are not byte-identical.
 
 let BASE_SYSTEM_PROMPT: String = [
     "You are an expert technical writer turning a captured screen recording into a polished Standard Operating Procedure (SOP) by EDITING the project in place. You are given an ordered sequence of steps: each screenshot step (labeled \"Screenshot step N\") has the exact click point marked on the image with a colored ring (a circle), plus metadata (application/window, an auto-generated caption, any user note); author-written \"Text step\" entries are interleaved.",

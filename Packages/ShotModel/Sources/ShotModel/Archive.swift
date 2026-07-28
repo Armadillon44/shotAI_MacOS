@@ -10,9 +10,10 @@ import Foundation
 /// DATA SAFETY (fail-closed): extraction verifies every entry landed BEFORE the
 /// zip is removed; any failure throws and leaves the project's files intact.
 ///
-/// This phase implements the READ side (unpack) only — the existing `Zip` reader
-/// already decodes Windows' DEFLATE `archive.zip`, so restoring a Windows-archived
-/// project needs no writer. Packing (write side) lands in the next phase.
+/// Both sides are implemented: `packArchive` (write) zips shots/ + export/ with a
+/// hybrid DEFLATE/STORED writer, and `unpackArchive` (read) restores them. The
+/// reader also decodes Windows' JSZip DEFLATE `archive.zip`, so a Windows-archived
+/// project restores on macOS with no extra work.
 enum Archive {
     static let archiveZipName = "archive.zip"
     /// Top-level dirs compressed on archive; project.json is never touched.
