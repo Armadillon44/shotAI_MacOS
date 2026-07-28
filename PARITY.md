@@ -1,50 +1,65 @@
 # Windows → macOS parity
 
-**Audit date:** 2026-07-28 · **Target:** shipped Windows **v1.1.3** · **Reference:** `shotAI-original/` (v1.1.3 / `4ef65fe`) · **macOS build:** `1.1.1` (build 7)
+**Audit date:** 2026-07-28 · **Target:** shipped Windows **v1.1.4** · **Reference:** `shotAI-original/` (v1.1.4 / `d9823ec`) · **macOS build:** `1.1.1` (build 7)
 
 Roadmap of record for the macOS port's parity with the shipped Windows app. Full
-surface-by-surface re-audit (Windows v1.1.3 read from source, verified against the current
-macOS code). **Supersedes the v1.0.2-targeted audit** — Windows shipped four releases
-(v1.1.0–v1.1.3) that closed the gaps macOS had opened: it now has section dividers, centered
+surface-by-surface re-audit (Windows v1.1.4 read from source, verified against the current
+macOS code). **Supersedes the v1.0.2-targeted audit** — Windows shipped five releases
+(v1.1.0–v1.1.4) that closed the gaps macOS had opened: it now has section dividers, centered
 narrow captures, project search, per-step note removal, step-framing cards, Home
-auto-refresh, and export dimensions **explicitly matched to macOS**. So the items macOS was
-"ahead" on are now parity, and the one substantive gap runs the other way.
+auto-refresh, export dimensions **explicitly matched to macOS**, and — in v1.1.4 — the two
+items macOS had most recently led on (plain-export image sizing and the in-session
+capture-error surface). So the items macOS was "ahead" on are now parity, and the one
+substantive gap runs the other way.
 
 ## Verdict
 
-**At functional parity with Windows v1.1.3.** Both apps now share the section-divider model,
+**At functional parity with Windows v1.1.4.** Both apps now share the section-divider model,
 non-counted numbering, centered captures, the 880/820 report+export dimensions, project
 search, report inserts (+Capture / +Screenshot), save-to-location export, Home list
-auto-refresh, and log bounding — verified row-by-row in source.
+auto-refresh, log bounding, attribute-sized plain-export images, and an in-session
+capture-error surface on the pill — verified row-by-row in source.
 
 **The one feature Windows has that macOS lacks: native `.docx` and `.pptx` export.** Windows
 ships real Word (via the `docx` lib) and PowerPoint (via `pptxgenjs`) exporters; macOS defers
 both (issue #53) and offers "HTML for Word/Docs" as the paste-in substitute. This is the
 main open gap, by decision.
 
-**macOS still leads Windows v1.1.3** on a few things: the "HTML for Word/Docs" export sizes
-its images with width/height **attributes** (so a Word/Docs paste isn't oversized — Windows'
-plain export still emits attribute-less `<img>`); an **in-session capture-error badge** on
-the pill (Windows routes capture errors to the main window, which is hidden during
-recording, so a mid-record error is invisible there); the **Liquid Glass** app icon; and the
-Home **window-width launch fix**. Several are macOS-native idioms with no Windows analog
-(non-activating pill, native Settings scene, TCC permissions wizard).
+**macOS still leads Windows v1.1.4** on: the **Liquid Glass** app icon, and the Home
+**window-width launch fix** (N/A on Windows — it creates its window at the list width and
+persists no bounds, so there is nothing to coerce). Several other leads are macOS-native
+idioms with no Windows analog (non-activating pill, native Settings scene, TCC permissions
+wizard).
+
+**Closed in Windows v1.1.4** (both were macOS leads in the previous audit):
+- **Plain-export image sizing** — Windows' "HTML (for Word)" now emits width/height
+  attributes, capped at 738px preserving aspect, with no attributes when the image won't
+  decode. Numerically identical to `plainExportImageMaxWidth`.
+- **In-session capture-error surface** — the Windows pill now subscribes to its
+  `capture:error` broadcast, with this app's clearing semantics ported (a landed step clears
+  it, leaving the session clears it, never shown idle, click to dismiss) and a red accent
+  bar. **Implementations differ by design:** macOS shows a compact row-1 chip with the
+  message in a `.help` tooltip; Windows puts the real message in row 2 (replacing the hint),
+  because its wider font metrics overflow row 1's 380px once Pause/Stop/Discard are present.
+  Windows also had to opt the text out of its drag region — a child of
+  `-webkit-app-region: drag` is hit-tested by the OS for window moves and never receives the
+  hover that fires a native tooltip. No macOS analog needed; noted for context.
 
 The only hard ship gate is **distribution** — Developer ID + notarization
-(`docs/DISTRIBUTION.md`). The shipped DMGs (1.0.0, 1.1.0) are ad-hoc signed.
+(`docs/DISTRIBUTION.md`). The shipped DMGs (1.0.0, 1.1.0, 1.1.1) are ad-hoc signed.
 
 ## Validation status (hand-tested)
 
 - **Verified end-to-end:** SOP generation, capture, archive/unarchive, exports, report
-  editing, section dividers (report + exports), narrow-capture centering, the Home
-  window-width launch fix.
+  editing, section dividers (report + exports), narrow-capture centering, the
+  self-contained Markdown export folder, and the Home window-width launch fix.
 - **Capture modes:** Screen ✅ and Window ✅ hand-verified. **Auto mode on a multi-monitor
   setup is still not hand-tested** (fallback paths are unit-tested only). The one open
   live-validation item.
 
 ## Parity matrix
 
-| Surface | Status | Where it stands vs Windows v1.1.3 |
+| Surface | Status | Where it stands vs Windows v1.1.4 |
 |---|---|---|
 | Capture engine | ✅ matched | Behavior-for-behavior port of `CaptureController.ts`. 59 tests. *See multi-monitor caveat.* |
 | Coordinate / geometry | ✅ matched | `capture-geometry.ts` ported formula-for-formula; round-trips with Windows physical-px projects. |
@@ -61,9 +76,9 @@ The only hard ship gate is **distribution** — Developer ID + notarization
 | First-run onboarding tour | ✅ matched | 5-step coach-mark spotlight, persisted once-flag, Settings replay. |
 | Theme system & dark mode | ✅ matched | `Theme.swift` maps every `project.css` token; violet accent; light/dark/system. Two intentional dark-legibility tweaks. |
 | Settings (tabbed) | ✅ matched | General / AI / Capture / Appearance / Permissions; AI tab has key-create link, per-option blurbs, unreadable-key / secure-storage states. |
-| Recording pill | ✅ matched | Two-row hint, per-capture green flash (both apps), whole-project discard warning. **Ahead:** non-activating panel + in-session capture-error badge (Windows shows neither — its mid-record errors go to the hidden main window). |
+| Recording pill | ✅ matched | Two-row hint, per-capture green flash, whole-project discard warning, and an **in-session capture-error surface** on both (Windows added it in v1.1.4; same clear-on-step / clear-on-session / dismiss semantics + red accent bar, but it shows the message inline in row 2 rather than a row-1 chip + tooltip — its 380px row 1 can't fit both). **Ahead:** non-activating panel. |
 | SOP generation (Claude) | 🟡 partial | Secure + complete: host pinned, Keychain key, cost estimate, review-before-send, generate/revert, tone/effort/custom-instructions, fail-closed gate; user note sent as input. Note-writing removed on **both** apps (v1.1.0 Windows / macOS), so that's parity now. **Gap:** the pre-send review shows totals only; Windows shows a per-step thumbnail+caption preview. |
-| Export | 🟡 partial | HTML, PDF (native CoreText/CG), Markdown, "HTML for Word/Docs", `.zip` package (round-trips with Windows) — all through the shared fail-closed gate; dimensions + centering + sections match Windows. **Markdown is a self-contained `<name>/` folder** (`<name>.md` + `images/`) for every destination, with folder-level collision numbering — matches Windows exactly. **Ahead:** the "HTML for Word/Docs" export caps image dimensions via width/height attributes (Windows doesn't). |
+| Export (HTML / PDF / Markdown / Word-HTML / `.zip`) | ✅ matched | All five through the shared fail-closed gate; dimensions + centering + sections match Windows. **Markdown is a self-contained `<name>/` folder** (`<name>.md` + `images/`) for every destination, with folder-level collision numbering (macOS 1.1.1) — matches Windows. The plain-export **738px width/height image cap now matches on both** (Windows v1.1.4). `.zip` packages round-trip between platforms. *Note:* the PDF is drawn natively (CoreText/CG) rather than print-to-PDF, so it is not pixel-identical to Windows' — same content and layout, different rasterizer. Native Office formats are a separate row. |
 | Native Office export (`.docx` / `.pptx`) | 🔴 macOS gap | **Windows ships both** (Word via `docx`, PowerPoint via `pptxgenjs`; both render cards, sections, centered captures, callouts, and safely handle a macOS-authored section). macOS defers both (→ #53); "HTML for Word/Docs" is the interim paste path. |
 | App menu + create/naming | 🟡 partial | Create/naming at parity. **Gaps:** Import lacks `⌘O` (Windows binds it); label "Import shotAI Package…" vs Windows "Import Project…" (partly a real difference — macOS imports a `.zip` package, Windows a project folder). |
 | Annotation / redaction editor | 🟡 partial | All 8 tools + fail-closed flatten. **Deliberate gap:** the Vision auto-redact OCR trigger stays unsurfaced (built + tested, no UI caller — by design). Minor: blur softness, crop-box color, per-tool hints. |
@@ -114,7 +129,7 @@ shadows violet-tinted. Dark tokens are not byte-identical.
 **Type scale:** display 28/750 · section 19/700 · title 15/600 · body 14 · meta 13 ·
 label 11 (uppercase, tracked). System font (SF Pro) substitutes Segoe UI.
 
-**Tests:** 214 across the five SwiftPM packages (ShotModel 88 · CaptureKit 59 · EditorKit 18 · SOPKit 23 · ExportKit 26).
+**Tests:** 216 across the five SwiftPM packages (ShotModel 88 · CaptureKit 59 · EditorKit 18 · SOPKit 23 · ExportKit 28).
 
 ## Deliberately do **not** port (native wins)
 
