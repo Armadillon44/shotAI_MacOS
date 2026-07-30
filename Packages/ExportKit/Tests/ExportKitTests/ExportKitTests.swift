@@ -357,6 +357,45 @@ final class ExportKitTests: XCTestCase {
         XCTAssertLessThan(styled, plain, "AVIF styled export should be smaller than the PNG plain one")
     }
 
+    func testBothHtmlVarietiesPinImageSizeWithAttributes() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+        // A pasted document loses the <style> block, so the width must live in
+        // ATTRIBUTES or the image stretches to the destination's column width.
+        // 2176x1224 -> 738x415.
+        for format in [ExportFormat.html, .htmlPlain] {
+            let html = try String(contentsOfFile:
+                try await exportProject(dir: dir, manifest: m, format: format, generatedAt: fixedDate).outputPath,
+                encoding: .utf8)
+            XCTAssertTrue(html.contains("width=\"738\" height=\"415\""),
+                          "\(format) must pin the image size with attributes")
+        }
+    }
+
+    func testStyledHtmlSurvivesStylesheetStripping() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+        let html = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        // Simulate what a rich-text editor keeps: drop the <style> element.
+        guard let s = html.range(of: "<style>"), let e = html.range(of: "</style>") else {
+            return XCTFail("no <style> block to strip")
+        }
+        var stripped = html
+        stripped.removeSubrange(s.lowerBound..<e.upperBound)
+        XCTAssertFalse(stripped.contains("max-width:880px"), "stylesheet should be gone")
+        // With no CSS at all, the image is still bounded by its attributes.
+        // The attributes are what Word honors on paste. (They are not what keeps a
+        // pasted step CARD from going full width — measured: with no CSS the img
+        // already renders at its intrinsic 738px and it is the container that
+        // expands. Constraining that needs table layout, which we don't do.)
+        XCTAssertTrue(stripped.contains("width=\"738\""),
+                      "the intrinsic size must survive stylesheet stripping")
+    }
+
     func testPdfAndMarkdownKeepFullResolution() async throws {
         let dir = try makeProjectDir()
         XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))

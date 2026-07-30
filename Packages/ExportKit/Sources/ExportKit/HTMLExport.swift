@@ -58,6 +58,31 @@ private func htmlImageBytes(
     return (avif, "image/avif")
 }
 
+/// ` width="W" height="H"` for an inlined image, measured from the bytes actually
+/// being inlined (so it reflects the post-resample size), or "" if unreadable.
+///
+/// BOTH HTML varieties emit these as **attributes**, not CSS, because a rich-text
+/// destination (a Freshservice KB article, Word, Docs) drops the `<style>` block.
+/// Word specifically NEEDS them: it ignores `max-width` on paste and would lay a
+/// capture out at full pixel size without them.
+///
+/// Measured caveat, so nobody re-derives it: attributes do NOT stop a pasted step
+/// card from going full width. With the stylesheet stripped, an `<img>` carrying no
+/// width constraint already renders at its intrinsic 738px — it is the CARD
+/// (`.doc` / `.step` / `.step__main`, which lose `max-width:880px` with the
+/// stylesheet) that expands to the destination's column. Constraining that would
+/// need table-based layout with `width` attributes, which is not done here.
+///
+/// In a browser the CSS still wins for shrinking (`max-width:100%;height:auto`), so
+/// the export stays responsive on a narrow window; the attributes only set the
+/// intrinsic size, which also avoids layout shift while the data URI decodes.
+private func htmlImageSizeAttributes(_ bytes: Data) -> String {
+    guard let px = imagePixelDimensions(bytes) else { return "" }
+    let scale = min(1.0, Double(htmlExportImageMaxWidth) / Double(px.w))
+    return " width=\"\(Int((Double(px.w) * scale).rounded()))\""
+        + " height=\"\(Int((Double(px.h) * scale).rounded()))\""
+}
+
 /// The image's pixel dimensions, read from its metadata without decoding pixels.
 private func imagePixelDimensions(_ data: Data) -> (w: Int, h: Int)? {
     guard let src = CGImageSourceCreateWithData(data as CFData, nil),
@@ -162,7 +187,8 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
                 + "<div class=\"step__num\">\(n)</div>"
                 + "<div class=\"step__main\">"
                 + "<h2 class=\"step__title\">\(title)</h2>"
-                + "<img class=\"step__img\" src=\"\(dataUri)\" alt=\"Screenshot for step \(n)\">"
+                + "<img class=\"step__img\" src=\"\(dataUri)\"\(htmlImageSizeAttributes(bytes))"
+                + " alt=\"Screenshot for step \(n)\">"
                 + "\(instr)\(noteHtml)"
                 + "</div>"
                 + "</section>")
@@ -253,21 +279,8 @@ func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws ->
             let (bytes, mediaType) = try htmlImageBytes(image, codec: .png)
             let dataUri = "data:\(mediaType);base64,\(bytes.base64EncodedString())"
             parts.append("<h2>\(n). \(escapeHTML(caption.isEmpty ? "Step \(n)" : caption))</h2>")
-            // Size the image with width/height ATTRIBUTES (not CSS) so it matches
-            // the styled export and survives a Word/Docs paste, which drops CSS
-            // max-width. Measured from the bytes we're actually inlining — those
-            // are already resampled to the column width, so this normally emits
-            // their natural size; the clamp stays as a guard for the case where
-            // the resample was skipped or failed.
-            let sizeAttr: String
-            if let px = imagePixelDimensions(bytes) {
-                let scale = min(1.0, Double(htmlExportImageMaxWidth) / Double(px.w))
-                sizeAttr = " width=\"\(Int((Double(px.w) * scale).rounded()))\""
-                    + " height=\"\(Int((Double(px.h) * scale).rounded()))\""
-            } else {
-                sizeAttr = ""
-            }
-            parts.append("<p><img src=\"\(dataUri)\"\(sizeAttr) alt=\"Screenshot for step \(n)\"></p>")
+            parts.append("<p><img src=\"\(dataUri)\"\(htmlImageSizeAttributes(bytes))"
+                + " alt=\"Screenshot for step \(n)\"></p>")
             if !body.isEmpty { parts.append("<p>\(br(body))</p>") }
             if !note.isEmpty { parts.append("<p><em>\(br(note))</em></p>") }
         }
