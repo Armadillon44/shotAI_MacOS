@@ -2,13 +2,41 @@ import Foundation
 import ImageIO
 import ShotModel
 
-/// The styled export displays step images at up to the width of a step card's
-/// content column: `.doc` 880 − 64 (doc padding) − 30 (badge) − 16 (gap) − 32
-/// (card padding) = 738px (see DOC_CSS). The plain / Word-paste export caps images
-/// to the SAME width so the two match — but via explicit width/height ATTRIBUTES,
-/// because Word/Google Docs drop CSS `max-width` on paste and would otherwise
-/// render the image at its full native pixel size. Keep in sync with DOC_CSS.
-private let plainExportImageMaxWidth = 738
+/// The width a step image is ever DISPLAYED at in either HTML export: the step
+/// card's content column, `.doc` 880 − 64 (doc padding) − 30 (badge) − 16 (gap)
+/// − 32 (card padding) = 738px (see DOC_CSS). **Keep in sync with DOC_CSS.**
+///
+/// Both exporters now also RESAMPLE the embedded pixels to this width (#64).
+/// They inline images as base64 data URIs, so shipping the full render meant
+/// ~3x more pixels than are ever shown plus base64's ~33% overhead — a 20-step
+/// SOP came to ~5.4 MB, which is painful to copy out of a browser into another
+/// system. At 738px that drops to ~2.0 MB. Measured: resampling to 2x (1476px)
+/// saves nothing at all (interpolation blurs the flat colour runs screenshots are
+/// made of, and PNG compresses the result worse), so 1x is the only size that
+/// actually reduces the payload. The tradeoff is accepted: on a Retina display
+/// the browser upscales 738 CSS px to 1476 device px, so exported images read
+/// slightly softer than the in-app report.
+///
+/// The plain / Word-paste export ALSO needs explicit width/height attributes,
+/// because Word and Google Docs drop CSS `max-width` on paste.
+let htmlExportImageMaxWidth = 738
+
+/// The bytes + media type to inline for a step image: the collector's sendable
+/// (redaction-baked, and already zoom/pan-cropped) render, resampled down to the
+/// display width. Resampling re-encodes PNG, so the media type flips with it.
+///
+/// Falls back to the original bytes when there is nothing to shrink (a capture
+/// already narrower than the column) or if the resample fails — so the worst case
+/// is today's behavior, never a wrong or missing image. Runs strictly AFTER the
+/// fail-closed render gate, on baked pixels; scaling down can only destroy
+/// information, never recover a redacted region.
+private func htmlImageBytes(_ image: ExportImage) throws -> (bytes: Data, mediaType: String) {
+    let original = try imageBytes(image)
+    if let shrunk = downscalePNG(original, maxWidth: htmlExportImageMaxWidth) {
+        return (shrunk, "image/png")
+    }
+    return (original, image.mediaType)
+}
 
 /// The image's pixel dimensions, read from its metadata without decoding pixels.
 private func imagePixelDimensions(_ data: Data) -> (w: Int, h: Int)? {
@@ -104,8 +132,8 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
                 + "</section>")
 
         case .shot(let n, let caption, let body, let note, _, let image):
-            let bytes = try imageBytes(image)
-            let dataUri = "data:\(image.mediaType);base64,\(bytes.base64EncodedString())"
+            let (bytes, mediaType) = try htmlImageBytes(image)
+            let dataUri = "data:\(mediaType);base64,\(bytes.base64EncodedString())"
             let title = escapeHTML(caption.isEmpty ? "Step \(n)" : caption)
             let instr = body.isEmpty ? "" : "<p class=\"step__instr\">\(escapeHTML(body))</p>"
             let noteHtml = note.isEmpty ? "" : "<p class=\"step__note\">\(escapeHTML(note))</p>"
@@ -202,16 +230,18 @@ func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws ->
             }
 
         case .shot(let n, let caption, let body, let note, _, let image):
-            let bytes = try imageBytes(image)
-            let dataUri = "data:\(image.mediaType);base64,\(bytes.base64EncodedString())"
+            let (bytes, mediaType) = try htmlImageBytes(image)
+            let dataUri = "data:\(mediaType);base64,\(bytes.base64EncodedString())"
             parts.append("<h2>\(n). \(escapeHTML(caption.isEmpty ? "Step \(n)" : caption))</h2>")
             // Size the image with width/height ATTRIBUTES (not CSS) so it matches
             // the styled export and survives a Word/Docs paste, which drops CSS
-            // max-width. Cap at the styled column width, preserving aspect; a
-            // capture already narrower than the cap keeps its native size.
+            // max-width. Measured from the bytes we're actually inlining — those
+            // are already resampled to the column width, so this normally emits
+            // their natural size; the clamp stays as a guard for the case where
+            // the resample was skipped or failed.
             let sizeAttr: String
             if let px = imagePixelDimensions(bytes) {
-                let scale = min(1.0, Double(plainExportImageMaxWidth) / Double(px.w))
+                let scale = min(1.0, Double(htmlExportImageMaxWidth) / Double(px.w))
                 sizeAttr = " width=\"\(Int((Double(px.w) * scale).rounded()))\""
                     + " height=\"\(Int((Double(px.h) * scale).rounded()))\""
             } else {

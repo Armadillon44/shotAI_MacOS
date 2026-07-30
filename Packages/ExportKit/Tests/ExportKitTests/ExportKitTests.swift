@@ -247,6 +247,93 @@ final class ExportKitTests: XCTestCase {
         XCTAssertEqual(listed.sorted(), ["Chosen Name"])  // one tidy item, not two
     }
 
+    // MARK: - HTML export image downscaling (#64)
+
+    /// Decode the first `data:` URI in an HTML document back to bytes.
+    private func firstDataUriBytes(_ html: String) -> Data? {
+        guard let r = html.range(of: "base64,") else { return nil }
+        let rest = html[r.upperBound...]
+        guard let end = rest.firstIndex(of: "\"") else { return nil }
+        return Data(base64Encoded: String(rest[..<end]))
+    }
+
+    private func pixelWidth(_ data: Data) -> Int? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        else { return nil }
+        return p[kCGImagePropertyPixelWidth] as? Int
+    }
+
+    func testHtmlExportsResampleWideImagesToColumnWidth() async throws {
+        let dir = try makeProjectDir()
+        // 2176px wide, like a real Retina capture after the 0.85 capture downscale.
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+
+        for format in [ExportFormat.html, .htmlPlain] {
+            let res = try await exportProject(dir: dir, manifest: m, format: format, generatedAt: fixedDate)
+            let html = try String(contentsOfFile: res.outputPath, encoding: .utf8)
+            let bytes = try XCTUnwrap(firstDataUriBytes(html), "\(format) had no data URI")
+            XCTAssertEqual(pixelWidth(bytes), htmlExportImageMaxWidth,
+                           "\(format) should inline pixels at the display width, not full res")
+        }
+    }
+
+    func testHtmlExportNeverUpscalesNarrowCaptures() async throws {
+        let dir = try makeProjectDir()
+        // Narrower than the column — must be left completely alone.
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/narrow.png"), w: 400, h: 300))
+        let m = manifest([shotStep(id: "n", order: 0, screenshot: "shots/narrow.png", caption: "Narrow")])
+        let res = try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate)
+        let html = try String(contentsOfFile: res.outputPath, encoding: .utf8)
+        let bytes = try XCTUnwrap(firstDataUriBytes(html))
+        XCTAssertEqual(pixelWidth(bytes), 400)  // not 738, and not re-encoded larger
+    }
+
+    func testPlainHtmlAttributesMatchTheResampledPixels() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+        let res = try await exportProject(dir: dir, manifest: m, format: .htmlPlain, generatedAt: fixedDate)
+        let html = try String(contentsOfFile: res.outputPath, encoding: .utf8)
+        // 2176x1224 -> 738x415, and the attributes must describe the actual bytes.
+        XCTAssertTrue(html.contains("width=\"738\" height=\"415\""), html.prefix(400).description)
+        XCTAssertEqual(pixelWidth(try XCTUnwrap(firstDataUriBytes(html))), 738)
+    }
+
+    func testHtmlExportGetsSubstantiallySmaller() async throws {
+        let dir = try makeProjectDir()
+        for i in 1...3 {
+            XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/s\(i).png"), w: 2176, h: 1224))
+        }
+        let m = manifest((1...3).map {
+            shotStep(id: "s\($0)", order: $0 - 1, screenshot: "shots/s\($0).png", caption: "Step \($0)")
+        })
+        let res = try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate)
+        let size = try XCTUnwrap(
+            (try FileManager.default.attributesOfItem(atPath: res.outputPath)[.size] as? NSNumber)?.intValue)
+        // Full-res base64 for three 2176px steps would be multiple MB; the point of
+        // #64 is that it isn't any more. Generous bound so this isn't brittle.
+        XCTAssertLessThan(size, 900_000, "3-step HTML export should be well under 1 MB, got \(size) bytes")
+    }
+
+    func testPdfAndMarkdownKeepFullResolution() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+        // Scope boundary: the downscale is HTML-only. Markdown copies the render
+        // out verbatim, so its image must still be full width.
+        let res = try await exportProject(dir: dir, manifest: m, format: .markdown, generatedAt: fixedDate)
+        let img = ((res.outputPath as NSString).deletingLastPathComponent as NSString)
+            .appendingPathComponent("images/step-01-w.png")
+        let bytes = try Data(contentsOf: URL(fileURLWithPath: img))
+        XCTAssertEqual(pixelWidth(bytes), 2176)
+        // PDF renders natively (no base64) and must still succeed at full res.
+        let pdf = try await exportProject(dir: dir, manifest: m, format: .pdf, generatedAt: fixedDate)
+        let pdfSize = (try FileManager.default.attributesOfItem(atPath: pdf.outputPath)[.size] as? NSNumber)?.intValue ?? 0
+        XCTAssertGreaterThan(pdfSize, 0)
+    }
+
     // MARK: - Section dividers (non-counted phase headings)
 
     func testSectionRendersAsHeadingNotNumberedCallout() async throws {

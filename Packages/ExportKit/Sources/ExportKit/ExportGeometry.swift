@@ -46,6 +46,42 @@ func zoomCropPNG(path: String, zoom: Double, panX: Double, panY: Double) -> Data
     return encodePNG(cropped)
 }
 
+/// Resample PNG/JPEG `data` down so its width is at most `maxWidth`, re-encoding
+/// PNG. Returns nil when there's nothing to do or on any failure — a nil result
+/// means "use the bytes you already have", so this can only ever leave the
+/// payload larger, never fall open to different pixels (#64).
+///
+/// NEVER upscales: a capture already at or under `maxWidth` is left alone, both
+/// to avoid inventing detail and because re-encoding a crisp screenshot for no
+/// reason can make it BIGGER (interpolation turns flat colour runs into many
+/// unique colours, which PNG compresses worse).
+///
+/// Only the HTML exporters use this. They inline the image as a base64 data URI
+/// and then let CSS display it at `htmlExportImageMaxWidth`, so shipping the full
+/// render was ~3x more pixels than are ever shown, plus base64's ~33% overhead.
+/// PDF and Markdown deliberately keep full resolution (print quality / separate
+/// image files, no payload to bloat).
+func downscalePNG(_ data: Data, maxWidth: Int) -> Data? {
+    guard maxWidth > 0,
+          let src = CGImageSourceCreateWithData(data as CFData, nil),
+          let image = CGImageSourceCreateImageAtIndex(src, 0, nil),
+          image.width > maxWidth, image.height > 0
+    else { return nil }
+    // Preserve aspect; guarantee at least 1px so a pathological sliver survives.
+    let scale = Double(maxWidth) / Double(image.width)
+    let w = maxWidth
+    let h = max(1, Int((Double(image.height) * scale).rounded()))
+    guard let ctx = CGContext(
+        data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { return nil }
+    ctx.interpolationQuality = .high
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+    guard let out = ctx.makeImage() else { return nil }
+    return encodePNG(out)
+}
+
 /// Encode a CGImage to PNG data (sRGB), or nil on failure.
 func encodePNG(_ image: CGImage) -> Data? {
     let data = NSMutableData()
