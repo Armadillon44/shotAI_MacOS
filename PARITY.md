@@ -1,6 +1,6 @@
 # Windows → macOS parity
 
-**Audit date:** 2026-07-28 · **Target:** shipped Windows **v1.1.4** · **Reference:** `shotAI-original/` (v1.1.4 / `d9823ec`) · **macOS build:** `1.1.1` (build 7)
+**Audit date:** 2026-07-28 · **Target:** shipped Windows **v1.1.4** · **Reference:** `shotAI-original/` (v1.1.4 / `d9823ec`) · **macOS build:** `1.1.2` (build 8)
 
 Roadmap of record for the macOS port's parity with the shipped Windows app. Full
 surface-by-surface re-audit (Windows v1.1.4 read from source, verified against the current
@@ -28,7 +28,10 @@ pre-send SOP review has no per-step preview, and `⌘O` isn't bound to Import. m
 carries the inert legacy per-step **`note`** field that Windows deleted in v1.1.0, which by
 decision stays as-is (see "Step `note` field" below).
 
-**macOS still leads Windows v1.1.4** on: the **Liquid Glass** app icon, and the Home
+**macOS still leads Windows v1.1.4** on: the **KB-paste-ready styled HTML export** (images
+resampled to the display width and encoded **AVIF**, ~1.4 MB → ~0.17 MB on a real 9-step SOP,
+plus a per-block column width so pasted step cards don't stretch — Windows tracks this as
+`Armadillon44/shotAI`#56 and #57), the **Liquid Glass** app icon, and the Home
 **window-width launch fix** (N/A on Windows — it creates its window at the list width and
 persists no bounds, so there is nothing to coerce). The recording pill itself is at parity —
 Windows ships an equivalent frameless always-on-top toolbar window (380×74, same controls and
@@ -74,13 +77,14 @@ report and exports. Keeping the read path costs nothing and preserves them. Reco
 it isn't re-litigated as a "gap" by a future audit; **do not "fix" it.**
 
 The only hard ship gate is **distribution** — Developer ID + notarization
-(`docs/DISTRIBUTION.md`). The shipped DMGs (1.0.0, 1.1.0, 1.1.1) are ad-hoc signed.
+(`docs/DISTRIBUTION.md`). The shipped DMGs (1.0.0, 1.1.0, 1.1.1, 1.1.2) are ad-hoc signed.
 
 ## Validation status (hand-tested)
 
 - **Verified end-to-end:** SOP generation, capture, archive/unarchive, exports, report
   editing, section dividers (report + exports), narrow-capture centering, the
-  self-contained Markdown export folder, and the Home window-width launch fix.
+  self-contained Markdown export folder, the Home window-width launch fix, and pasting the
+  styled HTML export into a real Freshservice KB article (images + column width both correct).
 - **Capture modes:** Screen ✅ and Window ✅ hand-verified. **Auto mode on a multi-monitor
   setup is still not hand-tested** (fallback paths are unit-tested only). The one open
   live-validation item.
@@ -106,7 +110,7 @@ The only hard ship gate is **distribution** — Developer ID + notarization
 | Settings (tabbed) | ✅ matched | General / AI / Capture / Appearance / Permissions; AI tab has key-create link, per-option blurbs, unreadable-key / secure-storage states. |
 | Recording pill | ✅ matched | Two-row hint, per-capture green flash, whole-project discard warning, and an **in-session capture-error surface** on both (Windows added it in v1.1.4; same clear-on-step / clear-on-session / dismiss semantics + red accent bar, but it shows the message inline in row 2 rather than a row-1 chip + tooltip — its 380px row 1 can't fit both). **Ahead:** non-activating panel. |
 | SOP generation (Claude) | 🟡 partial | Secure + complete: host pinned, Keychain key, cost estimate, review-before-send, generate/revert, tone/effort/custom-instructions, fail-closed gate. Neither app lets Claude *write* a per-step note any more. **Gap:** the pre-send review shows token/cost totals only; Windows renders a per-step list with a thumbnail, window title and caption for everything being sent (`SopPanel.tsx`). (macOS would still forward a legacy per-step `note` as context if one existed, but nothing on macOS creates one — see "Step `note` field" above.) |
-| Export (HTML / PDF / Markdown / Word-HTML / `.zip`) | ✅ matched | All five through the shared fail-closed gate; dimensions + centering + sections match Windows. **Markdown is a self-contained `<name>/` folder** (`<name>.md` + `images/`) for every destination, with folder-level collision numbering (macOS 1.1.1) — matches Windows. The plain-export **738px width/height image cap now matches on both** (Windows v1.1.4). `.zip` packages round-trip between platforms. *Note:* the PDF is drawn natively (CoreText/CG) rather than print-to-PDF, so it is not pixel-identical to Windows' — same content and layout, different rasterizer. Native Office formats are a separate row. |
+| Export (HTML / PDF / Markdown / Word-HTML / `.zip`) | ⬆️ ahead | All five through the shared fail-closed gate; dimensions + centering + sections match Windows. **Markdown is a self-contained `<name>/` folder** (`<name>.md` + `images/`) for every destination, with folder-level collision numbering (macOS 1.1.1) — matches Windows. The plain-export **738px width/height image cap now matches on both** (Windows v1.1.4). `.zip` packages round-trip between platforms. **Ahead (1.1.2):** the styled HTML resamples images to the 738px display width and encodes **AVIF**, and every top-level block carries its own column width, so the export pastes into a KB article at ~⅛ the size and without stretching. Windows tracks both as `Armadillon44/shotAI`#56/#57; note the codec must differ there (Electron can write WebP but not AVIF; macOS is the reverse). *Note:* the PDF is drawn natively (CoreText/CG) rather than print-to-PDF, so it is not pixel-identical to Windows' — same content and layout, different rasterizer. Native Office formats are a separate row. |
 | Native Office export (`.docx` / `.pptx`) | 🔴 macOS gap | **Windows ships both** (Word via `docx`, PowerPoint via `pptxgenjs`; both render cards, sections, centered captures, callouts, and safely handle a macOS-authored section). macOS defers both (→ #53); "HTML for Word/Docs" is the interim paste path. |
 | App menu + create/naming | 🟡 partial | Create/naming at parity. **Gap:** Import lacks `⌘O` (Windows binds `CmdOrCtrl+O`). The label differs — "Import shotAI Package…" vs Windows "Import Project…" — but that's cosmetic only: both open a `.zip` package picker (Windows' handler filters to `zip` with `openFile`, same mechanism as macOS). |
 | Annotation / redaction editor | 🟡 partial | All 8 tools + fail-closed flatten. **Deliberate gap:** the Vision auto-redact OCR trigger stays unsurfaced (built + tested, no UI caller — by design). Minor: blur softness, crop-box color, per-tool hints. |
@@ -163,7 +167,7 @@ shadows violet-tinted. Dark tokens are not byte-identical.
 **Type scale:** display 28/750 · section 19/700 · title 15/600 · body 14 · meta 13 ·
 label 11 (uppercase, tracked). System font (SF Pro) substitutes Segoe UI.
 
-**Tests:** 216 across the five SwiftPM packages (ShotModel 88 · CaptureKit 59 · EditorKit 18 · SOPKit 23 · ExportKit 28).
+**Tests:** 227 across the five SwiftPM packages (ShotModel 88 · CaptureKit 59 · EditorKit 18 · SOPKit 23 · ExportKit 39).
 
 ## Deliberately do **not** port (native wins)
 

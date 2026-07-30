@@ -11,13 +11,17 @@ API, and only when you ask shotAI to write the SOP. This is a native Swift/Swift
 the [Windows app](https://github.com/Armadillon44/shotAI); `project.json` is
 byte-compatible, so projects **round-trip between platforms**.
 
-> **Status:** **1.1.1.** Capture engine, native SwiftUI
+> **Status:** **1.1.2.** Capture engine, native SwiftUI
 > annotation editor, manual redaction (blur or solid box, baked into a flattened copy), Claude SOP
 > generation with review-before-send + one-click revert, element-at-point captions (native
 > Accessibility), export to HTML / PDF / Markdown / "HTML for Word" + a shareable
 > round-trip `.zip` package, project archiving, a first-run tour, and light/dark theming are
 > all implemented.
-> **New in 1.1.1:** the **Markdown export is a self-contained `<name>/` folder** (the `.md`
+> **New in 1.1.2:** the styled **HTML export now pastes cleanly into a knowledge base**
+> (tested against Freshservice): images are resampled to the size they're displayed at and
+> encoded as **AVIF**, taking a real 9-step SOP from 1.4 MB to ~0.17 MB, and the step layout
+> keeps its column width instead of stretching to the destination's full width.
+> **In 1.1.1:** the **Markdown export is a self-contained `<name>/` folder** (the `.md`
 > plus its `images/`), so it moves or zips as one unit — matching the Windows app.
 > **In 1.1.0:** non-counted **section dividers** (phase headings that aren't numbered
 > steps — Claude uses them to group a procedure into phases); narrow captures are centered
