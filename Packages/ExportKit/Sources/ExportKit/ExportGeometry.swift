@@ -82,6 +82,43 @@ func downscalePNG(_ data: Data, maxWidth: Int) -> Data? {
     return encodePNG(out)
 }
 
+/// Whether ImageIO on this system can WRITE AVIF. Computed once — the set of
+/// writable types is fixed for the process.
+private let canEncodeAVIF: Bool = {
+    (CGImageDestinationCopyTypeIdentifiers() as? [String] ?? []).contains(avifTypeIdentifier)
+}()
+
+private let avifTypeIdentifier = "public.avif"
+
+/// Re-encode `data` as AVIF at `quality` (0…1), or nil if AVIF can't be written
+/// here or the encode fails — callers then keep their PNG bytes, so this can only
+/// make the payload larger, never break an export.
+///
+/// Why AVIF for the styled HTML export (#64): the images are inlined as base64,
+/// and Freshservice-style KB editors accept a data URI but choke past a total
+/// payload budget. AVIF is the only format that is BOTH natively writable by
+/// ImageIO (so no third-party dependency — WebP is decode-only on macOS) and
+/// dramatically smaller than PNG on screenshots. Measured on a real 9-step SOP:
+/// 1.43 MB of base64 as PNG vs 0.16 MB as AVIF q85, with the worst single image
+/// going 495 KB -> 26 KB. At 4x magnification q85 is indistinguishable from
+/// lossless on UI text, which is the content that matters here.
+///
+/// NOT used for the plain / Word-paste export: Word cannot read AVIF.
+func encodeAVIF(_ data: Data, quality: Double) -> Data? {
+    guard canEncodeAVIF,
+          let src = CGImageSourceCreateWithData(data as CFData, nil),
+          let image = CGImageSourceCreateImageAtIndex(src, 0, nil)
+    else { return nil }
+    let out = NSMutableData()
+    guard let dest = CGImageDestinationCreateWithData(
+        out, avifTypeIdentifier as CFString, 1, nil) else { return nil }
+    CGImageDestinationAddImage(dest, image, [
+        kCGImageDestinationLossyCompressionQuality: quality,
+    ] as CFDictionary)
+    guard CGImageDestinationFinalize(dest), out.length > 0 else { return nil }
+    return out as Data
+}
+
 /// Encode a CGImage to PNG data (sRGB), or nil on failure.
 func encodePNG(_ image: CGImage) -> Data? {
     let data = NSMutableData()

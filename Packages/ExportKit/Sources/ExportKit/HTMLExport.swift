@@ -21,21 +21,41 @@ import ShotModel
 /// because Word and Google Docs drop CSS `max-width` on paste.
 let htmlExportImageMaxWidth = 738
 
+/// AVIF quality for the styled export. 0.85 measured indistinguishable from
+/// lossless on UI text at 4x magnification while still ~9x smaller than PNG.
+private let htmlExportAvifQuality = 0.85
+
+/// Which codec an HTML variety inlines its images as.
+private enum HtmlImageCodec {
+    /// Styled HTML: read in a browser, so AVIF is safe and much smaller (#64).
+    case avif
+    /// Plain / Word-paste HTML: **must stay PNG** — Word cannot read AVIF.
+    case png
+}
+
 /// The bytes + media type to inline for a step image: the collector's sendable
 /// (redaction-baked, and already zoom/pan-cropped) render, resampled down to the
-/// display width. Resampling re-encodes PNG, so the media type flips with it.
+/// display width, then encoded for the target variety.
 ///
-/// Falls back to the original bytes when there is nothing to shrink (a capture
-/// already narrower than the column) or if the resample fails — so the worst case
-/// is today's behavior, never a wrong or missing image. Runs strictly AFTER the
-/// fail-closed render gate, on baked pixels; scaling down can only destroy
-/// information, never recover a redacted region.
-private func htmlImageBytes(_ image: ExportImage) throws -> (bytes: Data, mediaType: String) {
+/// Every step degrades safely. If the resample finds nothing to shrink (a capture
+/// already narrower than the column) the original bytes are used; if AVIF can't be
+/// written on this system or the encode fails, the PNG bytes are used. The worst
+/// case is the previous behavior, never a wrong or missing image.
+///
+/// Runs strictly AFTER the fail-closed render gate, on baked pixels — resampling
+/// and re-encoding can only destroy information, never recover a redacted region.
+private func htmlImageBytes(
+    _ image: ExportImage, codec: HtmlImageCodec
+) throws -> (bytes: Data, mediaType: String) {
     let original = try imageBytes(image)
-    if let shrunk = downscalePNG(original, maxWidth: htmlExportImageMaxWidth) {
-        return (shrunk, "image/png")
-    }
-    return (original, image.mediaType)
+    // Resample to the display width first; nil means it was already small enough.
+    let resampled = downscalePNG(original, maxWidth: htmlExportImageMaxWidth)
+    let sized = resampled ?? original
+    let sizedType = resampled != nil ? "image/png" : image.mediaType
+    guard codec == .avif,
+          let avif = encodeAVIF(sized, quality: htmlExportAvifQuality)
+    else { return (sized, sizedType) }
+    return (avif, "image/avif")
 }
 
 /// The image's pixel dimensions, read from its metadata without decoding pixels.
@@ -132,7 +152,7 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
                 + "</section>")
 
         case .shot(let n, let caption, let body, let note, _, let image):
-            let (bytes, mediaType) = try htmlImageBytes(image)
+            let (bytes, mediaType) = try htmlImageBytes(image, codec: .avif)
             let dataUri = "data:\(mediaType);base64,\(bytes.base64EncodedString())"
             let title = escapeHTML(caption.isEmpty ? "Step \(n)" : caption)
             let instr = body.isEmpty ? "" : "<p class=\"step__instr\">\(escapeHTML(body))</p>"
@@ -230,7 +250,7 @@ func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws ->
             }
 
         case .shot(let n, let caption, let body, let note, _, let image):
-            let (bytes, mediaType) = try htmlImageBytes(image)
+            let (bytes, mediaType) = try htmlImageBytes(image, codec: .png)
             let dataUri = "data:\(mediaType);base64,\(bytes.base64EncodedString())"
             parts.append("<h2>\(n). \(escapeHTML(caption.isEmpty ? "Step \(n)" : caption))</h2>")
             // Size the image with width/height ATTRIBUTES (not CSS) so it matches

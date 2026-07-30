@@ -138,7 +138,9 @@ final class ExportKitTests: XCTestCase {
         XCTAssertFalse(html.contains("<div class=\"step__num\">3</div>")) // no 3rd number
         XCTAssertTrue(html.contains("step__num--warning"))               // callout badge
         XCTAssertTrue(html.contains("Click &lt;b&gt;Save&lt;/b&gt;"))    // caption escaped
-        XCTAssertTrue(html.contains("data:image/png;base64,"))           // inlined image
+        // Inlined image. The styled export encodes AVIF (#64) — the codec split is
+        // asserted in testStyledHtmlUsesAvifAndPlainStaysPng.
+        XCTAssertTrue(html.contains("data:image/avif;base64,"))
         XCTAssertTrue(html.contains("class=\"doc__intro-b\">first<br>second<")) // intro br
         XCTAssertTrue(html.contains(DOC_CSS))
         // #59: a narrow capture centers in the column (equal L/R padding).
@@ -315,6 +317,44 @@ final class ExportKitTests: XCTestCase {
         // Full-res base64 for three 2176px steps would be multiple MB; the point of
         // #64 is that it isn't any more. Generous bound so this isn't brittle.
         XCTAssertLessThan(size, 900_000, "3-step HTML export should be well under 1 MB, got \(size) bytes")
+    }
+
+    func testStyledHtmlUsesAvifAndPlainStaysPng() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+
+        // Styled HTML is read in a browser -> AVIF, for the payload budget (#64).
+        let styled = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(styled.contains("data:image/avif;base64,"), "styled HTML should inline AVIF")
+        XCTAssertFalse(styled.contains("data:image/png;base64,"))
+        // Still decodes to the display width.
+        XCTAssertEqual(pixelWidth(try XCTUnwrap(firstDataUriBytes(styled))), htmlExportImageMaxWidth)
+
+        // Plain / Word-paste HTML MUST stay PNG — Word cannot read AVIF.
+        let plain = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .htmlPlain, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(plain.contains("data:image/png;base64,"), "Word-paste HTML must stay PNG")
+        XCTAssertFalse(plain.contains("avif"))
+    }
+
+    func testAvifMakesTheStyledExportMuchSmallerThanPlain() async throws {
+        let dir = try makeProjectDir()
+        for i in 1...3 {
+            XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/s\(i).png"), w: 2176, h: 1224))
+        }
+        let m = manifest((1...3).map {
+            shotStep(id: "s\($0)", order: $0 - 1, screenshot: "shots/s\($0).png", caption: "Step \($0)")
+        })
+        func size(_ f: ExportFormat) async throws -> Int {
+            let p = try await exportProject(dir: dir, manifest: m, format: f, generatedAt: fixedDate).outputPath
+            return (try FileManager.default.attributesOfItem(atPath: p)[.size] as? NSNumber)?.intValue ?? 0
+        }
+        let styled = try await size(.html), plain = try await size(.htmlPlain)
+        XCTAssertLessThan(styled, plain, "AVIF styled export should be smaller than the PNG plain one")
     }
 
     func testPdfAndMarkdownKeepFullResolution() async throws {
