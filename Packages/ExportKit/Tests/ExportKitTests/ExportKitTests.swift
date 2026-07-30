@@ -373,6 +373,25 @@ final class ExportKitTests: XCTestCase {
         }
     }
 
+    func testStyledHtmlConstrainsWidthOnANestedDiv() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 40, h: 30))
+        let m = manifest([shotStep(id: "s", order: 0, screenshot: "shots/a.png", caption: "Cap")])
+        let html = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        // The column width must live on a NESTED plain <div>, not on the outermost
+        // element and not on a <main> — a paste into a Freshservice KB article
+        // dropped the constraint in both of those shapes and the steps went full
+        // width (#64).
+        XCTAssertTrue(html.contains("<div class=\"doc\">"), "outer wrapper must be a plain div")
+        XCTAssertTrue(html.contains("<div class=\"doc__col\">"), "width must sit on a nested div")
+        XCTAssertFalse(html.contains("<main"), "<main> did not survive the paste sanitizer")
+        XCTAssertTrue(DOC_CSS.contains(".doc__col{max-width:816px"), "the column carries the width")
+        // Tables were ruled out by probe: the destination forces table{width:100%}.
+        XCTAssertFalse(html.contains("<table"), "layout tables come back full width; don't use them")
+    }
+
     func testStyledHtmlSurvivesStylesheetStripping() async throws {
         let dir = try makeProjectDir()
         XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))

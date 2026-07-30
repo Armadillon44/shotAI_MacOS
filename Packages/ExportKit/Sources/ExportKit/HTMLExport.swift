@@ -3,8 +3,8 @@ import ImageIO
 import ShotModel
 
 /// The width a step image is ever DISPLAYED at in either HTML export: the step
-/// card's content column, `.doc` 880 − 64 (doc padding) − 30 (badge) − 16 (gap)
-/// − 32 (card padding) = 738px (see DOC_CSS). **Keep in sync with DOC_CSS.**
+/// card's content column, `.doc__col` 816 − 30 (badge) − 16 (gap) − 32 (card
+/// padding) = 738px (see DOC_CSS). **Keep in sync with DOC_CSS.**
 ///
 /// Both exporters now also RESAMPLE the embedded pixels to this width (#64).
 /// They inline images as base64 data URIs, so shipping the full render meant
@@ -66,12 +66,14 @@ private func htmlImageBytes(
 /// Word specifically NEEDS them: it ignores `max-width` on paste and would lay a
 /// capture out at full pixel size without them.
 ///
-/// Measured caveat, so nobody re-derives it: attributes do NOT stop a pasted step
-/// card from going full width. With the stylesheet stripped, an `<img>` carrying no
-/// width constraint already renders at its intrinsic 738px — it is the CARD
-/// (`.doc` / `.step` / `.step__main`, which lose `max-width:880px` with the
-/// stylesheet) that expands to the destination's column. Constraining that would
-/// need table-based layout with `width` attributes, which is not done here.
+/// Measured caveat, so nobody re-derives it: attributes are NOT what keeps a pasted
+/// step card from going full width. With the stylesheet stripped, an `<img>` with no
+/// width constraint already renders at its intrinsic 738px — it was the CARD that
+/// expanded, and that is fixed separately by the `.doc__col` wrapper (see
+/// buildHtmlDoc). A probe against a real Freshservice article also ruled OUT
+/// table-based layout for that job: `<table width="880">`, a `width` attribute on
+/// the `<td>`, and `<center>` + table all came back FULL WIDTH, because the
+/// destination forces `table{width:100%}`. Do not reach for tables here.
 ///
 /// In a browser the CSS still wins for shrinking (`max-width:100%;height:auto`), so
 /// the export stays responsive on a narrow window; the attributes only set the
@@ -100,7 +102,8 @@ let DOC_CSS = """
 *{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;background:#fff;line-height:1.6}
-.doc{max-width:880px;margin:0 auto;padding:40px 32px 64px}
+.doc{padding:40px 32px 64px}
+.doc__col{max-width:816px;margin:0 auto}
 .doc__title{font-size:1.9rem;line-height:1.25;margin:0 0 4px}
 .doc__meta{color:#6b7280;font-size:.85rem;margin:0 0 28px}
 .doc__intro{margin:0 0 28px;padding:14px 18px;border:1px solid #e7e4f2;border-left:4px solid #6344f1;border-radius:8px;background:#efeafe}
@@ -126,7 +129,7 @@ body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-s
 .section{margin:28px 0 4px 46px;padding:14px 16px 0;border-top:2px solid #e7e4f2}
 .section__h{font-size:1.2rem;font-weight:700;margin:0 0 4px;color:#191826}
 .section__b{margin:0;color:#5a5772;white-space:pre-wrap}
-@media print{.doc{max-width:none;padding:0 6px}.section{break-inside:avoid}}
+@media print{.doc{padding:0 6px}.doc__col{max-width:none}.section{break-inside:avoid}}
 """
 
 /// The rail-badge glyph for a callout — same mapping as shared/project CALLOUT_GLYPH.
@@ -215,12 +218,20 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
         + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         + "<title>\(title)</title>\n"
         + "<style>\(DOC_CSS)</style>\n"
-        + "</head>\n<body>\n<main class=\"doc\">\n"
+        // Two nested plain DIVs, deliberately (#64). A pasted copy of this document
+        // must keep its column width, and empirically it did not: the outer wrapper
+        // was a `<main>` carrying `max-width`, and after a paste the steps went full
+        // width. A probe showed a NESTED `<div>` with the same constraint survives,
+        // so both suspected causes are avoided at once — `<main>` (semantic tags are
+        // commonly off a sanitizer's allowlist) and relying on the OUTERMOST element
+        // (which a paste can unwrap). `.doc` now only pads; `.doc__col` carries the
+        // width, one level in, so it survives either failure.
+        + "</head>\n<body>\n<div class=\"doc\">\n<div class=\"doc__col\">\n"
         + "<h1 class=\"doc__title\">\(title)</h1>\n"
         + "<p class=\"doc__meta\">\(escapeHTML(createdLine))</p>\n"
         + introHtml
         + parts.joined(separator: "\n")
-        + "\n</main>\n</body>\n</html>\n"
+        + "\n</div>\n</div>\n</body>\n</html>\n"
 }
 
 /// Minimal Arial stylesheet for the plain "HTML (for Word/Docs)" export — enough
