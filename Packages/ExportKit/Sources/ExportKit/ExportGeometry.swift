@@ -46,6 +46,79 @@ func zoomCropPNG(path: String, zoom: Double, panX: Double, panY: Double) -> Data
     return encodePNG(cropped)
 }
 
+/// Resample PNG/JPEG `data` down so its width is at most `maxWidth`, re-encoding
+/// PNG. Returns nil when there's nothing to do or on any failure — a nil result
+/// means "use the bytes you already have", so this can only ever leave the
+/// payload larger, never fall open to different pixels (#64).
+///
+/// NEVER upscales: a capture already at or under `maxWidth` is left alone, both
+/// to avoid inventing detail and because re-encoding a crisp screenshot for no
+/// reason can make it BIGGER (interpolation turns flat colour runs into many
+/// unique colours, which PNG compresses worse).
+///
+/// Only the HTML exporters use this. They inline the image as a base64 data URI
+/// and then let CSS display it at `htmlExportImageMaxWidth`, so shipping the full
+/// render was ~3x more pixels than are ever shown, plus base64's ~33% overhead.
+/// PDF and Markdown deliberately keep full resolution (print quality / separate
+/// image files, no payload to bloat).
+func downscalePNG(_ data: Data, maxWidth: Int) -> Data? {
+    guard maxWidth > 0,
+          let src = CGImageSourceCreateWithData(data as CFData, nil),
+          let image = CGImageSourceCreateImageAtIndex(src, 0, nil),
+          image.width > maxWidth, image.height > 0
+    else { return nil }
+    // Preserve aspect; guarantee at least 1px so a pathological sliver survives.
+    let scale = Double(maxWidth) / Double(image.width)
+    let w = maxWidth
+    let h = max(1, Int((Double(image.height) * scale).rounded()))
+    guard let ctx = CGContext(
+        data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { return nil }
+    ctx.interpolationQuality = .high
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+    guard let out = ctx.makeImage() else { return nil }
+    return encodePNG(out)
+}
+
+/// Whether ImageIO on this system can WRITE AVIF. Computed once — the set of
+/// writable types is fixed for the process.
+private let canEncodeAVIF: Bool = {
+    (CGImageDestinationCopyTypeIdentifiers() as? [String] ?? []).contains(avifTypeIdentifier)
+}()
+
+private let avifTypeIdentifier = "public.avif"
+
+/// Re-encode `data` as AVIF at `quality` (0…1), or nil if AVIF can't be written
+/// here or the encode fails — callers then keep their PNG bytes, so this can only
+/// make the payload larger, never break an export.
+///
+/// Why AVIF for the styled HTML export (#64): the images are inlined as base64,
+/// and Freshservice-style KB editors accept a data URI but choke past a total
+/// payload budget. AVIF is the only format that is BOTH natively writable by
+/// ImageIO (so no third-party dependency — WebP is decode-only on macOS) and
+/// dramatically smaller than PNG on screenshots. Measured on a real 9-step SOP:
+/// 1.43 MB of base64 as PNG vs 0.16 MB as AVIF q85, with the worst single image
+/// going 495 KB -> 26 KB. At 4x magnification q85 is indistinguishable from
+/// lossless on UI text, which is the content that matters here.
+///
+/// NOT used for the plain / Word-paste export: Word cannot read AVIF.
+func encodeAVIF(_ data: Data, quality: Double) -> Data? {
+    guard canEncodeAVIF,
+          let src = CGImageSourceCreateWithData(data as CFData, nil),
+          let image = CGImageSourceCreateImageAtIndex(src, 0, nil)
+    else { return nil }
+    let out = NSMutableData()
+    guard let dest = CGImageDestinationCreateWithData(
+        out, avifTypeIdentifier as CFString, 1, nil) else { return nil }
+    CGImageDestinationAddImage(dest, image, [
+        kCGImageDestinationLossyCompressionQuality: quality,
+    ] as CFDictionary)
+    guard CGImageDestinationFinalize(dest), out.length > 0 else { return nil }
+    return out as Data
+}
+
 /// Encode a CGImage to PNG data (sRGB), or nil on failure.
 func encodePNG(_ image: CGImage) -> Data? {
     let data = NSMutableData()

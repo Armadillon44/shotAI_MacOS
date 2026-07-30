@@ -138,7 +138,9 @@ final class ExportKitTests: XCTestCase {
         XCTAssertFalse(html.contains("<div class=\"step__num\">3</div>")) // no 3rd number
         XCTAssertTrue(html.contains("step__num--warning"))               // callout badge
         XCTAssertTrue(html.contains("Click &lt;b&gt;Save&lt;/b&gt;"))    // caption escaped
-        XCTAssertTrue(html.contains("data:image/png;base64,"))           // inlined image
+        // Inlined image. The styled export encodes AVIF (#64) — the codec split is
+        // asserted in testStyledHtmlUsesAvifAndPlainStaysPng.
+        XCTAssertTrue(html.contains("data:image/avif;base64,"))
         XCTAssertTrue(html.contains("class=\"doc__intro-b\">first<br>second<")) // intro br
         XCTAssertTrue(html.contains(DOC_CSS))
         // #59: a narrow capture centers in the column (equal L/R padding).
@@ -245,6 +247,216 @@ final class ExportKitTests: XCTestCase {
             atPath: (picked as NSString).appendingPathComponent("Chosen Name/images/step-01-abc.png")))
         let listed = try FileManager.default.contentsOfDirectory(atPath: picked)
         XCTAssertEqual(listed.sorted(), ["Chosen Name"])  // one tidy item, not two
+    }
+
+    // MARK: - HTML export image downscaling (#64)
+
+    /// Decode the first `data:` URI in an HTML document back to bytes.
+    private func firstDataUriBytes(_ html: String) -> Data? {
+        guard let r = html.range(of: "base64,") else { return nil }
+        let rest = html[r.upperBound...]
+        guard let end = rest.firstIndex(of: "\"") else { return nil }
+        return Data(base64Encoded: String(rest[..<end]))
+    }
+
+    private func pixelWidth(_ data: Data) -> Int? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        else { return nil }
+        return p[kCGImagePropertyPixelWidth] as? Int
+    }
+
+    func testHtmlExportsResampleWideImagesToColumnWidth() async throws {
+        let dir = try makeProjectDir()
+        // 2176px wide, like a real Retina capture after the 0.85 capture downscale.
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+
+        for format in [ExportFormat.html, .htmlPlain] {
+            let res = try await exportProject(dir: dir, manifest: m, format: format, generatedAt: fixedDate)
+            let html = try String(contentsOfFile: res.outputPath, encoding: .utf8)
+            let bytes = try XCTUnwrap(firstDataUriBytes(html), "\(format) had no data URI")
+            XCTAssertEqual(pixelWidth(bytes), htmlExportImageMaxWidth,
+                           "\(format) should inline pixels at the display width, not full res")
+        }
+    }
+
+    func testHtmlExportNeverUpscalesNarrowCaptures() async throws {
+        let dir = try makeProjectDir()
+        // Narrower than the column — must be left completely alone.
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/narrow.png"), w: 400, h: 300))
+        let m = manifest([shotStep(id: "n", order: 0, screenshot: "shots/narrow.png", caption: "Narrow")])
+        let res = try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate)
+        let html = try String(contentsOfFile: res.outputPath, encoding: .utf8)
+        let bytes = try XCTUnwrap(firstDataUriBytes(html))
+        XCTAssertEqual(pixelWidth(bytes), 400)  // not 738, and not re-encoded larger
+    }
+
+    func testPlainHtmlAttributesMatchTheResampledPixels() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+        let res = try await exportProject(dir: dir, manifest: m, format: .htmlPlain, generatedAt: fixedDate)
+        let html = try String(contentsOfFile: res.outputPath, encoding: .utf8)
+        // 2176x1224 -> 738x415, and the attributes must describe the actual bytes.
+        XCTAssertTrue(html.contains("width=\"738\" height=\"415\""), html.prefix(400).description)
+        XCTAssertEqual(pixelWidth(try XCTUnwrap(firstDataUriBytes(html))), 738)
+    }
+
+    func testHtmlExportGetsSubstantiallySmaller() async throws {
+        let dir = try makeProjectDir()
+        for i in 1...3 {
+            XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/s\(i).png"), w: 2176, h: 1224))
+        }
+        let m = manifest((1...3).map {
+            shotStep(id: "s\($0)", order: $0 - 1, screenshot: "shots/s\($0).png", caption: "Step \($0)")
+        })
+        let res = try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate)
+        let size = try XCTUnwrap(
+            (try FileManager.default.attributesOfItem(atPath: res.outputPath)[.size] as? NSNumber)?.intValue)
+        // Full-res base64 for three 2176px steps would be multiple MB; the point of
+        // #64 is that it isn't any more. Generous bound so this isn't brittle.
+        XCTAssertLessThan(size, 900_000, "3-step HTML export should be well under 1 MB, got \(size) bytes")
+    }
+
+    func testStyledHtmlUsesAvifAndPlainStaysPng() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+
+        // Styled HTML is read in a browser -> AVIF, for the payload budget (#64).
+        let styled = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(styled.contains("data:image/avif;base64,"), "styled HTML should inline AVIF")
+        XCTAssertFalse(styled.contains("data:image/png;base64,"))
+        // Still decodes to the display width.
+        XCTAssertEqual(pixelWidth(try XCTUnwrap(firstDataUriBytes(styled))), htmlExportImageMaxWidth)
+
+        // Plain / Word-paste HTML MUST stay PNG — Word cannot read AVIF.
+        let plain = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .htmlPlain, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(plain.contains("data:image/png;base64,"), "Word-paste HTML must stay PNG")
+        XCTAssertFalse(plain.contains("avif"))
+    }
+
+    func testAvifMakesTheStyledExportMuchSmallerThanPlain() async throws {
+        let dir = try makeProjectDir()
+        for i in 1...3 {
+            XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/s\(i).png"), w: 2176, h: 1224))
+        }
+        let m = manifest((1...3).map {
+            shotStep(id: "s\($0)", order: $0 - 1, screenshot: "shots/s\($0).png", caption: "Step \($0)")
+        })
+        func size(_ f: ExportFormat) async throws -> Int {
+            let p = try await exportProject(dir: dir, manifest: m, format: f, generatedAt: fixedDate).outputPath
+            return (try FileManager.default.attributesOfItem(atPath: p)[.size] as? NSNumber)?.intValue ?? 0
+        }
+        let styled = try await size(.html), plain = try await size(.htmlPlain)
+        XCTAssertLessThan(styled, plain, "AVIF styled export should be smaller than the PNG plain one")
+    }
+
+    func testBothHtmlVarietiesPinImageSizeWithAttributes() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+        // A pasted document loses the <style> block, so the width must live in
+        // ATTRIBUTES or the image stretches to the destination's column width.
+        // 2176x1224 -> 738x415.
+        for format in [ExportFormat.html, .htmlPlain] {
+            let html = try String(contentsOfFile:
+                try await exportProject(dir: dir, manifest: m, format: format, generatedAt: fixedDate).outputPath,
+                encoding: .utf8)
+            XCTAssertTrue(html.contains("width=\"738\" height=\"415\""),
+                          "\(format) must pin the image size with attributes")
+        }
+    }
+
+    func testStyledHtmlConstrainsWidthOnANestedDiv() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/a.png"), w: 40, h: 30))
+        let m = manifest([shotStep(id: "s", order: 0, screenshot: "shots/a.png", caption: "Cap")])
+        let html = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        // The column width must live on a NESTED plain <div>, not on the outermost
+        // element and not on a <main> — a paste into a Freshservice KB article
+        // dropped the constraint in both of those shapes and the steps went full
+        // width (#64).
+        XCTAssertTrue(html.contains("<div class=\"doc\">"), "outer wrapper must be a plain div")
+        XCTAssertTrue(html.contains("<div class=\"doc__col\">"), "width must sit on a nested div")
+        XCTAssertFalse(html.contains("<main"), "<main> did not survive the paste sanitizer")
+        XCTAssertTrue(DOC_CSS.contains(".doc__col{max-width:816px"), "the column carries the width")
+        // Tables were ruled out by probe: the destination forces table{width:100%}.
+        XCTAssertFalse(html.contains("<table"), "layout tables come back full width; don't use them")
+    }
+
+    func testEveryTopLevelBlockCarriesTheColumnWidth() async throws {
+        // A paste UNWRAPS whole-document wrappers (confirmed in a real Freshservice
+        // article: div.doc and div.doc__col were both gone) but keeps every other
+        // element with its computed styles inlined. So the 816px column has to be on
+        // each block, or the flex cards stretch to the destination's width (#64).
+        for selector in [".doc__title{", ".doc__meta{", ".doc__intro{", ".step{"] {
+            let rule = try XCTUnwrap(
+                DOC_CSS.split(separator: "\n").first { $0.hasPrefix(selector) },
+                "no \(selector) rule")
+            XCTAssertTrue(rule.contains("max-width:816px"), "\(selector) must carry the column width")
+            XCTAssertTrue(rule.contains("margin:0 auto") || rule.contains("auto"),
+                          "\(selector) must centre itself")
+        }
+        // .section indents to align its rule with the card, so it centres at 816 and
+        // pushes the rule in via .section__inner (inner elements DO survive a paste).
+        let section = try XCTUnwrap(DOC_CSS.split(separator: "\n").first { $0.hasPrefix(".section{") })
+        XCTAssertTrue(section.contains("max-width:816px") && section.contains("auto"))
+        XCTAssertTrue(DOC_CSS.contains(".section__inner{padding:14px 16px 0;border-top:"))
+
+        let dir = try makeProjectDir()
+        let m = manifest([textStep(id: "sec", order: 0, heading: "Phase", body: "b", callout: .section)])
+        let html = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(html.contains("<section class=\"section\"><div class=\"section__inner\">"))
+    }
+
+    func testStyledHtmlSurvivesStylesheetStripping() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+        let html = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        // Simulate what a rich-text editor keeps: drop the <style> element.
+        guard let s = html.range(of: "<style>"), let e = html.range(of: "</style>") else {
+            return XCTFail("no <style> block to strip")
+        }
+        var stripped = html
+        stripped.removeSubrange(s.lowerBound..<e.upperBound)
+        XCTAssertFalse(stripped.contains("max-width:880px"), "stylesheet should be gone")
+        // With no CSS at all, the image is still bounded by its attributes.
+        // The attributes are what Word honors on paste. (They are not what keeps a
+        // pasted step CARD from going full width — measured: with no CSS the img
+        // already renders at its intrinsic 738px and it is the container that
+        // expands. Constraining that needs table layout, which we don't do.)
+        XCTAssertTrue(stripped.contains("width=\"738\""),
+                      "the intrinsic size must survive stylesheet stripping")
+    }
+
+    func testPdfAndMarkdownKeepFullResolution() async throws {
+        let dir = try makeProjectDir()
+        XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))
+        let m = manifest([shotStep(id: "w", order: 0, screenshot: "shots/wide.png", caption: "Wide")])
+        // Scope boundary: the downscale is HTML-only. Markdown copies the render
+        // out verbatim, so its image must still be full width.
+        let res = try await exportProject(dir: dir, manifest: m, format: .markdown, generatedAt: fixedDate)
+        let img = ((res.outputPath as NSString).deletingLastPathComponent as NSString)
+            .appendingPathComponent("images/step-01-w.png")
+        let bytes = try Data(contentsOf: URL(fileURLWithPath: img))
+        XCTAssertEqual(pixelWidth(bytes), 2176)
+        // PDF renders natively (no base64) and must still succeed at full res.
+        let pdf = try await exportProject(dir: dir, manifest: m, format: .pdf, generatedAt: fixedDate)
+        let pdfSize = (try FileManager.default.attributesOfItem(atPath: pdf.outputPath)[.size] as? NSNumber)?.intValue ?? 0
+        XCTAssertGreaterThan(pdfSize, 0)
     }
 
     // MARK: - Section dividers (non-counted phase headings)
