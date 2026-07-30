@@ -392,6 +392,33 @@ final class ExportKitTests: XCTestCase {
         XCTAssertFalse(html.contains("<table"), "layout tables come back full width; don't use them")
     }
 
+    func testEveryTopLevelBlockCarriesTheColumnWidth() async throws {
+        // A paste UNWRAPS whole-document wrappers (confirmed in a real Freshservice
+        // article: div.doc and div.doc__col were both gone) but keeps every other
+        // element with its computed styles inlined. So the 816px column has to be on
+        // each block, or the flex cards stretch to the destination's width (#64).
+        for selector in [".doc__title{", ".doc__meta{", ".doc__intro{", ".step{"] {
+            let rule = try XCTUnwrap(
+                DOC_CSS.split(separator: "\n").first { $0.hasPrefix(selector) },
+                "no \(selector) rule")
+            XCTAssertTrue(rule.contains("max-width:816px"), "\(selector) must carry the column width")
+            XCTAssertTrue(rule.contains("margin:0 auto") || rule.contains("auto"),
+                          "\(selector) must centre itself")
+        }
+        // .section indents to align its rule with the card, so it centres at 816 and
+        // pushes the rule in via .section__inner (inner elements DO survive a paste).
+        let section = try XCTUnwrap(DOC_CSS.split(separator: "\n").first { $0.hasPrefix(".section{") })
+        XCTAssertTrue(section.contains("max-width:816px") && section.contains("auto"))
+        XCTAssertTrue(DOC_CSS.contains(".section__inner{padding:14px 16px 0;border-top:"))
+
+        let dir = try makeProjectDir()
+        let m = manifest([textStep(id: "sec", order: 0, heading: "Phase", body: "b", callout: .section)])
+        let html = try String(contentsOfFile:
+            try await exportProject(dir: dir, manifest: m, format: .html, generatedAt: fixedDate).outputPath,
+            encoding: .utf8)
+        XCTAssertTrue(html.contains("<section class=\"section\"><div class=\"section__inner\">"))
+    }
+
     func testStyledHtmlSurvivesStylesheetStripping() async throws {
         let dir = try makeProjectDir()
         XCTAssertTrue(writePNG((dir as NSString).appendingPathComponent("shots/wide.png"), w: 2176, h: 1224))

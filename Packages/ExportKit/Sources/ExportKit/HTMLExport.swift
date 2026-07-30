@@ -95,22 +95,41 @@ private func imagePixelDimensions(_ data: Data) -> (w: Int, h: Int)? {
     return (w, h)
 }
 
-/// The report stylesheet — ported character-for-character from export.ts DOC_CSS
-/// so the HTML/PDF export renders identically to the Windows app. Trimmed of its
-/// leading/trailing newline like the original `.trim()`.
+/// The report stylesheet — ported from export.ts DOC_CSS so the HTML export renders
+/// like the Windows app. Trimmed of its leading/trailing newline like `.trim()`.
+///
+/// **The 816px column is repeated on EVERY top-level block, deliberately** — read
+/// this before "simplifying" it back onto the `.doc__col` wrapper (#64).
+///
+/// Pasting this document into a Freshservice KB article (Froala) does three things,
+/// confirmed by reading the article's Code View afterwards:
+///   1. it UNWRAPS wrappers that enclose the whole document — both `div.doc` and
+///      `div.doc__col` were gone, the body started straight at `h1.doc__title`. So a
+///      wrapper can never carry the width; two attempts at that failed.
+///   2. it KEEPS every other element and inlines its computed styles, including
+///      `.step{display:flex}` and `.step__main{flex:1 1 auto}` — that `flex-grow` is
+///      what stretched the card to the editor's full width.
+///   3. it strips `max-width` from `<img>` and adds its own `fr-fic fr-dib` classes,
+///      which is why the image size lives in width/height ATTRIBUTES instead.
+///
+/// So each block self-constrains and self-centers, and the document lays out the
+/// same whether it is read as a file or pasted. `.section` keeps its rule aligned
+/// with the card (not the number gutter) via `.section__inner`, because INNER
+/// elements do survive — only whole-document wrappers are flattened.
+/// Layout tables are also ruled out: the destination forces `table{width:100%}`.
 let DOC_CSS = """
 *{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;background:#fff;line-height:1.6}
 .doc{padding:40px 32px 64px}
 .doc__col{max-width:816px;margin:0 auto}
-.doc__title{font-size:1.9rem;line-height:1.25;margin:0 0 4px}
-.doc__meta{color:#6b7280;font-size:.85rem;margin:0 0 28px}
-.doc__intro{margin:0 0 28px;padding:14px 18px;border:1px solid #e7e4f2;border-left:4px solid #6344f1;border-radius:8px;background:#efeafe}
+.doc__title{max-width:816px;margin:0 auto 4px;font-size:1.9rem;line-height:1.25}
+.doc__meta{max-width:816px;margin:0 auto 28px;color:#6b7280;font-size:.85rem}
+.doc__intro{max-width:816px;margin:0 auto 28px;padding:14px 18px;border:1px solid #e7e4f2;border-left:4px solid #6344f1;border-radius:8px;background:#efeafe}
 .doc__intro-eyebrow{text-transform:uppercase;letter-spacing:.6px;font-size:.7rem;font-weight:700;color:#6b7280;margin:0 0 6px}
 .doc__intro-h{margin:0 0 6px;font-size:1.15rem}
 .doc__intro-b{margin:0;color:#374151;white-space:pre-wrap}
-.step{display:flex;gap:16px;margin:0 0 18px;align-items:flex-start;page-break-inside:avoid;break-inside:avoid}
+.step{display:flex;gap:16px;max-width:816px;margin:0 auto 18px;align-items:flex-start;page-break-inside:avoid;break-inside:avoid}
 .step__num{flex:0 0 auto;width:30px;height:30px;margin-top:14px;border-radius:50%;background:#6344f1;color:#fff;font-weight:600;display:flex;align-items:center;justify-content:center;font-size:.95rem}
 .step__num--note{background:#ecfdf5;color:#065f46;border:1px solid #6ee7b7}
 .step__num--caution{background:#fffbeb;color:#92400e;border:1px solid #fcd34d}
@@ -126,7 +145,8 @@ body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-s
 .step__note{margin:8px 0 0;color:#6b7280;font-size:.92rem;white-space:pre-wrap}
 .callout__h{display:block;font-weight:700;margin-bottom:.25rem}
 .callout__b{white-space:pre-wrap}
-.section{margin:28px 0 4px 46px;padding:14px 16px 0;border-top:2px solid #e7e4f2}
+.section{max-width:816px;margin:28px auto 4px;padding-left:46px}
+.section__inner{padding:14px 16px 0;border-top:2px solid #e7e4f2}
 .section__h{font-size:1.2rem;font-weight:700;margin:0 0 4px;color:#191826}
 .section__b{margin:0;color:#5a5772;white-space:pre-wrap}
 @media print{.doc{padding:0 6px}.doc__col{max-width:none}.section{break-inside:avoid}}
@@ -153,7 +173,8 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
                 // A section divider — a full-width phase heading, not a colored box.
                 let h = heading.isEmpty ? "" : "<h2 class=\"section__h\">\(escapeHTML(heading))</h2>"
                 let b = body.isEmpty ? "" : "<p class=\"section__b\">\(escapeHTML(body))</p>"
-                parts.append("<section class=\"section\">\(h)\(b)</section>")
+                parts.append("<section class=\"section\"><div class=\"section__inner\">"
+                    + "\(h)\(b)</div></section>")
                 break
             }
             // A colored glyph badge in the gutter + the tinted callout card (the
