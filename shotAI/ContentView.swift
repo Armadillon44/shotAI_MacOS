@@ -93,6 +93,16 @@ struct ContentView: View {
                 if !CapturePermission.screenRecording.isGranted() {
                     capture.showWizard = true
                 }
+                // Daily update check (#62 Phase 1 — notify only). Deliberately a
+                // few seconds after launch, not during it: the project list scan
+                // and the permissions wizard come first, and a launch that's
+                // already reaching for the network shouldn't add to it. Detached
+                // from this `.task` so nothing here waits on it.
+                Task {
+                    try? await Task.sleep(for: .seconds(5))
+                    await model.checkForUpdatesAtLaunch(
+                        recording: capture.state.status != .idle)
+                }
             }
     }
 

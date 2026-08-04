@@ -50,6 +50,10 @@ struct AppPreferences: Codable, Equatable, Sendable {
     /// Whether the first-run coach-mark tour has been shown/dismissed. Mirrors
     /// the Windows `hasSeenTour`; the tour fires once until this is true.
     var hasSeenTour: Bool = false
+    /// Check GitHub once a day for a newer release and show a badge on Home.
+    /// Notify only — shotAI never downloads or installs anything itself (#62).
+    /// An MDM profile can force this off fleet-wide regardless of this value.
+    var checkForUpdates: Bool = true
 
     /// Max characters kept for the display name.
     static let userNameMax = 120
@@ -83,5 +87,6 @@ struct AppPreferences: Codable, Equatable, Sendable {
         captureScale = (try? c.decodeIfPresent(Double.self, forKey: .captureScale)) ?? d.captureScale
         captureNoHide = (try? c.decodeIfPresent(Bool.self, forKey: .captureNoHide)) ?? d.captureNoHide
         hasSeenTour = (try? c.decodeIfPresent(Bool.self, forKey: .hasSeenTour)) ?? d.hasSeenTour
+        checkForUpdates = (try? c.decodeIfPresent(Bool.self, forKey: .checkForUpdates)) ?? d.checkForUpdates
     }
 }

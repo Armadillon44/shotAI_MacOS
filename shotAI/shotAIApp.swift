@@ -51,6 +51,12 @@ struct ShotAIApp: App {
             // copyright automatically) with our tagline added as credits.
             CommandGroup(replacing: .appInfo) {
                 Button("About shotAI") { Self.showAboutPanel() }
+                // Notify only (#62): checks GitHub and shows the result on Home /
+                // in Settings. shotAI never installs an update itself.
+                Button("Check for Updates…") {
+                    Task { await model.checkForUpdatesNow() }
+                }
+                .disabled(model.updates.checking || model.updates.isManagedDisabled)
             }
             // Guarantee ⌘Q / the Quit menu always work, even while a `.sheet`
             // (the Record chooser) is presented — SwiftUI otherwise vetoes

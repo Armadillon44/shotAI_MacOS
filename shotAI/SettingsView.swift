@@ -256,6 +256,8 @@ private struct GeneralSettings: View {
                 }
             }
 
+            updatesSection
+
             Divider()
 
             VStack(alignment: .leading, spacing: 6) {
@@ -318,9 +320,81 @@ private struct GeneralSettings: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // General's other controls persist themselves (setArchiveAgeDays /
+        // setProjectsDir), so this tab had no `preferences` binding until the
+        // Updates toggle arrived — without this the toggle would look like it
+        // stuck and revert on the next launch. Same pattern as the Capture and
+        // Appearance tabs.
+        .onChange(of: model.preferences) { old, new in
+            model.savePreferences()
+            // Both directions: leaving the "on" transition unhandled strands the
+            // status line reading "Automatic update checks are off." beside a
+            // toggle that is switched ON.
+            guard old.checkForUpdates != new.checkForUpdates else { return }
+            if new.checkForUpdates {
+                Task { await model.updates.automaticChecksEnabled() }
+            } else {
+                model.updates.automaticChecksDisabled()
+            }
+        }
         .onAppear {
             projectsDir = model.settings.projectsDir()
             archiveAge = model.settings.archiveAgeDays()
+            // Show "Last checked …" even if this launch hasn't checked yet.
+            Task { await model.updates.loadPersistedState() }
+        }
+    }
+
+    /// Updates (#62 Phase 1 — notify only). Sits directly under the version
+    /// header, which is where anyone wondering "am I current?" is already looking.
+    @ViewBuilder private var updatesSection: some View {
+        @Bindable var model = model
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(model.updates.statusText)
+                    .font(.callout)
+                    .foregroundStyle(model.updates.pending != nil ? Palette.accentInk : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if model.updates.checking { ProgressView().controlSize(.small) }
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                Button("Check Now") {
+                    Task { await model.checkForUpdatesNow() }
+                }
+                .controlSize(.small)
+                // NOT gated on the preference: that governs the automatic daily
+                // check, and an explicit request deserves an answer either way.
+                .disabled(model.updates.checking || model.updates.isManagedDisabled)
+
+                if model.updates.pending != nil {
+                    Button("Download…") { model.updates.openReleasePage() }
+                        .controlSize(.small)
+                }
+                if model.updates.skippedTag != nil {
+                    Button("Show Skipped Version") {
+                        Task {
+                            await model.updates.clearSkip()
+                            await model.checkForUpdatesNow()
+                        }
+                    }
+                    .controlSize(.small)
+                }
+            }
+
+            if model.updates.isManagedDisabled {
+                Label(
+                    "Your organization has turned off update checks with a configuration profile.",
+                    systemImage: "building.2"
+                )
+                .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Toggle("Check for updates automatically", isOn: $model.preferences.checkForUpdates)
+                    .controlSize(.small)
+                Text("Once a day, shotAI asks GitHub whether a newer release exists and shows a small notice on the Home screen. It never downloads or installs anything on its own — the Download button opens the release page in your browser. Turn this off and nothing is sent.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 

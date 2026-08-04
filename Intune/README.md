@@ -48,3 +48,41 @@ xcrun stapler validate "/Applications/shotAI.app"
 # System Settings ▸ Privacy & Security ▸ Accessibility / Input Monitoring / Screen
 # Recording should each already list shotAI as allowed (SR: supervised only).
 ```
+
+## 6. (Optional) Turn off the in-app update check fleet-wide
+
+shotAI checks GitHub once a day for a newer release and shows a small notice on
+the Home screen. It never downloads or installs anything — the notice just opens
+the release page in a browser. On MDM-managed Macs you are shipping updates
+yourself, so the notice is usually just noise.
+
+Push a **managed preference** to switch it off. Users cannot re-enable it; the
+Settings toggle is replaced with "Your organization has turned off update checks."
+
+**Devices → Configuration → Create → macOS → Templates → Preference file**, target
+preference domain `com.armadillon44.shotai`, and upload:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>updateCheckDisabled</key>
+    <true/>
+</dict>
+</plist>
+```
+
+The app honors this only when the value arrives from a **managed** domain
+(`objectIsForced`), so a local `defaults write` cannot fake it — and it outranks
+the user's own preference and any manual "Check for Updates…".
+
+Verify on a test Mac:
+
+```sh
+# Should print 1 once the profile has landed.
+defaults read com.armadillon44.shotai updateCheckDisabled
+# And the app should make no request: no updateCheckState.v1 key appears.
+defaults read com.armadillon44.shotai updateCheckState.v1
+```

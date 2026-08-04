@@ -24,6 +24,9 @@ final class AppModel {
     /// First-run coach-mark tour visibility (see `Tour.swift`). Shown once on
     /// first launch and replayable from Settings ▸ General.
     var tourActive = false
+    /// Notify-only update checker (#62 Phase 1) — daily GitHub Releases check,
+    /// a Home badge, and Settings ▸ General ▸ Updates. Never installs anything.
+    let updates = UpdateModel()
 
     var projectsDirDisplay: String {
         (settings.projectsDir() as NSString).abbreviatingWithTildeInPath
@@ -53,6 +56,26 @@ final class AppModel {
 
     /// Set the auto-archive age (0 = never). Bound by Settings ▸ General.
     func setArchiveAgeDays(_ days: Int) { settings.setArchiveAgeDays(days) }
+
+    // MARK: - Updates (#62 Phase 1 — notify only)
+
+    /// The daily check, run shortly after launch. Suppressed while a recording
+    /// or an export is in flight; a suppressed check leaves the throttle alone,
+    /// so the next launch tries again.
+    func checkForUpdatesAtLaunch(recording: Bool) async {
+        // Restore a notice the last check found BEFORE deciding whether to make a
+        // request — inside the 24 h cadence window there won't be one.
+        await updates.loadPersistedState(enabled: preferences.checkForUpdates)
+        await updates.checkAtLaunch(
+            enabled: preferences.checkForUpdates, busy: recording || exporting)
+    }
+
+    /// "Check for Updates…" (app menu) and the Settings button. Bypasses the
+    /// daily cadence AND the automatic-check preference — the user asked — but
+    /// still honors a live GitHub rate limit and the MDM kill switch.
+    func checkForUpdatesNow() async {
+        await updates.checkNow()
+    }
 
     func refresh() async {
         let listed = await store.listProjects()

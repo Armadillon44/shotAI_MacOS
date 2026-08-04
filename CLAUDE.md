@@ -27,6 +27,7 @@ A) Codable model + read-only viewer (exit: opens a Windows-created project) → 
 - `Packages/CaptureKit/` — the recording engine, ported behavior-for-behavior from `CaptureController.ts`: `CaptureEngine` actor (event decisions + FIFO capture queue), menu-popup poll cache, own-window exclusion, 0.85 downscale contract, auto-caption builder (Windows UIA controlType vocabulary), AX element-at-point (`AXElementLocator`), SCK screenshotter (own app excluded via content filter — `sharingType=.none` is NOT the mechanism on 15+), listen-only mouse-only CGEventTap (empirically needs no TCC) + Carbon ⌘⇧S hotkey, TCC permission surface. Hardware sits behind protocols; the pipeline tests run headless.
 - `shotAI/Capture/` — non-activating pill NSPanel, per-screen area-select overlay, permissions wizard (poll + deep links), record-target sheet, coordinator.
 - **Coordinate convention (macOS)**: "global" = CG top-left POINTS (CGEvent/AX/SCDisplay share it); `monitor.scaleFactor` = pixels-per-point; `click.image = round((global − origin) × imageScale)` with `imageScale = pixelScale × downscale` — self-consistent per project, round-trips with Windows projects (which store physical px). AppKit rects flip globally about the primary screen only (`CoordinateSpaces.swift`).
+- `Packages/UpdateKit/` — the **notify-only** update checker (#62 Phase 1): semver comparator (natural order, so `rc2 < rc10`; fail-closed on anything unparseable), a GitHub Releases client pinned to `api.github.com` with off-host redirects refused, and a disk-persisted once-a-day throttle (24 h on success, 1 h transient, 6 h structural, `x-ratelimit-reset` honored). **It must never download or install anything** — see the scope boundary below. UI lives in `shotAI/UpdateModel.swift` + `shotAI/UpdateBadge.swift`.
 - `Fixtures/b7e2c4d1-…/` — a simulated Windows-app-created project (regenerate PNGs with `swift Scripts/make-fixture-shots.swift Fixtures/<uuid>`; geometry must match its `project.json`).
 - Phase B behavioral specs extracted from the Windows app (constants, invariants, edge cases) informed the port; the originals in `shotAI-original/src/main/` remain the source of truth.
 
@@ -42,12 +43,31 @@ Since fixed:
 - **Symlinked `shots/` residual** (2026-07-06) — `PathConfine.swift` now has `confinePathNoSymlinks` (lexical confine + `lstat`-reject of any symlinked component, Foundation-only); wired into `CaptureEngine` (the `shots/` mkdir in `start`/`captureSingle`, re-checked at every PNG write via a new `EngineError.shotsPathNotConfined`) and `ProjectStore.deleteSteps`. Reads still use lexical `confinePath`. **Windows-parity TODO:** mirror `confinePathNoSymlinks` in `shotAI-original/src/main/path-confine.ts` (`fs.lstat`) so the shared contract stays in sync.
 - **Capture errors during recording were invisible** — the `.alert` in `ContentView` is attached to the main window, which `recordingChanged(true)` orders out, so an in-session `.error` (step-PNG write collision, mid-session Screen Recording revocation) stayed hidden until the session ended. `CaptureCoordinator` now mirrors `lastError` onto the always-visible pill: `PillView` gains a dismissible red error badge + accent-bar tint (full message in its tooltip), cleared on the next successful step, on user dismiss (`PillAction.dismissError`), or at the next session start. The alert is kept as a backstop for pre-recording failures (a `record()` that never starts a session) and for a final unacknowledged error once the window returns.
 
+### Update / auto-update scope boundary (#62)
+
+**shotAI does not replace its own bundle until it is Developer ID signed and notarized.**
+macOS keys TCC grants to the code-signing *designated requirement*; under ad-hoc signing that
+DR is a bare cdhash, so every build is a different app and a self-installing update would
+silently orphan all three grants (Screen Recording, Accessibility, Input Monitoring) with no
+error dialog. Phase 1 (shipped) notifies and points at the release page — the browser applies
+the normal Gatekeeper quarantine, which a URLSession download would skip. Phase 2 (the
+self-installer) is gated on Phase 0, Developer ID + notarization. Do not add a downloader to
+`UpdateKit` before that.
+
+Two things in `UpdateChecker` are load-bearing and easy to undo: every persist goes through
+`mutate` (re-read → write, no suspension between) because the actor is **reentrant** and a
+state value held across the network `await` would clobber a concurrent `skip()`; and `inFlight`
+coalesces overlapping checks so two triggers can't each spend a request from GitHub's
+60/hour-per-IP budget (shared by every machine behind one office NAT).
+
 ## Commands
 
 - Model tests: `swift test --package-path Packages/ShotModel`
 - Capture tests (headless pipeline + geometry + captions): `swift test --package-path Packages/CaptureKit`
 - **Live capture smoke test** (drives real SCK/AX/store; needs Screen Recording): `swift run --package-path Packages/CaptureKit CaptureSelfTest` — the macOS analog of the Windows `capture-selftest.ts`; prints `[capture-test] PASS/FAIL`.
 - Export tests (HTML/Markdown/geometry/fail-closed gate): `swift test --package-path Packages/ExportKit`
+- Update-checker tests (semver table, feed parsing, throttle, reentrancy regressions): `swift test --package-path Packages/UpdateKit`
+- **Update-check smoke test** (one live call to the real GitHub Releases API): `swift run --package-path Packages/UpdateKit UpdateSelfTest [installedVersion]` — prints `[update-test] PASS/FAIL`. Pass an older version (e.g. `1.1.0`) to exercise the update-available path.
 - **PDF smoke test** (drives the real CoreText/CG PDF renderer; 30s watchdog catches a hang regression): `swift run --package-path Packages/ExportKit PdfSelfTest` — prints `[pdf-test] PASS/FAIL`. NB: PDF is rendered natively (CoreText + CoreGraphics), **not** via WKWebView printing — `NSPrintOperation`+`WKWebView` spins forever in `-[WKPrintingView rectForPage:]` on the main thread and freezes the app.
 - Build app: `xcodebuild -project shotAI.xcodeproj -scheme shotAI -configuration Debug build`
 - The app's projects dir defaults to `~/shotAI Projects` (same as Windows).
