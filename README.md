@@ -96,6 +96,11 @@ shotAI makes exactly two kinds of outbound request, both narrow and both pinned:
   release page in your browser. Turn it off in **Settings → General**, or force it off
   fleet-wide with an MDM configuration profile (`updateCheckDisabled`).
 
+> **After you update:** because this build isn't notarized yet, macOS treats each new version
+> as a different app and switches its permissions back off. shotAI notices when that has
+> happened and walks you through re-granting them, rather than just failing to record. A
+> notarized build will end this — see [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
+
 ## Tech stack
 
 - **Swift 6 / SwiftUI**, a single native app process. **Zero third-party dependencies** —

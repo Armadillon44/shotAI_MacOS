@@ -54,6 +54,13 @@ the normal Gatekeeper quarantine, which a URLSession download would skip. Phase 
 self-installer) is gated on Phase 0, Developer ID + notarization. Do not add a downloader to
 `UpdateKit` before that.
 
+`CaptureKit/PermissionLedger.swift` is the other half of Phase 1: it records which TCC grants
+were held against which **code identity** (the cdhash, which is exactly what TCC keys an ad-hoc
+grant to), so the launch after an update can tell "macOS reset these" from "the user turned this
+off". Its commit rule is the load-bearing part — a baseline is written only when nothing is
+outstanding, so an unresolved loss keeps being explained on every launch. **Delete this whole
+file once Phase 0 lands**; a stable Developer ID requirement makes the failure impossible.
+
 Two things in `UpdateChecker` are load-bearing and easy to undo: every persist goes through
 `mutate` (re-read → write, no suspension between) because the actor is **reentrant** and a
 state value held across the network `await` would clobber a concurrent `skip()`; and `inFlight`

@@ -167,7 +167,7 @@ shadows violet-tinted. Dark tokens are not byte-identical.
 **Type scale:** display 28/750 · section 19/700 · title 15/600 · body 14 · meta 13 ·
 label 11 (uppercase, tracked). System font (SF Pro) substitutes Segoe UI.
 
-**Tests:** 281 across the six SwiftPM packages (ShotModel 88 · CaptureKit 59 · EditorKit 18 · SOPKit 23 · ExportKit 39 · UpdateKit 54).
+**Tests:** 301 across the six SwiftPM packages (ShotModel 88 · CaptureKit 79 · EditorKit 18 · SOPKit 23 · ExportKit 39 · UpdateKit 54).
 
 ## Deliberately do **not** port (native wins)
 

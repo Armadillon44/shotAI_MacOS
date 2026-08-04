@@ -88,9 +88,13 @@ struct ContentView: View {
                         await model.reloadOpened()
                     }
                 }
-                // First run: surface the wizard when the required permission is
-                // missing, before the user hits Record and wonders.
-                if !CapturePermission.screenRecording.isGranted() {
+                // Did an update just orphan TCC grants the user already had?
+                // Checked BEFORE the first-run branch so the specific
+                // explanation wins over generic new-user copy (#62).
+                if !capture.checkForUpdateResetPermissions(),
+                   // First run: surface the wizard when the required permission
+                   // is missing, before the user hits Record and wonders.
+                   !CapturePermission.screenRecording.isGranted() {
                     capture.showWizard = true
                 }
                 // Daily update check (#62 Phase 1 — notify only). Deliberately a
@@ -183,7 +187,16 @@ struct ContentView: View {
             if capture.showWizard {
                 ZStack {
                     Color.black.opacity(0.35).ignoresSafeArea()
-                    PermissionsWizardView(onClose: { capture.showWizard = false })
+                    PermissionsWizardView(
+                        onClose: {
+                            // Commit whatever is granted now as the baseline —
+                            // stops a post-update prompt repeating forever, and
+                            // captures grants made inside the wizard on first run.
+                            capture.commitPermissionBaseline()
+                            capture.showWizard = false
+                        },
+                        updateReset: capture.updateResetPermissions
+                    )
                         .background(.background)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .shadow(radius: 30)
