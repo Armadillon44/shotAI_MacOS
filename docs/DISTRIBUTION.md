@@ -76,6 +76,42 @@ build/dist/shotAI-<version>.dmg
 First notarization of a new app can take a few minutes; later ones are usually
 1–2 min. `notarytool ... --wait` blocks until Apple responds.
 
+### Release checklist
+
+The in-app update checker (`Packages/UpdateKit`, issue #62) reads
+`GET /repos/Armadillon44/shotAI_MacOS/releases/latest`, so how a release is
+*published* is now part of shipping it:
+
+1. **A release candidate MUST be published with `prerelease: true`.**
+   `/releases/latest` excludes prereleases server-side, which is the only thing
+   keeping our `v1.0.0-rc*` tags from being offered to every user. Publishing an
+   rc as a normal release would push it to everyone on their next launch.
+
+   ```sh
+   gh release create v1.2.0-rc1 --prerelease --title "..." --notes-file notes.md
+   gh release create v1.2.0     --latest     --title "..." --notes-file notes.md
+   ```
+
+   Verify after publishing:
+
+   ```sh
+   gh release view --json tagName,isPrerelease,isLatest
+   swift run --package-path Packages/UpdateKit UpdateSelfTest 1.0.0
+   ```
+
+   `UpdateSelfTest` fails loudly if `/releases/latest` resolves to a prerelease tag.
+
+2. **Tag names must parse as semver** — `vMAJOR.MINOR.PATCH[-prerelease]`. The
+   comparator is fail-closed, so a tag it can't read (`nightly`, `2026-08-04`)
+   means no user is ever told about that release.
+
+3. **Versions must only go up.** The checker compares
+   `CFBundleShortVersionString` against the tag; re-publishing a lower version as
+   Latest would make every installed copy think it is current.
+
+4. **Attach the `.dmg`** — the notice shows its name and size, and its absence is
+   flagged by `UpdateSelfTest`.
+
 ---
 
 ## Why the app is signed the way it is

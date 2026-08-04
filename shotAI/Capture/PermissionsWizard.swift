@@ -88,15 +88,24 @@ enum AppRelaunch {
 /// except by Force Quit).
 struct PermissionsWizardView: View {
     var onClose: () -> Void
+    /// Non-nil when this launch found grants an app update silently orphaned
+    /// (#62). Swaps the first-run framing for an explanation — the user granted
+    /// these already, and being shown the new-user wizard reads as "the app is
+    /// broken" rather than "macOS reset this".
+    var updateReset: PermissionLedger.Verdict?
     @State private var screenGranted = CapturePermission.screenRecording.isGranted()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Permissions for recording")
-                .font(.title2.bold())
-            Text("shotAI captures a screenshot of each step as you click. macOS requires your explicit permission for that.")
-                .foregroundStyle(.secondary)
+            if let updateReset {
+                updateResetHeader(updateReset)
+            } else {
+                Text("Permissions for recording")
+                    .font(.title2.bold())
+                Text("shotAI captures a screenshot of each step as you click. macOS requires your explicit permission for that.")
+                    .foregroundStyle(.secondary)
+            }
 
             PermissionStatusList()
 
@@ -114,5 +123,41 @@ struct PermissionsWizardView: View {
         .padding(24)
         .frame(width: 560)
         .onReceive(timer) { _ in screenGranted = CapturePermission.screenRecording.isGranted() }
+    }
+
+    /// The post-update explanation. Says what happened, that it is expected
+    /// rather than a malfunction, and calls out the duplicate System Settings
+    /// rows — which are the genuinely confusing part, because the dead entry and
+    /// the live one look identical.
+    @ViewBuilder private func updateResetHeader(_ verdict: PermissionLedger.Verdict) -> some View {
+        Label {
+            Text("Updating shotAI reset your permissions")
+                .font(.title2.bold())
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        }
+
+        Text("\(verdict.lostList) \(verdict.lost.count == 1 ? "was" : "were") switched off when this version replaced "
+            + (verdict.previousVersionLabel.map { "\($0)" } ?? "the previous build")
+            + ". Please turn \(verdict.lost.count == 1 ? "it" : "them") back on below.")
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Why this happens").font(.callout.bold())
+            Text("macOS ties each permission to the app's code signature, not to its name. shotAI isn't notarized yet, so macOS treats every update as a brand-new app and starts its permissions over. This is expected, and it will stop once shotAI ships with a verified signature.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("You may see two “shotAI” entries in System Settings. The old one no longer does anything — select it and click the “–” button to remove it.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }

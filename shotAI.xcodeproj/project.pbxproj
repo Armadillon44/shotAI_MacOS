@@ -79,6 +79,7 @@
 				D0D00000000000000000E022 /* EditorKit */,
 				D0D00000000000000000E032 /* ExportKit */,
 				D0D00000000000000000E042 /* SOPKit */,
+				D0D00000000000000000E052 /* UpdateKit */,
 			);
 			productName = shotAI;
 			productReference = D0D00000000000000000A003 /* shotAI.app */;
@@ -113,6 +114,7 @@
 				D0D00000000000000000E021 /* XCLocalSwiftPackageReference "Packages/EditorKit" */,
 				D0D00000000000000000E031 /* XCLocalSwiftPackageReference "Packages/ExportKit" */,
 				D0D00000000000000000E041 /* XCLocalSwiftPackageReference "Packages/SOPKit" */,
+				D0D00000000000000000E051 /* XCLocalSwiftPackageReference "Packages/UpdateKit" */,
 			);
 			productRefGroup = D0D00000000000000000A004 /* Products */;
 			projectDirPath = "";
@@ -287,6 +289,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/SOPKit;
 		};
+		D0D00000000000000000E051 /* XCLocalSwiftPackageReference "Packages/UpdateKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/UpdateKit;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -309,6 +315,10 @@
 		D0D00000000000000000E042 /* SOPKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = SOPKit;
+		};
+		D0D00000000000000000E052 /* UpdateKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = UpdateKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

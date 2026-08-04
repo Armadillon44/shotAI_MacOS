@@ -36,6 +36,7 @@ public enum Log {
     public static let sop = Logger(subsystem: subsystem, category: "sop")
     public static let export = Logger(subsystem: subsystem, category: "export")
     public static let permissions = Logger(subsystem: subsystem, category: "permissions")
+    public static let updates = Logger(subsystem: subsystem, category: "updates")
 
     private nonisolated(unsafe) static var didBootstrap = false
 

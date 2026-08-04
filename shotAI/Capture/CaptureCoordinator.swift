@@ -15,6 +15,12 @@ final class CaptureCoordinator {
     private(set) var state = CaptureState.idle
     var lastError: String?
     var showWizard = false
+    /// Set when this launch found grants an app update silently orphaned (#62).
+    /// The wizard reads it to explain WHY the permissions are off, instead of
+    /// showing first-run copy to someone who granted them months ago.
+    /// Non-nil implies `showWizard`; cleared once the grants are back or the
+    /// user dismisses.
+    var updateResetPermissions: PermissionLedger.Verdict?
     var onStepAdded: ((ProjectStep) -> Void)?
     var onRecordingEnded: (() -> Void)?
     /// Live capture preferences from the app (Settings ▸ Capture): screenshot
@@ -42,6 +48,46 @@ final class CaptureCoordinator {
             self?.handlePillAction(action)
         }
         Task { await self.consumeEvents() }
+    }
+
+    // MARK: - Update-orphaned permissions (#62)
+
+    @ObservationIgnored private let ledger = PermissionLedger.Store()
+
+    /// Launch check: did an update just throw away TCC grants the user had?
+    ///
+    /// Only fires when the code identity CHANGED and something previously
+    /// granted is now missing, so deliberately switching a permission off in
+    /// System Settings stays silent. Runs before the ordinary first-run check so
+    /// the more specific explanation wins.
+    ///
+    /// Returns true if it took over the wizard.
+    @discardableResult
+    func checkForUpdateResetPermissions() -> Bool {
+        let verdict = PermissionLedger.recordLaunch(store: ledger)
+        guard verdict.shouldPrompt else {
+            updateResetPermissions = nil
+            return false
+        }
+        updateResetPermissions = verdict
+        showWizard = true
+        return true
+    }
+
+    /// Record whatever is granted right now as the baseline. Called when the
+    /// wizard closes, which serves two purposes:
+    ///
+    /// - Post-update: the user closed with grants still missing, so stop asking
+    ///   on every launch. They may simply have decided against that permission.
+    /// - First run: the user just granted everything *in* the wizard, and the
+    ///   launch-time baseline was recorded before that. Committing here means an
+    ///   update installed before the next relaunch is still detected correctly.
+    func commitPermissionBaseline() {
+        ledger.acknowledge(
+            identity: PermissionLedger.currentIdentity(),
+            versionLabel: PermissionLedger.versionLabel(),
+            granted: Set(CapturePermission.allCases.filter { $0.isGranted() }))
+        updateResetPermissions = nil
     }
 
     // MARK: - Recording entry points

@@ -6,8 +6,9 @@ annotated step-by-step guide. Its differentiator: **Claude** rewrites the captur
 into a polished Standard Operating Procedure — an overview, per-step instructions, and
 cautions/callouts.
 
-Everything runs and is stored **on your Mac**. The only network call is to Anthropic's
-API, and only when you ask shotAI to write the SOP. This is a native Swift/SwiftUI port of
+Everything runs and is stored **on your Mac**. The only network calls are to Anthropic's
+API when you ask shotAI to write the SOP, and a once-a-day "is there a newer release?"
+check against GitHub that you can turn off. This is a native Swift/SwiftUI port of
 the [Windows app](https://github.com/Armadillon44/shotAI); `project.json` is
 byte-compatible, so projects **round-trip between platforms**.
 
@@ -79,16 +80,32 @@ byte-compatible, so projects **round-trip between platforms**.
 ### Privacy & local-first
 
 Projects — screenshots, `project.json` manifest, and exports — live in a folder on your
-Mac (`~/shotAI Projects` by default). Nothing is uploaded except SOP-generation requests,
-which go only to Anthropic (`api.anthropic.com`, **pinned** in the client — there is no
-base-URL override). The API key is yours, stored in the **macOS Keychain** and read only by
-the Claude client, never surfaced back to the UI. No telemetry.
+Mac (`~/shotAI Projects` by default) and are **never uploaded in the background**. There is
+**no telemetry**, ever, and nothing is sent unless you ask for it.
+
+shotAI makes exactly two kinds of outbound request, both narrow and both pinned:
+
+- **SOP generation** — only when *you* click Generate, and only to Anthropic
+  (`api.anthropic.com`, **pinned** in the client, no base-URL override). The API key is
+  yours, stored in the **macOS Keychain**, read only by the Claude client and never
+  surfaced back to the UI.
+- **Update check** — once a day, a plain `GET` to `api.github.com` (**pinned**, redirects
+  off-host refused) asking whether a newer release exists. It sends nothing but your IP and
+  a `shotAI/<version>` User-Agent: no account, no cookies, no project data, no identifier.
+  shotAI **never downloads or installs an update itself** — the Download button opens the
+  release page in your browser. Turn it off in **Settings → General**, or force it off
+  fleet-wide with an MDM configuration profile (`updateCheckDisabled`).
+
+> **After you update:** because this build isn't notarized yet, macOS treats each new version
+> as a different app and switches its permissions back off. shotAI notices when that has
+> happened and walks you through re-granting them, rather than just failing to record. A
+> notarized build will end this — see [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
 
 ## Tech stack
 
 - **Swift 6 / SwiftUI**, a single native app process. **Zero third-party dependencies** —
   everything is Apple frameworks.
-- Five in-repo **SwiftPM** packages (UI-free, tested headless):
+- Six in-repo **SwiftPM** packages (UI-free, tested headless):
   - **ShotModel** — the Codable `project.json` schema (byte-compatible with Windows,
     tolerant decode), path-confined atomic writes, and a `ProjectStore` actor.
   - **CaptureKit** — the recording engine: **ScreenCaptureKit** screenshots, **Accessibility**
@@ -101,6 +118,8 @@ the Claude client, never surfaced back to the UI. No telemetry.
     store, cost estimator, and prompt assembly.
   - **ExportKit** — the HTML / PDF / Markdown / "HTML for Word" renderers and the `.zip`
     package export/import (PDF is rendered natively via CoreText + CoreGraphics).
+  - **UpdateKit** — the notify-only update checker: a semver comparator, a pinned GitHub
+    Releases client, and a persisted once-a-day throttle. It never touches the app bundle.
 - The app target lives under [`shotAI/`](shotAI/) (Home, report/editor, capture UI, Settings).
 
 ## Requirements
@@ -143,10 +162,12 @@ swift test --package-path Packages/CaptureKit
 swift test --package-path Packages/EditorKit
 swift test --package-path Packages/SOPKit
 swift test --package-path Packages/ExportKit
+swift test --package-path Packages/UpdateKit
 
-# Live smoke tests (drive the real frameworks)
+# Live smoke tests (drive the real frameworks / services)
 swift run --package-path Packages/CaptureKit CaptureSelfTest   # needs Screen Recording
 swift run --package-path Packages/ExportKit PdfSelfTest        # exercises the PDF renderer
+swift run --package-path Packages/UpdateKit UpdateSelfTest     # one live GitHub API call
 ```
 
 The app target is manually signed with an **Apple Development** cert (team `JX6BU857VX`)

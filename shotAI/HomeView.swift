@@ -192,7 +192,14 @@ struct HomeView: View {
                     .foregroundStyle(Palette.ink3)
             }
             Spacer(minLength: 8)
+            // Update notice (#62 Phase 1). Lives in the banner's trailing dead
+            // space — no modal, no dock badge, no notification. Home only.
+            if let release = model.updates.badgeRelease {
+                UpdateBadge(release: release)
+                    .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .trailing)))
+            }
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.updates.badgeRelease?.tag)
         .padding(.horizontal, 28)
         .padding(.vertical, 11)
         .frame(maxWidth: 760)
