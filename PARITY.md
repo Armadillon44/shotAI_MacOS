@@ -1,6 +1,6 @@
 # Windows → macOS parity
 
-**Audit date:** 2026-07-28 · **Target:** shipped Windows **v1.1.4** · **Reference:** `shotAI-original/` (v1.1.4 / `d9823ec`) · **macOS build:** `1.1.2` (build 8)
+**Audit date:** 2026-07-28 · **Target:** shipped Windows **v1.1.4** · **Reference:** `shotAI-original/` (v1.1.4 / `d9823ec`) · **macOS build:** `1.1.3` (build 9)
 
 Roadmap of record for the macOS port's parity with the shipped Windows app. Full
 surface-by-surface re-audit (Windows v1.1.4 read from source, verified against the current
@@ -77,7 +77,7 @@ report and exports. Keeping the read path costs nothing and preserves them. Reco
 it isn't re-litigated as a "gap" by a future audit; **do not "fix" it.**
 
 The only hard ship gate is **distribution** — Developer ID + notarization
-(`docs/DISTRIBUTION.md`). The shipped DMGs (1.0.0, 1.1.0, 1.1.1, 1.1.2) are ad-hoc signed.
+(`docs/DISTRIBUTION.md`). The shipped DMGs (1.0.0, 1.1.0, 1.1.1, 1.1.2, 1.1.3) are ad-hoc signed.
 
 ## Validation status (hand-tested)
 
@@ -127,7 +127,7 @@ The only hard ship gate is **distribution** — Developer ID + notarization
 - **`.shotAI` registered file type** (double-click to import) — [#49](https://github.com/Armadillon44/shotAI_MacOS/issues/49).
 
 ### macOS-only planned work (not a Windows gap)
-- **Update / auto-update** — [#62](https://github.com/Armadillon44/shotAI_MacOS/issues/62), investigated 2026-07-28. Neither platform has an updater today, so this is not a parity gap in either direction; it's macOS-only planned work. **Self-installing update is hard-blocked on Phase E** (Developer ID + notarization): the ad-hoc signature's designated requirement is a bare cdhash, so every update would orphan all three TCC grants (Screen Recording / Accessibility / Input Monitoring) and silently break the app. Once signed with Developer ID the requirement becomes bundle-id + team-OU and grants survive updates, which is also what `Intune/shotAI-PPPC.mobileconfig` already pins. A **notify-only** checker (dependency-free, GitHub Releases API) is shippable now and is the recommended first step. If a self-installer is ever built, note it as a deliberate platform-specific feature rather than a Windows gap — Windows has no TCC, so the constraint driving the design doesn't exist there.
+- **Update / auto-update** — [#62](https://github.com/Armadillon44/shotAI_MacOS/issues/62), investigated 2026-07-28; **Phase 1 shipped in macOS 1.1.3** (2026-08-04, PR #68). macOS now has a **notify-only** daily GitHub-Releases check (a Home notice, Settings opt-out, MDM `updateCheckDisabled` kill switch) plus **post-update TCC re-grant detection** — it never downloads or installs anything. Windows has no updater at all, so macOS is **⬆️ ahead** here; the notify-only half is worth filing as Windows parity (still unfiled). The **self-installing** half is a different call: keep it macOS-specific, per the reasoning below. **Self-installing update is hard-blocked on Phase E** (Developer ID + notarization): the ad-hoc signature's designated requirement is a bare cdhash, so every update would orphan all three TCC grants (Screen Recording / Accessibility / Input Monitoring) and silently break the app. Once signed with Developer ID the requirement becomes bundle-id + team-OU and grants survive updates, which is also what `Intune/shotAI-PPPC.mobileconfig` already pins. A **notify-only** checker (dependency-free, GitHub Releases API) is shippable now and is the recommended first step. If a self-installer is ever built, note it as a deliberate platform-specific feature rather than a Windows gap — Windows has no TCC, so the constraint driving the design doesn't exist there.
 
 ### Deliberate deferral
 - **Editor Auto-redact trigger** — the OCR pre-scan is built + tested but intentionally not surfaced (Dylan's call). Re-exposing it is a one-line UI add if wanted.
