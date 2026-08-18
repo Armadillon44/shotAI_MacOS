@@ -98,9 +98,60 @@ except Exception:
 PY
 }
 
+FRESH=0
+for a in "$@"; do
+  case "$a" in
+    --fresh) FRESH=1 ;;
+    -h|--help)
+      sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+      printf '\nOptions:\n'
+      printf '  --fresh   Re-authenticate before requesting the token. Use this after\n'
+      printf '            changing an App Role assignment, and before any repeat run.\n'
+      printf '  -h        This help.\n\n'
+      printf 'Any cached value can be overridden for one run from the environment, e.g.\n'
+      printf '  FDRL=fdrl_… bash %s --fresh\n' "$0"
+      printf 'which is how you dry-run a parallel federation rule without touching the\n'
+      printf 'live one.\n'
+      exit 0 ;;
+    *) printf 'unknown argument: %s (try --help)\n' "$a" >&2; exit 2 ;;
+  esac
+done
+
 bold "shotAI — Entra → Anthropic federation probe"
+
+# Environment beats the cache file. `. "$CONFIG"` would otherwise silently
+# overwrite an explicit `FDRL=fdrl_test bash Scripts/wif-probe.sh` — which is
+# exactly the invocation for dry-running a PARALLEL federation rule. Anthropic
+# selects rules by ID with no implicit search, so a second rule is invisible to
+# production and is the only zero-risk way to test a match change (#69).
+# Fixed name list, so the eval cannot be an injection vector.
+CFG_KEYS="FDRL SVAC ORG_ID WRKSPC TENANT_ID APP_ID"
+for v in $CFG_KEYS; do [ -n "${!v:-}" ] && eval "__env_$v=\${$v}"; done
 # shellcheck disable=SC1090
 [ -f "$CONFIG" ] && . "$CONFIG"
+# ask() only regex-checks values it PROMPTS for, so an env-supplied one would
+# skip validation. Validate here instead: a fat-fingered rule ID produces the
+# same opaque 401 as a genuine mismatch, and you would debug the rule.
+env_re() {
+  case "$1" in
+    FDRL)      printf '^fdrl_[A-Za-z0-9_-]+$' ;;
+    SVAC)      printf '^svac_[A-Za-z0-9_-]+$' ;;
+    WRKSPC)    printf '^(wrkspc_[A-Za-z0-9_-]+|default)$' ;;
+    ORG_ID)    printf '^[0-9a-fA-F-]{36}$' ;;
+    TENANT_ID|APP_ID) printf '^[0-9a-fA-F-]{36}$' ;;
+    *)         printf '.' ;;
+  esac
+}
+for v in $CFG_KEYS; do
+  e="__env_$v"
+  if [ -n "${!e:-}" ]; then
+    eval "$v=\${$e}"
+    [[ "${!v}" =~ $(env_re "$v") ]] || die "$v was set in the environment to '${!v}',
+    which is not a valid $v. Fix the value rather than letting it reach the
+    exchange — a bad ID fails with the same opaque 401 as a real mismatch."
+    printf '    %-34s %s \033[2m(from environment, not cached)\033[0m\n' "$v" "${!v}"
+  fi
+done
 
 # ── 0. Prerequisites ─────────────────────────────────────────────────────────
 step "Checking prerequisites"
@@ -307,6 +358,27 @@ done
 info "(cached in $CONFIG — delete that file to re-enter them)"
 
 # ── 5. Get a USER token from Entra ───────────────────────────────────────────
+# `az account get-access-token` serves from the MSAL cache and has NO
+# --force-refresh (Azure/azure-cli#17578, open since 2021). Two consecutive
+# calls return byte-identical tokens. Two consequences, both of which look
+# exactly like "the federation rule is wrong":
+#   1. A newly-assigned App Role will not appear in a cached token, no matter
+#      how long you wait or how many times you re-run this script.
+#   2. Issuers default to check_jti=true, so replaying a cached token replays
+#      its jti and is rejected as a single-use violation.
+# A bare `az login` does NOT fix either: it mints an ARM-scoped token under a
+# different cache key and leaves this resource's token untouched. Scoping the
+# login to the resource is what actually refreshes it.
+if [ "$FRESH" = "1" ]; then
+  step "Re-authenticating for a genuinely fresh token (--fresh)"
+  if az login --scope "api://$APP_ID/.default" >/dev/null 2>&1; then
+    ok "re-authenticated against api://$APP_ID"
+  else
+    warn "az login --scope failed; falling back to whatever is cached"
+    info "If roles/jti problems persist:  az account clear && az login"
+  fi
+fi
+
 step "Requesting an Entra token for the signed-in user"
 if ! JWT="$(az account get-access-token --resource "api://$APP_ID" --query accessToken -o tsv 2>"$TMPDIR_RUN/az.err")" \
    || [ -z "${JWT:-}" ]; then
@@ -332,6 +404,12 @@ T_TID="$(claim "$JWT" tid)";   T_OID="$(claim "$JWT" oid)"
 T_VER="$(claim "$JWT" ver)";   T_IDTYP="$(claim "$JWT" idtyp)"
 T_SCP="$(claim "$JWT" scp)";   T_UPN="$(claim "$JWT" preferred_username)"
 [ -n "$T_UPN" ] || T_UPN="$(claim "$JWT" upn)"
+# App roles, once an App Role gates access (#69). claim() flattens arrays, so a
+# single assignment prints as `shotAI.User`. Reported whether present or not:
+# the point of this line is to let you confirm the role reaches the TOKEN before
+# you make a federation rule depend on it. Doing it the other way round means
+# saving a rule that matches nobody.
+T_ROLES="$(claim "$JWT" roles)"
 
 info "iss    $T_ISS"
 info "aud    $T_AUD"
@@ -341,6 +419,7 @@ info "ver    ${T_VER:-(absent)}"
 info "idtyp  ${T_IDTYP:-(absent — normal for a user token)}"
 info "scp    ${T_SCP:-(absent)}"
 info "upn    ${T_UPN:-(absent)}"
+info "roles  ${T_ROLES:-(absent — no App Role assigned, or the token predates the assignment)}"
 
 # Two issuer-level settings that silently reject an otherwise-valid assertion.
 T_JTI="$(claim "$JWT" jti)"
