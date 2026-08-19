@@ -7,19 +7,23 @@ let png1x1 = Data(base64Encoded:
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
 
 /// Network seam stub — canned unary + SSE responses.
+///
+/// Handlers return a `ResponseHead` so tests can exercise header-dependent
+/// classification (retry-after, x-should-retry, request-id), which is the whole
+/// reason headers cross the seam.
 struct MockTransport: ClaudeTransport {
-    var dataHandler: @Sendable (URLRequest) -> (Data, Int) = { _ in (Data("{}".utf8), 200) }
-    var streamHandler: @Sendable (URLRequest) -> ([String], Int) = { _ in ([], 200) }
+    var dataHandler: @Sendable (URLRequest) -> (Data, ResponseHead) = { _ in (Data("{}".utf8), ResponseHead(status: 200)) }
+    var streamHandler: @Sendable (URLRequest) -> ([String], ResponseHead) = { _ in ([], ResponseHead(status: 200)) }
 
-    func data(for request: URLRequest) async throws -> (Data, Int) { dataHandler(request) }
+    func data(for request: URLRequest) async throws -> (Data, ResponseHead) { dataHandler(request) }
 
-    func stream(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, Int) {
-        let (lines, status) = streamHandler(request)
+    func stream(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, ResponseHead) {
+        let (lines, head) = streamHandler(request)
         let s = AsyncThrowingStream<String, Error> { c in
             for l in lines { c.yield(l) }
             c.finish()
         }
-        return (s, status)
+        return (s, head)
     }
 }
 

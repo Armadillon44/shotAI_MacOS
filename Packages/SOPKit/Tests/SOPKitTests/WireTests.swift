@@ -49,31 +49,38 @@ final class SettingsAndPromptTests: XCTestCase {
 
 final class ClaudeClientTests: XCTestCase {
     func testCheckModelOkAndError() async throws {
-        let ok = ClaudeClient(transport: MockTransport(dataHandler: { _ in (Data("{}".utf8), 200) }))
+        let ok = ClaudeClient(transport: MockTransport(dataHandler: { _ in (Data("{}".utf8), ResponseHead(status: 200)) }))
         try await ok.checkModel(apiKey: "k", model: .sonnet5)  // no throw
 
         let bad = ClaudeClient(transport: MockTransport(dataHandler: { _ in
-            (Data(#"{"error":{"message":"nope"}}"#.utf8), 401)
+            (Data(#"{"error":{"message":"nope"}}"#.utf8), ResponseHead(status: 401))
         }))
         do { try await bad.checkModel(apiKey: "k", model: .sonnet5); XCTFail("expected throw") }
-        catch { XCTAssertEqual(error as? ClaudeError, .invalidKey) }
+        catch {
+            XCTAssertEqual((error as? ClaudeError)?.kind, .invalidKey)
+            // The server's own text is kept, not discarded for a canned string.
+            XCTAssertEqual(error.localizedDescription, "nope")
+        }
     }
 
     func testCountTokens() async throws {
         let c = ClaudeClient(transport: MockTransport(dataHandler: { _ in
-            (Data(#"{"input_tokens":1234}"#.utf8), 200)
+            (Data(#"{"input_tokens":1234}"#.utf8), ResponseHead(status: 200))
         }))
         let n = try await c.countTokens(apiKey: "k", model: .sonnet5, system: [], messages: [])
         XCTAssertEqual(n, 1234)
 
-        let limited = ClaudeClient(transport: MockTransport(dataHandler: { _ in (Data("{}".utf8), 429) }))
+        // 429 WITH a small retry-after: a real throttle, worth retrying.
+        let limited = ClaudeClient(transport: MockTransport(dataHandler: { _ in
+            (Data("{}".utf8), ResponseHead(status: 429, headers: ["Retry-After": "12"]))
+        }))
         do { _ = try await limited.countTokens(apiKey: "k", model: .sonnet5, system: [], messages: []); XCTFail() }
-        catch { XCTAssertEqual(error as? ClaudeError, .rateLimited) }
+        catch { XCTAssertEqual((error as? ClaudeError)?.kind, .rateLimited) }
     }
 
     func testStreamDecodesPlan() async throws {
         let json = #"{"title":"My SOP","intro":null,"steps":[{"stepNumber":1,"caption":"Open menu","body":"Click it","sectionHeading":null,"sectionBody":null}]}"#
-        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: json), 200) }))
+        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: json), ResponseHead(status: 200)) }))
         let raw = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in })
         XCTAssertEqual(raw.title, "My SOP")
         XCTAssertEqual(raw.steps.count, 1)
@@ -114,7 +121,7 @@ final class ClaudeClientTests: XCTestCase {
         ])
 
         let sse = lines
-        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sse, 200) }))
+        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sse, ResponseHead(status: 200)) }))
         let raw = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in })
         XCTAssertEqual(raw.title, "My SOP")
         XCTAssertEqual(raw.intro?.heading, "Overview")
@@ -123,7 +130,7 @@ final class ClaudeClientTests: XCTestCase {
     }
 
     func testStreamRefusal() async {
-        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: "{}", stopReason: "refusal"), 200) }))
+        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: "{}", stopReason: "refusal"), ResponseHead(status: 200)) }))
         do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
         catch { XCTAssertEqual(error as? ClaudeError, .refusal) }
     }
@@ -131,7 +138,7 @@ final class ClaudeClientTests: XCTestCase {
     func testStreamCutoffOnTruncatedMaxTokens() async {
         // A truncated (invalid) JSON body with stop_reason max_tokens → cutoff.
         let lines = sseLines(json: #"{"title":"x","steps":["#, stopReason: "max_tokens")
-        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (lines, 200) }))
+        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (lines, ResponseHead(status: 200)) }))
         do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
         catch { XCTAssertEqual(error as? ClaudeError, .cutoff) }
     }
@@ -144,20 +151,80 @@ final class ClaudeClientTests: XCTestCase {
             #"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
             #"data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
         ]
-        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (lines, 200) }))
+        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (lines, ResponseHead(status: 200)) }))
         do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
         catch { XCTAssertEqual(error as? ClaudeError, .overloaded) }
     }
 
     func testStreamHttpError() async {
         let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in
-            ([#"data: {"error":{"message":"boom"}}"#], 500)
+            ([#"data: {"error":{"message":"boom"}}"#],
+             ResponseHead(status: 500, headers: ["request-id": "req_abc123"]))
         }))
         do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
         catch {
-            guard case .api(let status, _)? = error as? ClaudeError else { return XCTFail("wrong: \(error)") }
+            guard case .api(let status, let f)? = error as? ClaudeError else { return XCTFail("wrong: \(error)") }
             XCTAssertEqual(status, 500)
+            XCTAssertEqual(f.requestId, "req_abc123")
+            XCTAssertTrue(error.localizedDescription.contains("req_abc123"),
+                          "the request id is the only handle support can act on — it must reach the user")
         }
+    }
+
+    // MARK: 429 classification
+    //
+    // The reason headers cross the transport seam at all. Under federated auth
+    // every user shares one workspace's limits, so a 429 is either "slow down"
+    // or "the shared budget is spent" — and Anthropic publishes no distinct
+    // error type for the second. Only `retry-after` separates them, so getting
+    // this table wrong means telling someone to retry something that cannot
+    // succeed until next month.
+
+    private func classify(_ headers: [String: String]) -> ClaudeError.Kind? {
+        ClaudeError.from(head: ResponseHead(status: 429, headers: headers), message: nil).kind
+    }
+
+    func test429WithSmallRetryAfterIsTransient() {
+        XCTAssertEqual(classify(["retry-after": "30"]), .rateLimited)
+        XCTAssertEqual(classify(["Retry-After": "1"]), .rateLimited, "header lookup is case-insensitive")
+    }
+
+    func test429WithoutRetryAfterIsHardStop() {
+        // A real throttle tells you when to come back. Silence is not an
+        // invitation to hammer the endpoint.
+        XCTAssertEqual(classify([:]), .limitReached)
+    }
+
+    func test429WithImplausiblyLongRetryAfterIsHardStop() {
+        XCTAssertEqual(classify(["retry-after": "86400"]), .limitReached)
+    }
+
+    func test429WithShouldRetryFalseIsHardStop() {
+        // The explicit signal wins even when a plausible retry-after is present.
+        XCTAssertEqual(classify(["retry-after": "5", "x-should-retry": "false"]), .limitReached)
+    }
+
+    func testHttpDateRetryAfterFallsBackToHardStop() {
+        // Only delta-seconds is parsed. Failing closed is the safe direction:
+        // an unnecessary manual re-run beats promising a retry that cannot work.
+        XCTAssertEqual(classify(["retry-after": "Wed, 21 Oct 2026 07:28:00 GMT"]), .limitReached)
+    }
+
+    func testHardStopDoesNotClaimWhichLimitWasHit() {
+        let d = ClaudeError.from(head: ResponseHead(status: 429), message: nil).errorDescription ?? ""
+        XCTAssertTrue(d.contains("rate limit or spending cap"),
+                      "a spend cap and a sustained rate limit are indistinguishable here; asserting one would be a guess")
+        XCTAssertFalse(d.contains("wait a moment"), "must not invite a retry that cannot succeed")
+    }
+
+    func test402IsBilling() {
+        XCTAssertEqual(ClaudeError.from(head: ResponseHead(status: 402), message: nil).kind, .billing)
+    }
+
+    func testRetryableSet() {
+        XCTAssertTrue(ClaudeError.from(head: ResponseHead(status: 429, headers: ["retry-after": "5"]), message: nil).isRetryable)
+        XCTAssertFalse(ClaudeError.from(head: ResponseHead(status: 429), message: nil).isRetryable)
+        XCTAssertFalse(ClaudeError.from(head: ResponseHead(status: 402), message: nil).isRetryable)
     }
 }
 
@@ -177,7 +244,7 @@ final class SopServiceTests: XCTestCase {
         let m = try await store.openProject(at: path).manifest
 
         let svc = SopService(
-            client: ClaudeClient(transport: MockTransport(dataHandler: { _ in (Data(#"{"input_tokens":1000000}"#.utf8), 200) })),
+            client: ClaudeClient(transport: MockTransport(dataHandler: { _ in (Data(#"{"input_tokens":1000000}"#.utf8), ResponseHead(status: 200)) })),
             keyStore: StubKeyStore())
         let est = try await svc.estimate(dir: dir, manifest: m, settings: SopSettings())
         XCTAssertEqual(est.inputTokens, 1_000_000)
@@ -191,7 +258,7 @@ final class SopServiceTests: XCTestCase {
         // Model returned an intro but no usable step edits (low-effort under-produce).
         let empty = #"{"title":"T","intro":{"heading":"H","body":"B"},"steps":[]}"#
         let svc1 = SopService(
-            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: empty), 200) })),
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: empty), ResponseHead(status: 200)) })),
             keyStore: StubKeyStore())
         do { _ = try await svc1.generate(dir: dir, manifest: m, settings: SopSettings()); XCTFail() }
         catch { XCTAssertEqual(error as? ClaudeError, .incomplete) }
@@ -199,7 +266,7 @@ final class SopServiceTests: XCTestCase {
         // Steps present but all blank → also incomplete.
         let blank = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"  ","body":"","sectionHeading":null,"sectionBody":null}]}"#
         let svc2 = SopService(
-            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: blank), 200) })),
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: blank), ResponseHead(status: 200)) })),
             keyStore: StubKeyStore())
         do { _ = try await svc2.generate(dir: dir, manifest: m, settings: SopSettings()); XCTFail() }
         catch { XCTAssertEqual(error as? ClaudeError, .incomplete) }
@@ -207,7 +274,7 @@ final class SopServiceTests: XCTestCase {
         // A real edit passes.
         let good = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"Do it","body":"Click","sectionHeading":null,"sectionBody":null}]}"#
         let svc3 = SopService(
-            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: good), 200) })),
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: good), ResponseHead(status: 200)) })),
             keyStore: StubKeyStore())
         let plan = try await svc3.generate(dir: dir, manifest: m, settings: SopSettings())
         XCTAssertEqual(plan.steps.first?.caption, "Do it")
