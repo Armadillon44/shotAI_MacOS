@@ -25,13 +25,15 @@ BUILT="$DD/Build/Products/Release/$APP_NAME.app"
 # shotAI/Resources/Federation.plist (#69). Which way this should go depends
 # entirely on WHO the artifact is for, and getting it wrong is silent either way:
 #
-#   PUBLIC release  -> SHOTAI_SSO=off. The values are not credentials, but a DMG
-#                      on a public releases page publishes a tenant, an app
-#                      registration and an Anthropic org to anyone, permanently,
-#                      for no benefit — an outside user cannot use that
-#                      federation anyway.
-#   INTERNAL build  -> SHOTAI_SSO=on. Staff sign in with their work account and
-#                      never see an API key.
+#   on  -> the config ships in the DMG, so staff sign in with their work account
+#          and never see an API key. THIS IS THE CURRENT RELEASE SETTING: the
+#          decision (docs/SSO-WIF.md) is one public download path for everyone,
+#          accepting that the tenant and org identifiers are extractable from a
+#          public artifact. Reconnaissance, not access — using them still needs
+#          an Entra token from the tenant carrying the shotAI.User role.
+#   off -> strips it. For an artifact that must not carry the identifiers at all,
+#          which is what a second, external-only build would use if that trade is
+#          ever revisited.
 #
 # Required explicitly, with no default, because both mistakes are invisible: a
 # public DMG that leaks the config looks fine, and an internal DMG missing it
@@ -40,7 +42,7 @@ FED="$BUILT/Contents/Resources/Federation.plist"
 case "${SHOTAI_SSO:-}" in
   on)
     [ -f "$FED" ] || { echo "✗ SHOTAI_SSO=on but no shotAI/Resources/Federation.plist on this machine — the build has no SSO" >&2; exit 1; }
-    echo "  SSO:        baked in (INTERNAL build — do not publish this DMG)" ;;
+    echo "  SSO:        baked in — staff sign in with their work account" ;;
   off)
     rm -f "$FED"
     echo "  SSO:        stripped (PUBLIC build — bring-your-own-key)" ;;
