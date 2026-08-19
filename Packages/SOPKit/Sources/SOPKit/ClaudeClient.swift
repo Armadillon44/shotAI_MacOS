@@ -9,14 +9,53 @@ public enum SopProgress: Sendable, Equatable {
     case done
 }
 
+/// Status + response headers. Headers are carried across the transport seam
+/// because the status ALONE cannot classify a failure: under federated auth
+/// (#69) every user shares one workspace's limits, so a 429 may mean "slow down
+/// for a moment" or "the shared budget is spent" — and Anthropic publishes no
+/// distinct error type for the latter. `retry-after` is what separates them.
+public struct ResponseHead: Sendable, Equatable {
+    public let status: Int
+    /// Lowercased field names (HTTP headers are case-insensitive).
+    public let headers: [String: String]
+
+    public init(status: Int, headers: [String: String] = [:]) {
+        self.status = status
+        self.headers = headers.reduce(into: [:]) { $0[$1.key.lowercased()] = $1.value }
+    }
+
+    public func header(_ name: String) -> String? { headers[name.lowercased()] }
+
+    /// Seconds to wait, when the server said. Only the delta-seconds form is
+    /// parsed; the HTTP-date form is treated as absent, which classifies as a
+    /// hard stop — the safe direction, since the cost of not retrying a
+    /// retryable request is a manual re-run, and the cost of retrying an
+    /// unretryable one is telling the user to wait for something that cannot
+    /// succeed.
+    public var retryAfter: TimeInterval? {
+        guard let raw = header("retry-after")?.trimmingCharacters(in: .whitespaces),
+              let secs = TimeInterval(raw) else { return nil }
+        return secs
+    }
+
+    /// Anthropic's explicit "don't bother" signal, when present.
+    public var shouldRetry: Bool? {
+        guard let raw = header("x-should-retry")?.lowercased() else { return nil }
+        return raw == "true" ? true : (raw == "false" ? false : nil)
+    }
+
+    /// The only handle support can act on. Surfaced on every failure.
+    public var requestId: String? { header("request-id") }
+}
+
 /// Seam over the network so tests can feed canned responses/SSE. The real
 /// implementation is `URLSessionTransport`.
 public protocol ClaudeTransport: Sendable {
-    /// Unary request → (body, HTTP status).
-    func data(for request: URLRequest) async throws -> (Data, Int)
-    /// Streaming request → (line stream of the SSE body, HTTP status). Status is
-    /// available once headers arrive, before the body is consumed.
-    func stream(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, Int)
+    /// Unary request → (body, status + headers).
+    func data(for request: URLRequest) async throws -> (Data, ResponseHead)
+    /// Streaming request → (line stream of the SSE body, status + headers).
+    /// The head is available once headers arrive, before the body is consumed.
+    func stream(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, ResponseHead)
 }
 
 /// Default transport backed by URLSession. A URLError (offline, DNS, TLS) is
@@ -25,16 +64,25 @@ public struct URLSessionTransport: ClaudeTransport {
     private let session: URLSession
     public init(session: URLSession = .shared) { self.session = session }
 
-    public func data(for request: URLRequest) async throws -> (Data, Int) {
+    private static func head(_ response: URLResponse?) -> ResponseHead {
+        guard let http = response as? HTTPURLResponse else { return ResponseHead(status: 0) }
+        var fields: [String: String] = [:]
+        for (k, v) in http.allHeaderFields {
+            if let key = k as? String, let value = v as? String { fields[key] = value }
+        }
+        return ResponseHead(status: http.statusCode, headers: fields)
+    }
+
+    public func data(for request: URLRequest) async throws -> (Data, ResponseHead) {
         do {
             let (data, response) = try await session.data(for: request)
-            return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+            return (data, Self.head(response))
         } catch is URLError {
             throw ClaudeError.connection
         }
     }
 
-    public func stream(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, Int) {
+    public func stream(for request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, ResponseHead) {
         let bytes: URLSession.AsyncBytes
         let response: URLResponse
         do {
@@ -42,7 +90,7 @@ public struct URLSessionTransport: ClaudeTransport {
         } catch is URLError {
             throw ClaudeError.connection
         }
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let head = Self.head(response)
         let stream = AsyncThrowingStream<String, Error> { continuation in
             let task = Task {
                 do {
@@ -54,7 +102,7 @@ public struct URLSessionTransport: ClaudeTransport {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
-        return (stream, status)
+        return (stream, head)
     }
 }
 
@@ -92,8 +140,8 @@ public struct ClaudeClient: Sendable {
 
     public func checkModel(apiKey: String, model: SopModelId) async throws {
         let req = try makeRequest(path: "/v1/models/\(model.rawValue)", apiKey: apiKey, method: "GET", jsonBody: nil)
-        let (data, status) = try await transport.data(for: req)
-        guard status == 200 else { throw ClaudeError.from(status: status, message: Self.apiMessage(data)) }
+        let (data, head) = try await transport.data(for: req)
+        guard head.status == 200 else { throw ClaudeError.from(head: head, message: Self.apiMessage(data)) }
     }
 
     // MARK: Token count (POST /v1/messages/count_tokens)
@@ -101,8 +149,8 @@ public struct ClaudeClient: Sendable {
     public func countTokens(apiKey: String, model: SopModelId, system: [[String: Any]], messages: [[String: Any]]) async throws -> Int {
         let body: [String: Any] = ["model": model.rawValue, "system": system, "messages": messages]
         let req = try makeRequest(path: "/v1/messages/count_tokens", apiKey: apiKey, method: "POST", jsonBody: body)
-        let (data, status) = try await transport.data(for: req)
-        guard status == 200 else { throw ClaudeError.from(status: status, message: Self.apiMessage(data)) }
+        let (data, head) = try await transport.data(for: req)
+        guard head.status == 200 else { throw ClaudeError.from(head: head, message: Self.apiMessage(data)) }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let n = obj["input_tokens"] as? Int else { throw ClaudeError.malformed }
         return n
@@ -115,16 +163,16 @@ public struct ClaudeClient: Sendable {
     /// `onProgress`. Throws a friendly ClaudeError on refusal/cutoff/malformed.
     func streamEditPlan(apiKey: String, body: [String: Any], onProgress: @Sendable (SopProgress) -> Void) async throws -> SopEditRaw {
         let req = try makeRequest(path: "/v1/messages", apiKey: apiKey, method: "POST", jsonBody: body)
-        let (lines, status) = try await transport.stream(for: req)
+        let (lines, head) = try await transport.stream(for: req)
 
         // Non-200: the body is a JSON error, not SSE — drain + surface it.
-        if status != 200 {
+        if head.status != 200 {
             var raw = ""
             for try await line in lines {
                 raw += line.hasPrefix("data:") ? String(line.dropFirst(5)) : line
             }
             let msg = Self.apiMessage(Data(raw.utf8))
-            throw ClaudeError.from(status: status, message: msg)
+            throw ClaudeError.from(head: head, message: msg)
         }
 
         var text = ""
@@ -166,10 +214,14 @@ public struct ClaudeClient: Sendable {
                 // (e.g. overloaded_error under load). Surface the real, actionable
                 // error instead of falling through to a generic "no content".
                 let err = ev["error"] as? [String: Any]
+                let f = ApiFailure(message: err?["message"] as? String, requestId: head.requestId)
                 switch err?["type"] as? String {
                 case "overloaded_error": throw ClaudeError.overloaded
-                case "rate_limit_error": throw ClaudeError.rateLimited
-                default: throw ClaudeError.api(status: 0, message: err?["message"] as? String)
+                // Constructed directly rather than via `from`: an SSE error event
+                // on an established 200 is Anthropic shedding load, which IS
+                // transient, and it carries no retry-after to classify with.
+                case "rate_limit_error": throw ClaudeError.rateLimited(f)
+                default: throw ClaudeError.api(status: 0, failure: f)
                 }
             default:
                 break

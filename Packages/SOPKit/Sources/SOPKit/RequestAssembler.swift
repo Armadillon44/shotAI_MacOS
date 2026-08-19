@@ -61,7 +61,7 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
             throw ClaudeError.unbakedRedaction(e.localizedDescription)
         }
         guard let bytes = try? Data(contentsOf: URL(fileURLWithPath: render.abs)) else {
-            throw ClaudeError.api(status: 0, message: "Step \(n)'s image could not be read.")
+            throw ClaudeError.api(status: 0, failure: ApiFailure(message: "Step \(n)'s image could not be read."))
         }
         content.append([
             "type": "image",
