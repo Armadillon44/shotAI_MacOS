@@ -60,7 +60,9 @@ byte-compatible, so projects **round-trip between platforms**.
    redactions aren't baked). Each report step supports liquid-glass image zoom
    with drag-to-pan.
 
-3. **Generate the SOP (optional).** With **your own** Anthropic API key, Claude reads the
+3. **Generate the SOP (optional).** With **your own** Anthropic API key — or, where your
+   organization has configured it, a **single sign-on** with your work account and no key at
+   all ([docs/SSO-WIF.md](docs/SSO-WIF.md)) — Claude reads the
    redaction-baked screenshots + captions and writes the guide **in place**: an overview,
    per-step headings and instructions, and callouts — in your chosen **tone** and
    **effort**. Before anything is sent you see an **estimated cost**; a single click
@@ -132,7 +134,9 @@ shotAI makes exactly two kinds of outbound request, both narrow and both pinned:
 - Screen Recording, Accessibility, and Input Monitoring permissions (granted through a
   first-run wizard).
 - An Anthropic API key **only** if you want SOP generation — capture, editing, redaction,
-  and export all work without one.
+  and export all work without one. (Organizations can instead enable **Entra single sign-on**,
+  where staff sign in with their work account and no key is ever issued or stored — see
+  [docs/SSO-WIF.md](docs/SSO-WIF.md).)
 
 ## Install
 

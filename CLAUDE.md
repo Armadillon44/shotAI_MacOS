@@ -31,6 +31,13 @@ A) Codable model + read-only viewer (exit: opens a Windows-created project) → 
 - `Packages/CaptureKit/` — the recording engine, ported behavior-for-behavior from `CaptureController.ts`: `CaptureEngine` actor (event decisions + FIFO capture queue), menu-popup poll cache, own-window exclusion, 0.85 downscale contract, auto-caption builder (Windows UIA controlType vocabulary), AX element-at-point (`AXElementLocator`), SCK screenshotter (own app excluded via content filter — `sharingType=.none` is NOT the mechanism on 15+), listen-only mouse-only CGEventTap (empirically needs no TCC) + Carbon ⌘⇧S hotkey, TCC permission surface. Hardware sits behind protocols; the pipeline tests run headless.
 - `shotAI/Capture/` — non-activating pill NSPanel, per-screen area-select overlay, permissions wizard (poll + deep links), record-target sheet, coordinator.
 - **Coordinate convention (macOS)**: "global" = CG top-left POINTS (CGEvent/AX/SCDisplay share it); `monitor.scaleFactor` = pixels-per-point; `click.image = round((global − origin) × imageScale)` with `imageScale = pixelScale × downscale` — self-consistent per project, round-trips with Windows projects (which store physical px). AppKit rects flip globally about the primary screen only (`CoordinateSpaces.swift`).
+- `Packages/EntraKit/` — **Entra sign-in + federated credentials** (#69). Hand-rolled OAuth
+  authorization-code + PKCE (no MSAL — zero third-party deps), the AADSTS classification tables,
+  an unverified `JWTPeek` used ONLY to explain a missing app role locally, MDM/bundled config
+  sources, the Keychain account store, and the credential providers. UI-free: the browser hop is
+  behind `InteractiveSignIn`, whose only production conformer is `shotAI/Auth/WebAuthSignIn.swift`.
+  **Its completion handler must stay `@Sendable`** — a closure literal in a `@MainActor` context
+  inherits isolation and traps when AuthenticationServices calls it from an XPC queue.
 - `Packages/UpdateKit/` — the **notify-only** update checker (#62 Phase 1): semver comparator (natural order, so `rc2 < rc10`; fail-closed on anything unparseable), a GitHub Releases client pinned to `api.github.com` with off-host redirects refused, and a disk-persisted once-a-day throttle (24 h on success, 1 h transient, 6 h structural, `x-ratelimit-reset` honored). **It must never download or install anything** — see the scope boundary below. UI lives in `shotAI/UpdateModel.swift` + `shotAI/UpdateBadge.swift`.
 - `Fixtures/b7e2c4d1-…/` — a simulated Windows-app-created project (regenerate PNGs with `swift Scripts/make-fixture-shots.swift Fixtures/<uuid>`; geometry must match its `project.json`).
 - Phase B behavioral specs extracted from the Windows app (constants, invariants, edge cases) informed the port; the originals in `shotAI-original/src/main/` remain the source of truth.
@@ -78,6 +85,7 @@ coalesces overlapping checks so two triggers can't each spend a request from Git
 - **Live capture smoke test** (drives real SCK/AX/store; needs Screen Recording): `swift run --package-path Packages/CaptureKit CaptureSelfTest` — the macOS analog of the Windows `capture-selftest.ts`; prints `[capture-test] PASS/FAIL`.
 - Export tests (HTML/Markdown/geometry/fail-closed gate): `swift test --package-path Packages/ExportKit`
 - Update-checker tests (semver table, feed parsing, throttle, reentrancy regressions): `swift test --package-path Packages/UpdateKit`
+- Entra/SSO tests (PKCE, JWT peek, AADSTS classification, config precedence, provider caching + coalescing): `swift test --package-path Packages/EntraKit`
 - **Update-check smoke test** (one live call to the real GitHub Releases API): `swift run --package-path Packages/UpdateKit UpdateSelfTest [installedVersion]` — prints `[update-test] PASS/FAIL`. Pass an older version (e.g. `1.1.0`) to exercise the update-available path.
 - **PDF smoke test** (drives the real CoreText/CG PDF renderer; 30s watchdog catches a hang regression): `swift run --package-path Packages/ExportKit PdfSelfTest` — prints `[pdf-test] PASS/FAIL`. NB: PDF is rendered natively (CoreText + CoreGraphics), **not** via WKWebView printing — `NSPrintOperation`+`WKWebView` spins forever in `-[WKPrintingView rectForPage:]` on the main thread and freezes the app.
 - Build app: `xcodebuild -project shotAI.xcodeproj -scheme shotAI -configuration Debug build`

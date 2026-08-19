@@ -10,6 +10,11 @@ Proven end to end 2026-08-19. Tracked in
 > **Optional, and off by default.** shotAI remains bring-your-own-key. Federation
 > is an internal deployment mode; with nothing configured the app behaves exactly
 > as it always has. See [Configuration](#configuration).
+>
+> **Shipped and verified end to end 2026-08-19** against a live tenant: sign-in,
+> a relaunch that restored the session from the Keychain and silently refreshed,
+> an SOP generated with no API key present, and an unassigned account correctly
+> told its sign-in worked but access was not granted.
 
 ---
 
@@ -95,9 +100,28 @@ public**:
 | Entra tenant | uuid |
 | Entra audience | the app registration's **bare app-ID GUID** |
 
-They belong in an MDM-delivered configuration profile (see [`Intune/`](../Intune/))
-or a build config, never in source. The probe caches them at
-`~/.config/shotai/wif-probe.env`, mode 0600, outside the repo.
+They are **baked into the build**, not deployed: `shotAI/Resources/Federation.plist`
+is gitignored and bundled at build time, with
+[`Federation.example.plist`](../shotAI/Resources/Federation.example.plist)
+documenting the shape. A user downloads the app and signs in; there is nothing to
+deploy and nothing to type. A fresh clone of this public repo has no such file, so
+the app falls back to bring-your-own-key — correct for anyone outside the org.
+
+Managed preferences still take precedence (`ChainedFederationConfig`), so IT can
+correct a rotated rule with a configuration profile instead of a new build. That
+is the exception, not the requirement.
+
+**They are deliberately not encrypted.** Anything inside a shipped app is
+extractable with `strings` or a debugger, so obfuscation buys minutes against
+anyone who cares while costing complexity and creating false confidence. It is
+also unnecessary: none is a credential, using them requires an Entra token from
+the tenant carrying the app role, and the OAuth `client_id` is *expected* to be
+public — that is what PKCE exists for. Keeping them out of public SOURCE is the
+real goal, since a repo naming a tenant and an Anthropic org is free
+reconnaissance that would live in git history forever.
+
+The probe caches its own copy at `~/.config/shotai/wif-probe.env`, mode 0600,
+outside the repo.
 
 ## Operational notes
 
@@ -190,6 +214,39 @@ share its limits.
   by app role; workspaces cap at 100 per org, so per-employee does not scale.
 
 See [#71](https://github.com/Armadillon44/shotAI_MacOS/issues/71).
+
+## Implementation
+
+- **`Packages/EntraKit/`** — PKCE, the Entra OAuth client and its AADSTS
+  classification tables, an unverified JWT peek, config sources, the Keychain
+  account store, and the credential providers. UI-free, 41 headless tests. Zero
+  third-party dependencies: Foundation, CryptoKit and Security only, so there is
+  no MSAL here by choice.
+- **`Packages/SOPKit/`** — `ClaudeCredential` (private storage, no accessor, every
+  printing path overridden) and the RFC 7523 exchange. Knows nothing about Entra.
+- **`shotAI/Auth/WebAuthSignIn.swift`** — the only file importing
+  AuthenticationServices.
+
+Only the refresh token is persisted. The Entra access token and the minted
+`sk-ant-oat01-` live in memory: both last minutes, both are cheap to re-mint, and
+writing them down widens the at-rest surface for nothing.
+
+### The `@Sendable` trap
+
+`ASWebAuthenticationSession`'s completion handler is imported as a plain,
+non-`Sendable` block. A closure literal written inside a `@MainActor` context
+therefore **inherits** main-actor isolation — and AuthenticationServices invokes
+it from an XPC queue, so Swift 6's runtime isolation check fires **on entry** and
+traps the process with `SIGTRAP` in `_swift_task_checkIsolatedSwift`.
+
+This crashed sign-in twice. The check runs before any statement in the body, so
+removing actor-isolated access from inside the closure does not help; the closure's
+own isolation is the defect. The handler must be declared explicitly `@Sendable`.
+
+Neither version produced a compiler warning, and the full test suite stayed green
+through both, because every test stubs the browser behind `InteractiveSignIn`.
+That closure only ever executes against the real framework — which is the general
+lesson: **a phase is not done until the signed app is driven by hand.**
 
 ## Client behavior
 
