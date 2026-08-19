@@ -262,6 +262,35 @@ fi
 #     appId GUID), which is what the federation rule below matches.
 #   preAuthorizedApplications → the CLI can request this audience with no consent prompt.
 step "Configuring the API surface"
+
+# Is it ALREADY configured? Every write below is idempotent in intent but not in
+# privilege: re-running them needs Application.ReadWrite.All, which a normal
+# account (or an admin whose PIM activation has lapsed) does not have. Without
+# this check a perfectly working setup reports four red lines and dies, because
+# blockers were recorded before the verification that says everything is fine.
+# Read all four properties in ONE call and skip the whole block if they hold.
+CFG_Q='{u:identifierUris,v:api.requestedAccessTokenVersion'
+CFG_Q="$CFG_Q"',s:api.oauth2PermissionScopes[?value==`user_impersonation`].id|[0]'
+CFG_Q="$CFG_Q"',p:api.preAuthorizedApplications[?appId==`'"$AZ_CLI_APP_ID"'`].appId|[0]}'
+ALREADY="$(az ad app show --id "$APP_ID" --query "$CFG_Q" -o json 2>/dev/null \
+  | python3 -c '
+import json, sys
+try:    d = json.load(sys.stdin)
+except Exception: print("no"); raise SystemExit
+want = "api://" + sys.argv[1]
+ok = (want in (d.get("u") or [])
+      and d.get("v") == 2
+      and d.get("s")
+      and d.get("p"))
+print("yes" if ok else "no")
+' "$APP_ID" 2>/dev/null)"
+
+if [ "$ALREADY" = "yes" ]; then
+  ok "already configured (identifier URI, v2.0 tokens, scope, CLI pre-auth)"
+  info "Skipping the directory writes — nothing to change, so no Entra write"
+  info "privileges are needed for this run."
+else
+
 SCOPE_ID="$(az ad app show --id "$APP_ID" --query 'api.oauth2PermissionScopes[0].id' -o tsv 2>/dev/null)"
 [ -n "$SCOPE_ID" ] && [ "$SCOPE_ID" != "null" ] || SCOPE_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 
@@ -306,7 +335,10 @@ else
   info "$(head -3 "$TMPDIR_RUN/p2.log")"
 fi
 
-# Read the state back rather than trusting the writes.
+fi   # end: skip-if-already-configured
+
+# Read the state back rather than trusting the writes. Runs in BOTH branches —
+# this, not the writes, is what decides whether the app is usable.
 VERIFY="$(az ad app show --id "$APP_ID" --query '{u:identifierUris[0],v:api.requestedAccessTokenVersion}' -o tsv 2>/dev/null)"
 case "$VERIFY" in
   "api://$APP_ID"*2*) ok "verified: identifier URI set, v2.0 tokens" ;;
@@ -317,7 +349,17 @@ esac
 
 if [ ${#BLOCKERS[@]} -ne 0 ]; then
   printf '\n\033[31m✗ Entra is not configured correctly — fix the above before continuing.\033[0m\n' >&2
-  printf '  Entra objects created so far remain. Remove with:  az ad app delete --id %s\n' "$APP_ID" >&2
+  cat >&2 <<EOF
+
+    If the verification line above says the identifier URI and v2.0 tokens are
+    set, the app is FINE and these errors are re-provisioning attempts that your
+    current sign-in lacks the rights for. Sign in as an account holding
+    Application.ReadWrite.All (or re-activate the PIM role) and re-run, or
+    ignore them if nothing about the app needs to change.
+
+    DO NOT delete the app registration to "start clean" if a federation rule
+    already matches it as the audience — that revokes every user at once.
+EOF
   exit 1
 fi
 
