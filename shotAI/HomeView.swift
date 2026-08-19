@@ -1010,6 +1010,16 @@ private struct AiSetupHint: View {
             }
         }
         .onHover { hovering = $0 }
+        // Kept OUT of the keyboard focus chain on purpose. This capsule appears
+        // and disappears as sign-in state changes, and a control that comes and
+        // goes should not claim initial focus and then hand it to whatever is
+        // next when it vanishes — which put a focus ring on the toolbar's Open
+        // Project button with nothing obvious to dismiss it.
+        //
+        // Nothing is lost for keyboard users: the same action is reachable in
+        // Settings ▸ AI ▸ Account and from the report's AI SOP panel, both of
+        // which are permanent and focusable. This is a shortcut, not the path.
+        .focusable(false)
         .help(help)
         .accessibilityLabel(help)
     }
