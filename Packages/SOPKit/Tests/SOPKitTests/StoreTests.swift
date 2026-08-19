@@ -169,8 +169,13 @@ final class AuthorContextTests: XCTestCase {
         XCTAssertTrue(t.contains("Before you begin"))
         XCTAssertTrue(t.contains("warehouse terminal"))
         XCTAssertTrue(t.contains("author already wrote this overview"))
-        XCTAssertTrue(t.contains("PRESERVES its substance"),
-                      "instruction to preserve, not just the text, or it gets rewritten anyway")
+        // The instruction matters as much as the text — but it must INFORM, not
+        // freeze the author's prose. Claude should still write the best overview
+        // it can; what it must not do is contradict or quietly drop what the
+        // author knows and it cannot see.
+        XCTAssertTrue(t.contains("AUTHORITATIVE CONTEXT"))
+        XCTAssertTrue(t.contains("rewrite it freely"), "Claude keeps authorship of the prose")
+        XCTAssertTrue(t.contains("SILENTLY DROP"), "but not of the author's facts")
     }
 
     /// An absent or blank overview must add nothing — no empty scaffolding that
@@ -205,9 +210,9 @@ final class AuthorContextTests: XCTestCase {
         XCTAssertTrue(t.contains("Section heading"))
         XCTAssertTrue(t.contains("Text step"))
         // Labelling alone is not enough — Claude also needs to know what to DO.
-        XCTAssertTrue(t.contains("do not contradict it"), "warnings carry handling guidance")
-        XCTAssertTrue(t.contains("do not insert your own sectionHeading where one"),
-                      "existing phase structure must be respected, not duplicated")
+        XCTAssertTrue(t.contains("never contradict it"), "warnings carry handling guidance")
+        XCTAssertTrue(t.contains("use that structure rather"),
+                      "the author's phase structure informs Claude's, not just blocks it")
     }
 
     /// A plain text step gets no callout guidance — nothing to respect or avoid.

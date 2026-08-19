@@ -25,12 +25,16 @@ extension AssembledRequest {
     static func authorBlockGuidance(_ callout: CalloutKind?) -> String? {
         switch callout {
         case .note, .caution, .warning:
-            "(This is a callout the author considered important enough to highlight. Do not "
-                + "repeat its content in the surrounding steps, and do not contradict it.)"
+            "(The author highlighted this, so it is something they know about the process that "
+                + "the screenshots do not show. Let it inform the steps around it — reference or "
+                + "account for it where a reader would need to. Do not restate it wholesale as "
+                + "step text (it is already shown to the reader), and never contradict it.)"
         case .section:
-            "(This is a NON-NUMBERED phase heading that already groups the steps that follow. "
-                + "Respect this structure — do not insert your own sectionHeading where one "
-                + "already exists, and keep step wording consistent with the phase it sits in.)"
+            "(A NON-NUMBERED phase heading the author placed to group the steps that follow. It "
+                + "tells you how they think the procedure divides up — use that structure rather "
+                + "than inventing your own, keep step wording consistent with the phase it sits "
+                + "in, and do not add a sectionHeading of your own where this already marks the "
+                + "boundary.)"
         case nil: nil
         }
     }
@@ -84,11 +88,13 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
     if let authorIntro {
         header += "\n\n--- The author already wrote this overview ---\n"
         header += authorIntro
-        header += "\n\nTreat it as their statement of intent for the whole procedure: let it "
-        header += "guide the wording and emphasis of every step. Return an `intro` that "
-        header += "PRESERVES its substance — tighten or clarify the wording at most. Do not "
-        header += "replace their goal with your own reading of the screenshots, and do not "
-        header += "drop details they chose to include."
+        header += "\n\nTreat this as AUTHORITATIVE CONTEXT, not as text to protect. It states "
+        header += "intent, audience, scope or constraints that the screenshots cannot show you, "
+        header += "and it is the author's own knowledge of the process. Let it inform the whole "
+        header += "guide: your `intro` and the wording and emphasis of every step. You may "
+        header += "rewrite it freely for clarity, structure and tone — write the best overview "
+        header += "you can. What you must not do is CONTRADICT or SILENTLY DROP the facts and "
+        header += "constraints it states; those are things the author knows and you do not."
     }
 
     var content: [[String: Any]] = [["type": "text", "text": header]]
