@@ -53,7 +53,12 @@ struct TourStep {
 
 /// The 5 steps, ported from Windows `Tour.tsx` (shortcut + Settings wording
 /// adapted for macOS).
-let tourSteps: [TourStep] = [
+///
+/// The last step depends on how this Mac gets access to Claude, so the array is
+/// built rather than constant: telling someone with SSO to go find an API key
+/// sends them looking for something they will never need, and telling an
+/// external user to "sign in" points at a button they do not have.
+func tourSteps(federated: Bool) -> [TourStep] { [
     TourStep(
         anchor: .hero,
         headline: "Welcome to shotAI",
@@ -71,11 +76,16 @@ let tourSteps: [TourStep] = [
         headline: "Recording? Just click",
         body: "Once recording, a small pill stays on top. Switch to any app and click anything to capture a step — or press ⇧⌘S. Pause to stop capturing, Stop to finish, the red ✕ to discard.",
         showPill: true),
-    TourStep(
-        anchor: nil,
-        headline: "Let Claude write the guide",
-        body: "When you’re ready for AI-written instructions, open Settings (⌘,) ▸ AI and add an Anthropic API key (your organization may provide one, or create your own — billed per use). Then use “Generate SOP with Claude”."),
-]
+    federated
+        ? TourStep(
+            anchor: nil,
+            headline: "Let Claude write the guide",
+            body: "Open a project and click “Generate SOP” — Claude turns your screenshots into written steps. The first time, you’ll sign in with your work account; there’s no API key to find and nothing to pay for. If sign-in says you don’t have access yet, ask IT to enable shotAI for your account.")
+        : TourStep(
+            anchor: nil,
+            headline: "Let Claude write the guide",
+            body: "When you’re ready for AI-written instructions, open Settings (⌘,) ▸ AI ▸ Advanced and add an Anthropic API key (your organization may provide one, or create your own — billed per use). Then use “Generate SOP”."),
+] }
 
 // MARK: - Overlay
 
@@ -83,6 +93,7 @@ private let bubbleW: CGFloat = 330
 private let bubbleGap: CGFloat = 14
 
 struct TourOverlay: View {
+    @Environment(AppModel.self) private var model
     /// Anchored-control frames, in `TourSpace` (= this overlay's local space).
     let frames: [TourAnchor: CGRect]
     /// The overlay's own size (same space as `frames`).
@@ -93,12 +104,14 @@ struct TourOverlay: View {
     @State private var bubbleH: CGFloat = 180
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var step: TourStep { tourSteps[min(i, tourSteps.count - 1)] }
+    /// Built once per presentation from the live auth state.
+    private var steps: [TourStep] { tourSteps(federated: model.auth.federationAvailable) }
+    private var step: TourStep { steps[min(i, steps.count - 1)] }
     private var spot: CGRect? { step.anchor.flatMap { frames[$0] } }
 
     private var stepAnim: Animation? { reduceMotion ? nil : .easeInOut(duration: 0.18) }
     private func next() {
-        if i >= tourSteps.count - 1 { onFinish() } else { withAnimation(stepAnim) { i += 1 } }
+        if i >= steps.count - 1 { onFinish() } else { withAnimation(stepAnim) { i += 1 } }
     }
     private func back() { if i > 0 { withAnimation(stepAnim) { i -= 1 } } }
 
@@ -143,7 +156,7 @@ struct TourOverlay: View {
 
     private var bubble: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Step \(i + 1) of \(tourSteps.count)")
+            Text("Step \(i + 1) of \(steps.count)")
                 .font(.system(size: 11, weight: .semibold))
                 .textCase(.uppercase)
                 .foregroundStyle(Color.accentColor)
@@ -162,7 +175,7 @@ struct TourOverlay: View {
                     .foregroundStyle(.secondary)
                     .keyboardShortcut(.cancelAction)   // Esc
                 if i > 0 { Button("Back") { back() }.buttonStyle(.plain) }
-                Button(i == tourSteps.count - 1 ? "Done" : "Next") { next() }
+                Button(i == steps.count - 1 ? "Done" : "Next") { next() }
                     .buttonStyle(.borderedProminent)
                 // NB: intentionally no .defaultAction (Return) shortcut — the Home
                 // controls are disabled while the tour is up (ContentView), but
@@ -179,7 +192,7 @@ struct TourOverlay: View {
 
     private var dots: some View {
         HStack(spacing: 5) {
-            ForEach(tourSteps.indices, id: \.self) { d in
+            ForEach(steps.indices, id: \.self) { d in
                 Circle()
                     .fill(d == i ? Color.accentColor : Color.secondary.opacity(0.35))
                     .frame(width: 6, height: 6)

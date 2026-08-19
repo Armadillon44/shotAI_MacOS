@@ -197,9 +197,17 @@ struct HomeView: View {
             if let release = model.updates.badgeRelease {
                 UpdateBadge(release: release)
                     .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .trailing)))
+            } else if model.sopSettings.enabled && !model.hasCredential {
+                // AI is on but nothing can authenticate it yet. Says so HERE,
+                // before the user records anything, rather than letting them
+                // find out at the end of a capture session. Shares the update
+                // badge's slot so the banner never carries two notices.
+                AiSetupHint()
+                    .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .trailing)))
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.updates.badgeRelease?.tag)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.hasCredential)
         .padding(.horizontal, 28)
         .padding(.vertical, 11)
         .frame(maxWidth: 760)
@@ -963,5 +971,69 @@ private struct StatusBadge: View {
             .contentTransition(.opacity)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: hasSop)
             .help(hasSop ? "Claude has written this guide" : "No SOP generated yet")
+    }
+}
+
+/// "Set up AI" nudge in the Home banner, shown when SOP generation is enabled
+/// but no credential is available yet.
+///
+/// Deliberately quiet — an inline capsule in space that was already empty, with
+/// no modal and no dock badge, matching `UpdateBadge`. The point is that someone
+/// discovers this BEFORE recording a process, rather than at the end of one.
+private struct AiSetupHint: View {
+    @Environment(AppModel.self) private var model
+    @State private var hovering = false
+
+    /// Federation configured but signed out is a one-click fix, so offer it
+    /// directly. Otherwise this is a Settings trip to add a key.
+    private var canSignInHere: Bool {
+        model.auth.federationAvailable && !model.auth.isSignedIn
+    }
+
+    private var label: String { canSignInHere ? "Sign in to use AI" : "Set up AI" }
+
+    private var help: String {
+        canSignInHere
+            ? "Sign in with your work account to let Claude write SOPs from your screenshots. No API key needed."
+            : "Add an Anthropic API key in Settings ▸ AI ▸ Advanced to let Claude write SOPs from your screenshots."
+    }
+
+    var body: some View {
+        Group {
+            if canSignInHere {
+                Button { Task { await model.signInFromError() } } label: { capsuleLabel }
+                    .buttonStyle(.plain)
+                    .disabled(model.auth.busy)
+            } else {
+                SettingsLink { capsuleLabel }
+                    .buttonStyle(.plain)
+            }
+        }
+        .onHover { hovering = $0 }
+        // Kept OUT of the keyboard focus chain on purpose. This capsule appears
+        // and disappears as sign-in state changes, and a control that comes and
+        // goes should not claim initial focus and then hand it to whatever is
+        // next when it vanishes — which put a focus ring on the toolbar's Open
+        // Project button with nothing obvious to dismiss it.
+        //
+        // Nothing is lost for keyboard users: the same action is reachable in
+        // Settings ▸ AI ▸ Account and from the report's AI SOP panel, both of
+        // which are permanent and focusable. This is a shortcut, not the path.
+        .focusable(false)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private var capsuleLabel: some View {
+        HStack(spacing: 5) {
+            Image(systemName: canSignInHere ? "person.crop.circle" : "sparkles")
+                .font(.system(size: 11, weight: .semibold))
+            Text(label).font(.system(size: 11.5, weight: .semibold))
+        }
+        .foregroundStyle(Palette.accentInk)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(Palette.accentTint, in: Capsule())
+        .overlay(Capsule().stroke(Palette.accent.opacity(hovering ? 0.55 : 0.28)))
     }
 }

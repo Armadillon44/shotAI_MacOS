@@ -18,7 +18,12 @@ byte-compatible, so projects **round-trip between platforms**.
 > Accessibility), export to HTML / PDF / Markdown / "HTML for Word" + a shareable
 > round-trip `.zip` package, project archiving, a first-run tour, and light/dark theming are
 > all implemented.
-> **New in 1.1.3:** shotAI now **tells you when a newer version is out** — a once-a-day check
+> **New:** **Single sign-on.** Where an organization has configured it, staff sign in with
+> their **work account** and Claude just works — no API key issued, stored, or typed on any
+> machine, and no gateway or proxy in between. Access is an identity-provider role assignment,
+> so revoking someone revokes Claude with it. Bring-your-own-key is unchanged for everyone
+> else. See [docs/SSO-WIF.md](docs/SSO-WIF.md).
+> **In 1.1.3:** shotAI now **tells you when a newer version is out** — a once-a-day check
 > with a small notice on the Home screen, opt-out in Settings. It never downloads or installs
 > anything itself. And because macOS resets an un-notarized app's permissions on every update,
 > shotAI now **detects that and explains it** instead of silently failing to record.
@@ -91,9 +96,14 @@ Mac (`~/shotAI Projects` by default) and are **never uploaded in the background*
 shotAI makes exactly two kinds of outbound request, both narrow and both pinned:
 
 - **SOP generation** — only when *you* click Generate, and only to Anthropic
-  (`api.anthropic.com`, **pinned** in the client, no base-URL override). The API key is
-  yours, stored in the **macOS Keychain**, read only by the Claude client and never
-  surfaced back to the UI.
+  (`api.anthropic.com`, **pinned** in the client, no base-URL override). Either your own
+  API key, stored in the **macOS Keychain**, or a **short-lived token** obtained by signing
+  in with your work account. Both are read only by the Claude client and never surfaced back
+  to the UI — the credential type has no accessor, so a secret cannot reach UI code even by
+  mistake.
+- **Sign-in** (only when single sign-on is configured) — to your organization's identity
+  provider, in a real system browser that shotAI cannot read. Only the refresh token is
+  stored, in the Keychain; the working tokens live in memory and last minutes.
 - **Update check** — once a day, a plain `GET` to `api.github.com` (**pinned**, redirects
   off-host refused) asking whether a newer release exists. It sends nothing but your IP and
   a `shotAI/<version>` User-Agent: no account, no cookies, no project data, no identifier.
@@ -110,7 +120,7 @@ shotAI makes exactly two kinds of outbound request, both narrow and both pinned:
 
 - **Swift 6 / SwiftUI**, a single native app process. **Zero third-party dependencies** —
   everything is Apple frameworks.
-- Six in-repo **SwiftPM** packages (UI-free, tested headless):
+- Seven in-repo **SwiftPM** packages (UI-free, tested headless):
   - **ShotModel** — the Codable `project.json` schema (byte-compatible with Windows,
     tolerant decode), path-confined atomic writes, and a `ProjectStore` actor.
   - **CaptureKit** — the recording engine: **ScreenCaptureKit** screenshots, **Accessibility**
@@ -123,6 +133,9 @@ shotAI makes exactly two kinds of outbound request, both narrow and both pinned:
     store, cost estimator, and prompt assembly.
   - **ExportKit** — the HTML / PDF / Markdown / "HTML for Word" renderers and the `.zip`
     package export/import (PDF is rendered natively via CoreText + CoreGraphics).
+  - **EntraKit** — single sign-on: OAuth authorization-code + PKCE against Microsoft Entra
+    ID, hand-rolled on Apple frameworks, plus the token exchange and credential resolution.
+    UI-free and headless-tested; the browser step sits behind a protocol.
   - **UpdateKit** — the notify-only update checker: a semver comparator, a pinned GitHub
     Releases client, and a persisted once-a-day throttle. It never touches the app bundle.
 - The app target lives under [`shotAI/`](shotAI/) (Home, report/editor, capture UI, Settings).
@@ -183,12 +196,33 @@ identity. See [`CLAUDE.md`](CLAUDE.md) for the full command list and signing not
 [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md) + [`Scripts/dist.sh`](Scripts/dist.sh) for
 the Developer ID / notarization pipeline.
 
-## Claude API key
+## Getting access to Claude
 
-SOP generation is **bring-your-own-key** and off until you add one. Set it in
-**Settings ▸ AI** (⌘,), where it is stored in the **macOS Keychain**; a read-only
-`ANTHROPIC_API_KEY` environment variable is honored as a dev/CI fallback. The UI never
-reads the key back — it only sets, clears, and reports status.
+SOP generation is off until shotAI can authenticate. There are two ways, and the app
+picks whichever is available.
+
+### Single sign-on (organizations)
+
+Where an admin has configured it, **Settings ▸ AI ▸ Account** offers **Sign In**. You sign
+in with your work account in a real browser, and shotAI receives a short-lived token that
+renews itself. Nothing to obtain, nothing to paste, nothing to pay for personally.
+
+If your sign-in succeeds but you haven't been granted access, shotAI says exactly that
+rather than implying your login failed — that case needs IT, not another attempt.
+
+Admins: see [docs/SSO-WIF.md](docs/SSO-WIF.md). It uses Anthropic's Workload Identity
+Federation with Microsoft Entra ID, gated on an app role, with no gateway to run.
+
+### Bring your own key
+
+The path for everyone outside such an organization. **Settings ▸ AI ▸ Advanced** takes an
+Anthropic API key, stored in the **macOS Keychain**; a read-only `ANTHROPIC_API_KEY`
+environment variable is honored as a dev/CI fallback. The UI never reads the key back — it
+only sets, clears, and reports status.
+
+It sits under **Advanced** because sign-in is the normal route where it exists, not because
+the key path is deprecated. It stays available precisely so it can be used when sign-in
+itself is what's broken. If you have both, the signed-in session wins.
 
 shotAI uses **Claude Sonnet 5** (`claude-sonnet-5`) by default. The **tone**
 (Professional / Friendly / Concise / Detailed — Professional by default) and **effort**
