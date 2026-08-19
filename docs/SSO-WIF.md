@@ -131,7 +131,12 @@ Each of these cost real debugging time.
   change.
 - **Graph rejects creating an `oauth2PermissionScope` and a
   `preAuthorizedApplications` reference to it in the same PATCH.** Two calls,
-  scope first, or the audience later fails to resolve with `AADSTS500011`.
+  scope first. The failure is `Permission Id that cannot be found in the
+  AppPermissions sets`, at PATCH time.
+- **`AADSTS500011` is a different failure** — the audience does not resolve in
+  the tenant, meaning no identifier URI or no service principal. The two get
+  conflated because a half-applied setup produces both at once, but they have
+  separate causes and separate fixes.
 
 ## Changing a rule safely
 

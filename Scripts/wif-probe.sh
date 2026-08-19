@@ -515,7 +515,9 @@ fi
 ok "delegated token${T_SCP:+ (scp: $T_SCP)}${T_UPN:+ · $T_UPN}"
 
 # ── 6. Pre-flight ────────────────────────────────────────────────────────────
-# The exchange returns a deliberately opaque 400. Catch the predictable
+# The exchange returns a deliberately opaque 401 (400 is the CONFIGURATION-error
+# family — malformed body, unknown rule id — and those DO name the problem in the
+# response). Catch the predictable
 # mismatches here, where the message can be specific. These compare against the
 # rule as INSTRUCTED above; if you configured it differently, ignore them.
 # WHAT THIS CANNOT SEE: the rule's subject pattern, its additional claim
@@ -566,8 +568,9 @@ elif [ "$HTTP" != "200" ]; then
   python3 -m json.tool < "$TMPDIR_RUN/exch.json" 2>/dev/null | sed 's/^/    /' || sed 's/^/    /' "$TMPDIR_RUN/exch.json"
   cat <<EOF
 
-    Every exchange failure returns the same opaque 400; the real cause is logged
-    server-side only. Go to:
+    Every assertion denial returns the same opaque 401 with the fixed message
+    "Authentication failed", by design, so rule configuration cannot be probed
+    from outside. The real cause is logged server-side only. Go to:
 
       Claude Console → Settings → Workload identity → History
 
