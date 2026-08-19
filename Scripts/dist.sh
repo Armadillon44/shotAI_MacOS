@@ -65,6 +65,38 @@ xcodebuild -project shotAI.xcodeproj -scheme "$SCHEME" -configuration Release \
   -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO clean build >/dev/null
 BUILT="$DD/Build/Products/Release/$APP_NAME.app"
 [ -d "$BUILT" ] || die "build product missing: $BUILT"
+
+# Entra SSO config is baked in at BUILD time from the gitignored
+# shotAI/Resources/Federation.plist (#69, docs/SSO-WIF.md). A machine without
+# that file produces a DMG that silently has no SSO — every test passes, the app
+# runs, and users just see the API-key path with nothing to explain why. Fail
+# loudly here rather than discover it after shipping.
+#
+# SHOTAI_ALLOW_NO_SSO=1 is the deliberate escape hatch for building the
+# bring-your-own-key artifact on purpose (an open-source release, say).
+FED="$BUILT/Contents/Resources/Federation.plist"
+if [ -f "$FED" ]; then
+  MISSING=""
+  for k in federationEntraTenantId federationEntraClientId federationEntraAudienceAppId \
+           federationRuleId federationOrganizationId federationServiceAccountId \
+           federationWorkspaceId; do
+    /usr/libexec/PlistBuddy -c "Print :$k" "$FED" >/dev/null 2>&1 || MISSING="$MISSING $k"
+  done
+  [ -z "$MISSING" ] || die "the bundled Federation.plist is incomplete, missing:$MISSING
+  Users would sign in and then fail with a config error. Fix
+  shotAI/Resources/Federation.plist and rebuild."
+  echo "  SSO:        configured"
+elif [ "${SHOTAI_ALLOW_NO_SSO:-0}" = "1" ]; then
+  echo "  SSO:        NOT configured (SHOTAI_ALLOW_NO_SSO=1) — bring-your-own-key only"
+else
+  die "no shotAI/Resources/Federation.plist on this machine, so this build would
+  ship WITHOUT Entra single sign-on and nobody would be told why — it fails
+  silently into the API-key path.
+
+  Either create it (copy shotAI/Resources/Federation.example.plist and fill in
+  the seven values; it is gitignored on purpose), or, if a key-only artifact is
+  what you actually want:  SHOTAI_ALLOW_NO_SSO=1 $0 $*"
+fi
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUILT/Contents/Info.plist")"
 APP="$DIST/$APP_NAME.app"; cp -R "$BUILT" "$APP"
 echo "  $APP_NAME $VERSION"

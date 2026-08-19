@@ -65,51 +65,10 @@ private struct AISettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("Anthropic API key") {
-                if model.apiKeyPresent {
-                    LabeledContent("Status") {
-                        Text(model.apiKeySource == .env ? "Set via ANTHROPIC_API_KEY" : "Saved in Keychain")
-                            .foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Button("Test key") {
-                            testing = true
-                            Task { keyMessage = await model.testApiKey(); testing = false }
-                        }
-                        .disabled(testing || !model.sopSettings.enabled)
-                        if model.apiKeySource != .env {
-                            Button("Clear key", role: .destructive) {
-                                keyMessage = model.clearApiKey() ?? "Key cleared."
-                            }
-                        }
-                        if testing { ProgressView().controlSize(.small) }
-                    }
+            if model.auth.federationAvailable {
+                Section("Account") {
+                    AccountRows()
                 }
-                // A stored key that couldn't be read (rare Keychain state) — warn
-                // and offer to clear the broken entry so a fresh key can be saved.
-                if model.apiKeyUnreadable {
-                    Label("A previously saved key couldn't be read.", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(Palette.draftInk)
-                    Button("Clear stored key", role: .destructive) {
-                        keyMessage = model.clearApiKey() ?? "Stored key cleared."
-                    }
-                }
-                HStack {
-                    SecureField("sk-ant-…", text: $keyInput)
-                    Button("Save") {
-                        keyMessage = model.setApiKey(keyInput) ?? "Key saved."
-                        keyInput = ""
-                    }
-                    .disabled(keyInput.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-                if let keyMessage {
-                    Text(keyMessage).font(.caption).foregroundStyle(.secondary)
-                }
-                Text("Stored in your macOS Keychain — never shown again, never logged, and sent only to api.anthropic.com.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Link("Create an API key at console.anthropic.com",
-                     destination: URL(string: "https://console.anthropic.com/settings/keys")!)
-                    .font(.caption)
             }
 
             Section("Generation") {
@@ -148,6 +107,63 @@ private struct AISettings: View {
                 }
             }
             .disabled(!model.sopSettings.enabled)
+
+            Section {
+                DisclosureGroup("Advanced") {
+                Section("Anthropic API key") {
+                    if model.apiKeyPresent {
+                        LabeledContent("Status") {
+                            Text(model.apiKeySource == .env ? "Set via ANTHROPIC_API_KEY" : "Saved in Keychain")
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Button("Test key") {
+                                testing = true
+                                Task { keyMessage = await model.testApiKey(); testing = false }
+                            }
+                            .disabled(testing || !model.sopSettings.enabled)
+                            if model.apiKeySource != .env {
+                                Button("Clear key", role: .destructive) {
+                                    keyMessage = model.clearApiKey() ?? "Key cleared."
+                                }
+                            }
+                            if testing { ProgressView().controlSize(.small) }
+                        }
+                    }
+                    // A stored key that couldn't be read (rare Keychain state) — warn
+                    // and offer to clear the broken entry so a fresh key can be saved.
+                    if model.apiKeyUnreadable {
+                        Label("A previously saved key couldn't be read.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption).foregroundStyle(Palette.draftInk)
+                        Button("Clear stored key", role: .destructive) {
+                            keyMessage = model.clearApiKey() ?? "Stored key cleared."
+                        }
+                    }
+                    HStack {
+                        SecureField("sk-ant-…", text: $keyInput)
+                        Button("Save") {
+                            keyMessage = model.setApiKey(keyInput) ?? "Key saved."
+                            keyInput = ""
+                        }
+                        .disabled(keyInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    if let keyMessage {
+                        Text(keyMessage).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("Stored in your macOS Keychain — never shown again, never logged, and sent only to api.anthropic.com.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Link("Create an API key at console.anthropic.com",
+                         destination: URL(string: "https://console.anthropic.com/settings/keys")!)
+                        .font(.caption)
+                }
+                }
+            } footer: {
+                Text(model.auth.federationAvailable
+                     ? "Signing in with your work account is the normal path. A personal API key is here for troubleshooting and testing — if one is set while you're signed in, the signed-in session is used."
+                     : "shotAI needs an Anthropic API key to write SOPs.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!model.sopSettings.enabled)
         }
         .formStyle(.grouped)
         .onChange(of: model.sopSettings) {
@@ -158,6 +174,64 @@ private struct AISettings: View {
             model.saveSopSettings()
         }
         .onAppear { model.refreshApiKeyStatus() }
+        .task { await model.refreshAuthStatus() }
+    }
+}
+
+/// The Account rows — signed out, signed in, signed in without access, or a
+/// broken configuration profile. Split out to keep `AISettings.body` legible.
+private struct AccountRows: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        switch model.auth.state {
+        case .unavailable:
+            EmptyView()
+
+        // An IT problem, not a user one. Name the fields so a ticket is actionable,
+        // and never show their values.
+        case .misconfigured(let fields):
+            Label("shotAI's sign-in isn't configured correctly on this Mac.",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.callout).foregroundStyle(Palette.draftInk)
+            Text("Ask IT to re-apply the shotAI configuration profile. Missing or invalid: \(fields.joined(separator: ", ")).")
+                .font(.caption).foregroundStyle(.secondary)
+
+        case .signedOut:
+            LabeledContent("Status") { Text("Not signed in").foregroundStyle(.secondary) }
+            HStack {
+                Button("Sign In…") { Task { await model.auth.signIn() } }
+                    .disabled(model.auth.busy)
+                if model.auth.busy { ProgressView().controlSize(.small) }
+            }
+            Text("Sign in with your work account to write SOPs. No API key needed — shotAI gets a short-lived token that expires on its own.")
+                .font(.caption).foregroundStyle(.secondary)
+
+        case .signedIn(let account, let entitled):
+            LabeledContent("Signed in as") {
+                Text(account ?? "your work account").foregroundStyle(.secondary)
+            }
+            // Signed in fine, no app role. Say so plainly: retrying cannot fix it,
+            // and it is emphatically not a failed login.
+            if entitled == false {
+                Label("This account doesn't have access to shotAI's AI features yet.",
+                      systemImage: "person.badge.clock")
+                    .font(.callout).foregroundStyle(Palette.draftInk)
+                Text("Your sign-in worked. Ask IT to grant your account access, then use Check Again — signing out and back in won't change it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("Check Again") { Task { await model.auth.signIn(forceLogin: true) } }
+                    .disabled(model.auth.busy)
+                Button("Sign Out") { Task { await model.auth.signOut() } }
+                    .disabled(model.auth.busy)
+                if model.auth.busy { ProgressView().controlSize(.small) }
+            }
+        }
+
+        if let e = model.auth.error {
+            Text(e).font(.caption).foregroundStyle(Palette.draftInk)
+        }
     }
 }
 

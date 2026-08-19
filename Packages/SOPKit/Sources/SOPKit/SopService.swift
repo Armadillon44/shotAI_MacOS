@@ -9,18 +9,35 @@ public struct SopEstimate: Sendable, Equatable {
     public let estCostUsd: Double
 }
 
-/// High-level SOP operations: validate the key, estimate cost, and generate the
+/// High-level SOP operations: validate access, estimate cost, and generate the
 /// inline edit plan. Storage-agnostic — it returns a `SopEditPlan` that the app
-/// applies via `ProjectStore.applySopEdits`. The API key is read from the store
-/// just-in-time and passed to the client; it never returns to the caller.
+/// applies via `ProjectStore.applySopEdits`.
+///
+/// The credential is resolved just-in-time per call and never returns to the
+/// caller. Resolution is late on purpose: a federated token lives ~10 minutes,
+/// so binding one at construction would hand every later call an expired token.
 public struct SopService: Sendable {
     let client: ClaudeClient
-    let keyStore: ApiKeyStore
+    let credentials: CredentialProvider
 
-    public init(client: ClaudeClient = ClaudeClient(), keyStore: ApiKeyStore = KeychainApiKeyStore()) {
+    public init(client: ClaudeClient = ClaudeClient(), credentials: CredentialProvider) {
         self.client = client
-        self.keyStore = keyStore
+        self.credentials = credentials
     }
+
+    /// Bring-your-own-key construction. Kept so the API-key path (and every
+    /// existing test) works unchanged when federation is not configured.
+    public init(client: ClaudeClient = ClaudeClient(), keyStore: ApiKeyStore = KeychainApiKeyStore()) {
+        self.init(client: client, credentials: StoredKeyCredentialProvider(keyStore: keyStore))
+    }
+
+    /// Resolve a credential, mapping "nothing available" to the right guidance.
+    private func credential() async throws -> ClaudeCredential {
+        try await credentials.credential()
+    }
+
+    /// UI-safe snapshot of how (or whether) requests can currently be made.
+    public func credentialStatus() async -> CredentialStatus { await credentials.status() }
 
     /// Rough output-token allowance for the estimate (input dominates anyway).
     static let estOutputTokens = 2500
@@ -34,18 +51,17 @@ public struct SopService: Sendable {
     @discardableResult
     public func testKey(settings: SopSettings) async throws -> SopModelId {
         guard settings.enabled else { throw ClaudeError.disabled }
-        guard let key = keyStore.key() else { throw ClaudeError.noKey }
-        try await client.checkModel(apiKey: key, model: settings.model)
+        try await client.checkModel(credential: try await credential(), model: settings.model)
         return settings.model
     }
 
     /// Estimate input tokens + cost for generating this project's SOP.
     public func estimate(dir: String, manifest: ProjectManifest, settings: SopSettings) async throws -> SopEstimate {
         guard settings.enabled else { throw ClaudeError.disabled }
-        guard let key = keyStore.key() else { throw ClaudeError.noKey }
+        let cred = try await credential()
         let assembled = try assembleRequest(dir: dir, manifest: manifest, settings: settings)
         let inputTokens = try await client.countTokens(
-            apiKey: key, model: settings.model, system: assembled.system, messages: assembled.messages)
+            credential: cred, model: settings.model, system: assembled.system, messages: assembled.messages)
         let p = params(settings.model)
         let cost = Double(inputTokens) / 1e6 * p.inputPerMTok
             + Double(Self.estOutputTokens) / 1e6 * p.outputPerMTok
@@ -60,7 +76,9 @@ public struct SopService: Sendable {
         onProgress: @Sendable (SopProgress) -> Void = { _ in }
     ) async throws -> SopEditPlan {
         guard settings.enabled else { throw ClaudeError.disabled }
-        guard let key = keyStore.key() else { throw ClaudeError.noKey }
+        // Resolved BEFORE the (slow) request assembly so an expired session
+        // fails fast, instead of after flattening every screenshot.
+        let cred = try await credential()
         onProgress(.preparing)
         let assembled = try assembleRequest(dir: dir, manifest: manifest, settings: settings)
         let p = params(settings.model)
@@ -79,7 +97,7 @@ public struct SopService: Sendable {
         ]
         if p.adaptiveThinking { body["thinking"] = ["type": "adaptive"] }
 
-        let raw = try await client.streamEditPlan(apiKey: key, body: body, onProgress: onProgress)
+        let raw = try await client.streamEditPlan(credential: cred, body: body, onProgress: onProgress)
         let plan = SopEditPlan(
             title: raw.title,
             intro: raw.intro.map { SopIntro(heading: $0.heading, body: $0.body) },

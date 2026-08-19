@@ -6,6 +6,7 @@ import Foundation
 import ImageIO
 import Observation
 import ShotModel
+import EntraKit
 import SOPKit
 import UniformTypeIdentifiers
 
@@ -382,9 +383,24 @@ final class AppModel {
     var sopEstimate: SopEstimate?
     /// Surfaced by the report's alert.
     var sopError: String?
+    /// Which kind of failure `sopError` describes, so the alert can title itself
+    /// honestly and offer the action that would actually fix it. "SOP generation
+    /// failed" is the wrong sentence when the user simply isn't signed in yet.
+    private(set) var sopErrorKind: ClaudeError.Kind?
+
+    /// Sign-in state. Owns the federation config and provider; never sees a token.
+    let auth = AuthModel()
+    /// Mirror of the resolved credential path, so views can react.
+    private(set) var credentialStatus = CredentialStatus(active: .none)
 
     @ObservationIgnored private let apiKeyStore: ApiKeyStore = KeychainApiKeyStore()
-    @ObservationIgnored private lazy var sopService = SopService(keyStore: apiKeyStore)
+    /// Federated session first, stored key second. See CompositeCredentialProvider
+    /// for why that inverts the SDK's own precedence.
+    @ObservationIgnored private lazy var credentials: CredentialProvider =
+        CompositeCredentialProvider(configState: auth.configStateForProvider,
+                                    federated: auth.federated,
+                                    keyStore: apiKeyStore)
+    @ObservationIgnored private lazy var sopService = SopService(credentials: credentials)
     @ObservationIgnored private var sopTask: Task<Void, Never>?
 
     private static let sopSettingsKey = "sopSettings.v1"
@@ -478,15 +494,30 @@ final class AppModel {
         apiKeyUnreadable = s.storedButUnreadable
     }
 
+    /// Re-read sign-in state and the resolved credential path together, so the UI
+    /// never shows "signed in" next to a Generate button that would refuse.
+    func refreshAuthStatus() async {
+        await auth.refresh()
+        credentialStatus = await sopService.credentialStatus()
+    }
+
+    /// Sign in from wherever the user hit the wall, then clear the message so they
+    /// can retry without a detour through Settings.
+    func signInFromError() async {
+        await auth.signIn()
+        await refreshAuthStatus()
+        if auth.isSignedIn { sopError = nil; sopErrorKind = nil }
+    }
+
     /// Store the key (Keychain). Returns an error message, or nil on success. The
     /// key value never returns to the caller.
     @discardableResult func setApiKey(_ key: String) -> String? {
-        defer { refreshApiKeyStatus() }
+        defer { refreshApiKeyStatus(); Task { await refreshAuthStatus() } }
         do { try apiKeyStore.set(key); return nil } catch { return error.localizedDescription }
     }
 
     @discardableResult func clearApiKey() -> String? {
-        defer { refreshApiKeyStatus() }
+        defer { refreshApiKeyStatus(); Task { await refreshAuthStatus() } }
         do { try apiKeyStore.clear(); return nil } catch { return error.localizedDescription }
     }
 
@@ -498,10 +529,51 @@ final class AppModel {
         } catch { return error.localizedDescription }
     }
 
-    /// Generate is available when SOP is on, a key exists, and there's a shot step.
+    /// Some credential is available — a signed-in session OR a stored key.
+    /// The report panel gates on this rather than on `apiKeyPresent`, which was
+    /// the only option before federation existed.
+    var hasCredential: Bool { auth.isSignedIn || apiKeyPresent }
+
+    /// Generate is available when SOP is on, SOME credential resolves (a signed-in
+    /// session or a stored key), and there's a shot step to work from.
     var canGenerateSop: Bool {
-        sopSettings.enabled && apiKeyPresent
+        sopSettings.enabled && (auth.isSignedIn || apiKeyPresent)
             && (opened?.manifest.steps.contains { $0.kind != .text } ?? false)
+    }
+
+    /// Why Generate is unavailable — or nil when it is available. Ordered so the
+    /// most actionable explanation wins.
+    var sopBlockedError: ClaudeError? {
+        if !sopSettings.enabled { return .disabled }
+        // Checked before "not signed in": this user IS signed in, and telling them
+        // to sign in again would send them round a loop that cannot help.
+        if auth.signedInWithoutAccess, !apiKeyPresent, case .signedIn(let who, _) = auth.state {
+            return .notEntitled(account: who)
+        }
+        if case .misconfigured(let fields) = auth.state, !apiKeyPresent {
+            return .configInvalid(fields: fields)
+        }
+        if auth.isSignedIn || apiKeyPresent { return nil }
+        return auth.federationAvailable ? .notSignedIn : .noKey
+    }
+
+    var sopBlockedReason: String? { sopBlockedError?.errorDescription }
+
+    /// True when the alert should offer to start sign-in rather than just say OK.
+    var sopErrorOffersSignIn: Bool {
+        guard auth.federationAvailable else { return false }
+        return sopErrorKind == .notSignedIn || sopErrorKind == .signInRequired
+    }
+
+    /// Honest alert title. Nothing "failed" when the user simply isn't signed in.
+    var sopErrorTitle: String {
+        switch sopErrorKind {
+        case .notSignedIn, .signInRequired: "Sign in to generate an SOP"
+        case .notEntitled: "Access not granted yet"
+        case .configInvalid: "shotAI isn't configured for sign-in"
+        case .noKey: "No API key set"
+        default: "SOP generation failed"
+        }
     }
     /// Revert is available when an AI snapshot exists.
     var canRevertSop: Bool { opened?.manifest.sopBackup != nil }
@@ -512,8 +584,11 @@ final class AppModel {
     /// count_tokens can otherwise leave the panel stuck busy with a dead Cancel).
     func prepareSop() {
         guard let current = opened, !sopBusy else { return }
-        guard sopSettings.enabled else { sopError = ClaudeError.disabled.errorDescription; return }
-        guard apiKeyPresent else { sopError = "Add your Anthropic API key in Settings ▸ AI first."; return }
+        if let blocked = sopBlockedError {
+            sopErrorKind = blocked.kind
+            sopError = blocked.errorDescription
+            return
+        }
         sopBusy = true; sopError = nil; sopProgress = "Preparing…"
         let dir = current.dir
         let manifest = current.manifest
@@ -528,7 +603,8 @@ final class AppModel {
                 self.finishSop(error: nil)
                 self.sopEstimate = est   // triggers the confirm dialog
             } catch {
-                self.finishSop(error: Task.isCancelled ? nil : error.localizedDescription)
+                self.finishSop(error: Task.isCancelled ? nil : error.localizedDescription,
+                               kind: (error as? ClaudeError)?.kind)
             }
         }
     }
@@ -557,16 +633,17 @@ final class AppModel {
                 Log.store.notice("SOP generated (\(plan.steps.count, privacy: .public) step edits)")
             } catch {
                 // A user cancel surfaces as a transport error; treat it as silent.
-                self.finishSop(error: Task.isCancelled ? nil : error.localizedDescription)
+                self.finishSop(error: Task.isCancelled ? nil : error.localizedDescription,
+                               kind: (error as? ClaudeError)?.kind)
             }
         }
     }
 
-    private func finishSop(error: String?) {
+    private func finishSop(error: String?, kind: ClaudeError.Kind? = nil) {
         sopBusy = false
         sopProgress = nil
         sopTask = nil
-        if let error { sopError = error }
+        if let error { sopError = error; sopErrorKind = kind }
     }
 
     /// Cancel an in-flight generation.
