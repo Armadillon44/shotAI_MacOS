@@ -12,17 +12,21 @@ check against GitHub that you can turn off. This is a native Swift/SwiftUI port 
 the [Windows app](https://github.com/Armadillon44/shotAI); `project.json` is
 byte-compatible, so projects **round-trip between platforms**.
 
-> **Status:** **1.1.3.** Capture engine, native SwiftUI
+> **Status:** **1.2.0.** Capture engine, native SwiftUI
 > annotation editor, manual redaction (blur or solid box, baked into a flattened copy), Claude SOP
 > generation with review-before-send + one-click revert, element-at-point captions (native
 > Accessibility), export to HTML / PDF / Markdown / "HTML for Word" + a shareable
 > round-trip `.zip` package, project archiving, a first-run tour, and light/dark theming are
 > all implemented.
-> **New:** **Single sign-on.** Where an organization has configured it, staff sign in with
+> **New in 1.2.0:** **Single sign-on.** Where an organization has configured it, staff sign in with
 > their **work account** and Claude just works — no API key issued, stored, or typed on any
 > machine, and no gateway or proxy in between. Access is an identity-provider role assignment,
 > so revoking someone revokes Claude with it. Bring-your-own-key is unchanged for everyone
 > else. See [docs/SSO-WIF.md](docs/SSO-WIF.md).
+> **Also in 1.2.0:** Claude now **reads what you wrote**. Your Overview, and any note /
+> caution / warning callouts and section headings you added, are sent as context — they
+> carry things the screenshots can't show, so they shape the whole guide instead of being
+> silently overwritten. Captions you edit by hand now survive a regenerate too.
 > **In 1.1.3:** shotAI now **tells you when a newer version is out** — a once-a-day check
 > with a small notice on the Home screen, opt-out in Settings. It never downloads or installs
 > anything itself. And because macOS resets an un-notarized app's permissions on every update,
