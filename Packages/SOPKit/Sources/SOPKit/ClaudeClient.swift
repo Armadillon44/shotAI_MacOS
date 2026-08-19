@@ -117,10 +117,12 @@ public struct ClaudeClient: Sendable {
     let transport: ClaudeTransport
     public init(transport: ClaudeTransport = URLSessionTransport()) { self.transport = transport }
 
-    private func makeRequest(path: String, apiKey: String, method: String, jsonBody: [String: Any]?) throws -> URLRequest {
+    private func makeRequest(path: String, credential: ClaudeCredential, method: String, jsonBody: [String: Any]?) throws -> URLRequest {
         var req = URLRequest(url: Self.baseURL.appendingPathComponent(path))
         req.httpMethod = method
-        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        // The single place an Anthropic auth header is written. `apply` picks
+        // x-api-key or Authorization: Bearer; the secret is never visible here.
+        credential.apply(to: &req)
         req.setValue(Self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         if let jsonBody {
@@ -130,7 +132,7 @@ public struct ClaudeClient: Sendable {
     }
 
     /// Pull `error.message` out of an Anthropic error body (best-effort).
-    private static func apiMessage(_ data: Data) -> String? {
+    static func apiMessage(_ data: Data) -> String? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let err = obj["error"] as? [String: Any] else { return nil }
         return err["message"] as? String
@@ -138,19 +140,19 @@ public struct ClaudeClient: Sendable {
 
     // MARK: Model check (cheap key/model validation — GET /v1/models/{id})
 
-    public func checkModel(apiKey: String, model: SopModelId) async throws {
-        let req = try makeRequest(path: "/v1/models/\(model.rawValue)", apiKey: apiKey, method: "GET", jsonBody: nil)
+    public func checkModel(credential: ClaudeCredential, model: SopModelId) async throws {
+        let req = try makeRequest(path: "/v1/models/\(model.rawValue)", credential: credential, method: "GET", jsonBody: nil)
         let (data, head) = try await transport.data(for: req)
-        guard head.status == 200 else { throw ClaudeError.from(head: head, message: Self.apiMessage(data)) }
+        guard head.status == 200 else { throw ClaudeError.from(head: head, message: Self.apiMessage(data), kind: credential.kind) }
     }
 
     // MARK: Token count (POST /v1/messages/count_tokens)
 
-    public func countTokens(apiKey: String, model: SopModelId, system: [[String: Any]], messages: [[String: Any]]) async throws -> Int {
+    public func countTokens(credential: ClaudeCredential, model: SopModelId, system: [[String: Any]], messages: [[String: Any]]) async throws -> Int {
         let body: [String: Any] = ["model": model.rawValue, "system": system, "messages": messages]
-        let req = try makeRequest(path: "/v1/messages/count_tokens", apiKey: apiKey, method: "POST", jsonBody: body)
+        let req = try makeRequest(path: "/v1/messages/count_tokens", credential: credential, method: "POST", jsonBody: body)
         let (data, head) = try await transport.data(for: req)
-        guard head.status == 200 else { throw ClaudeError.from(head: head, message: Self.apiMessage(data)) }
+        guard head.status == 200 else { throw ClaudeError.from(head: head, message: Self.apiMessage(data), kind: credential.kind) }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let n = obj["input_tokens"] as? Int else { throw ClaudeError.malformed }
         return n
@@ -161,8 +163,8 @@ public struct ClaudeClient: Sendable {
     /// Stream a vision + structured-output request; accumulate the JSON text,
     /// track the stop reason, and decode the edit plan. Progress is reported via
     /// `onProgress`. Throws a friendly ClaudeError on refusal/cutoff/malformed.
-    func streamEditPlan(apiKey: String, body: [String: Any], onProgress: @Sendable (SopProgress) -> Void) async throws -> SopEditRaw {
-        let req = try makeRequest(path: "/v1/messages", apiKey: apiKey, method: "POST", jsonBody: body)
+    func streamEditPlan(credential: ClaudeCredential, body: [String: Any], onProgress: @Sendable (SopProgress) -> Void) async throws -> SopEditRaw {
+        let req = try makeRequest(path: "/v1/messages", credential: credential, method: "POST", jsonBody: body)
         let (lines, head) = try await transport.stream(for: req)
 
         // Non-200: the body is a JSON error, not SSE — drain + surface it.
@@ -172,7 +174,7 @@ public struct ClaudeClient: Sendable {
                 raw += line.hasPrefix("data:") ? String(line.dropFirst(5)) : line
             }
             let msg = Self.apiMessage(Data(raw.utf8))
-            throw ClaudeError.from(head: head, message: msg)
+            throw ClaudeError.from(head: head, message: msg, kind: credential.kind)
         }
 
         var text = ""

@@ -50,12 +50,12 @@ final class SettingsAndPromptTests: XCTestCase {
 final class ClaudeClientTests: XCTestCase {
     func testCheckModelOkAndError() async throws {
         let ok = ClaudeClient(transport: MockTransport(dataHandler: { _ in (Data("{}".utf8), ResponseHead(status: 200)) }))
-        try await ok.checkModel(apiKey: "k", model: .sonnet5)  // no throw
+        try await ok.checkModel(credential: .apiKey("sk-ant-test"), model: .sonnet5)  // no throw
 
         let bad = ClaudeClient(transport: MockTransport(dataHandler: { _ in
             (Data(#"{"error":{"message":"nope"}}"#.utf8), ResponseHead(status: 401))
         }))
-        do { try await bad.checkModel(apiKey: "k", model: .sonnet5); XCTFail("expected throw") }
+        do { try await bad.checkModel(credential: .apiKey("sk-ant-test"), model: .sonnet5); XCTFail("expected throw") }
         catch {
             XCTAssertEqual((error as? ClaudeError)?.kind, .invalidKey)
             // The server's own text is kept, not discarded for a canned string.
@@ -67,21 +67,21 @@ final class ClaudeClientTests: XCTestCase {
         let c = ClaudeClient(transport: MockTransport(dataHandler: { _ in
             (Data(#"{"input_tokens":1234}"#.utf8), ResponseHead(status: 200))
         }))
-        let n = try await c.countTokens(apiKey: "k", model: .sonnet5, system: [], messages: [])
+        let n = try await c.countTokens(credential: .apiKey("sk-ant-test"), model: .sonnet5, system: [], messages: [])
         XCTAssertEqual(n, 1234)
 
         // 429 WITH a small retry-after: a real throttle, worth retrying.
         let limited = ClaudeClient(transport: MockTransport(dataHandler: { _ in
             (Data("{}".utf8), ResponseHead(status: 429, headers: ["Retry-After": "12"]))
         }))
-        do { _ = try await limited.countTokens(apiKey: "k", model: .sonnet5, system: [], messages: []); XCTFail() }
+        do { _ = try await limited.countTokens(credential: .apiKey("sk-ant-test"), model: .sonnet5, system: [], messages: []); XCTFail() }
         catch { XCTAssertEqual((error as? ClaudeError)?.kind, .rateLimited) }
     }
 
     func testStreamDecodesPlan() async throws {
         let json = #"{"title":"My SOP","intro":null,"steps":[{"stepNumber":1,"caption":"Open menu","body":"Click it","sectionHeading":null,"sectionBody":null}]}"#
         let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: json), ResponseHead(status: 200)) }))
-        let raw = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in })
+        let raw = try await c.streamEditPlan(credential: .apiKey("sk-ant-test"), body: [:], onProgress: { _ in })
         XCTAssertEqual(raw.title, "My SOP")
         XCTAssertEqual(raw.steps.count, 1)
         XCTAssertEqual(raw.steps[0].caption, "Open menu")
@@ -122,7 +122,7 @@ final class ClaudeClientTests: XCTestCase {
 
         let sse = lines
         let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sse, ResponseHead(status: 200)) }))
-        let raw = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in })
+        let raw = try await c.streamEditPlan(credential: .apiKey("sk-ant-test"), body: [:], onProgress: { _ in })
         XCTAssertEqual(raw.title, "My SOP")
         XCTAssertEqual(raw.intro?.heading, "Overview")
         XCTAssertEqual(raw.steps.map(\.stepNumber), [1, 2])
@@ -131,7 +131,7 @@ final class ClaudeClientTests: XCTestCase {
 
     func testStreamRefusal() async {
         let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: "{}", stopReason: "refusal"), ResponseHead(status: 200)) }))
-        do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
+        do { _ = try await c.streamEditPlan(credential: .apiKey("sk-ant-test"), body: [:], onProgress: { _ in }); XCTFail() }
         catch { XCTAssertEqual(error as? ClaudeError, .refusal) }
     }
 
@@ -139,7 +139,7 @@ final class ClaudeClientTests: XCTestCase {
         // A truncated (invalid) JSON body with stop_reason max_tokens → cutoff.
         let lines = sseLines(json: #"{"title":"x","steps":["#, stopReason: "max_tokens")
         let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (lines, ResponseHead(status: 200)) }))
-        do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
+        do { _ = try await c.streamEditPlan(credential: .apiKey("sk-ant-test"), body: [:], onProgress: { _ in }); XCTFail() }
         catch { XCTAssertEqual(error as? ClaudeError, .cutoff) }
     }
 
@@ -152,7 +152,7 @@ final class ClaudeClientTests: XCTestCase {
             #"data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
         ]
         let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in (lines, ResponseHead(status: 200)) }))
-        do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
+        do { _ = try await c.streamEditPlan(credential: .apiKey("sk-ant-test"), body: [:], onProgress: { _ in }); XCTFail() }
         catch { XCTAssertEqual(error as? ClaudeError, .overloaded) }
     }
 
@@ -161,7 +161,7 @@ final class ClaudeClientTests: XCTestCase {
             ([#"data: {"error":{"message":"boom"}}"#],
              ResponseHead(status: 500, headers: ["request-id": "req_abc123"]))
         }))
-        do { _ = try await c.streamEditPlan(apiKey: "k", body: [:], onProgress: { _ in }); XCTFail() }
+        do { _ = try await c.streamEditPlan(credential: .apiKey("sk-ant-test"), body: [:], onProgress: { _ in }); XCTFail() }
         catch {
             guard case .api(let status, let f)? = error as? ClaudeError else { return XCTFail("wrong: \(error)") }
             XCTAssertEqual(status, 500)
@@ -278,5 +278,120 @@ final class SopServiceTests: XCTestCase {
             keyStore: StubKeyStore())
         let plan = try await svc3.generate(dir: dir, manifest: m, settings: SopSettings())
         XCTAssertEqual(plan.steps.first?.caption, "Do it")
+    }
+}
+
+/// The credential must not be readable, printable, or dumpable. This is the
+/// `ApiKeyStore` "never surface the key" invariant, carried across a module
+/// boundary by the type rather than by convention — so it needs a test that
+/// fails loudly if someone "helpfully" adds an accessor or a synthesized
+/// Equatable/Codable conformance later.
+final class CredentialRedactionTests: XCTestCase {
+    private let secret = "sk-ant-api03-SUPERSECRET-do-not-print"
+
+    func testNotLeakedByInterpolationOrDescription() {
+        let c = ClaudeCredential.apiKey(secret)
+        XCTAssertFalse("\(c)".contains(secret))
+        XCTAssertFalse(String(describing: c).contains(secret))
+        XCTAssertFalse(String(reflecting: c).contains(secret))
+        XCTAssertTrue("\(c)".contains("redacted"))
+    }
+
+    func testNotLeakedByDump() {
+        // `dump()` walks customMirror, which is the path a plain struct would
+        // leak through even with description overridden.
+        var out = ""
+        dump(ClaudeCredential.federated(secret), to: &out)
+        XCTAssertFalse(out.contains(secret))
+        XCTAssertTrue(out.contains("redacted"))
+    }
+
+    func testKindIsVisibleButSecretIsNot() {
+        XCTAssertEqual(ClaudeCredential.apiKey(secret).kind, .apiKey)
+        XCTAssertEqual(ClaudeCredential.federated(secret).kind, .federated)
+    }
+
+    /// The header actually written differs by kind — the whole point of the type.
+    func testAppliesTheRightHeader() {
+        var a = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        ClaudeCredential.apiKey("KEYVAL").apply(to: &a)
+        XCTAssertEqual(a.value(forHTTPHeaderField: "x-api-key"), "KEYVAL")
+        XCTAssertNil(a.value(forHTTPHeaderField: "authorization"))
+
+        var b = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        ClaudeCredential.federated("TOKVAL").apply(to: &b)
+        XCTAssertEqual(b.value(forHTTPHeaderField: "authorization"), "Bearer TOKVAL")
+        XCTAssertNil(b.value(forHTTPHeaderField: "x-api-key"))
+    }
+}
+
+final class FederatedAuthTests: XCTestCase {
+    private let ids = AnthropicFederationIds(
+        federationRuleId: "fdrl_test", organizationId: "org-test",
+        serviceAccountId: "svac_test", workspaceId: "wrkspc_test")
+
+    /// A 401 on the federated path must NOT say "Invalid API key." The user has
+    /// no key; sending them to check one is the worst available advice.
+    func test401WordingDependsOnCredentialKind() {
+        let head = ResponseHead(status: 401)
+        XCTAssertEqual(ClaudeError.from(head: head, message: nil, kind: .apiKey).kind, .invalidKey)
+        XCTAssertEqual(ClaudeError.from(head: head, message: nil, kind: .federated).kind, .sessionRejected)
+        let d = ClaudeError.from(head: head, message: nil, kind: .federated).errorDescription ?? ""
+        XCTAssertFalse(d.lowercased().contains("api key"))
+    }
+
+    func testExchangeReturnsAFederatedCredential() async throws {
+        let c = ClaudeClient(transport: MockTransport(dataHandler: { _ in
+            (Data(#"{"access_token":"sk-ant-oat01-abc","expires_in":600,"scope":"workspace:inference"}"#.utf8),
+             ResponseHead(status: 200))
+        }))
+        let minted = try await c.exchangeFederatedToken(assertion: "jwt", ids: ids)
+        XCTAssertEqual(minted.credential.kind, .federated)
+        XCTAssertEqual(minted.scope, "workspace:inference")
+        XCTAssertTrue(minted.expiresAt > Date(), "expiry is absolute, computed from now")
+        XCTAssertFalse("\(minted)".contains("sk-ant-oat01-abc"), "the token must not print")
+    }
+
+    /// The exchange carries the assertion as its own auth, so it must send no
+    /// x-api-key and no Authorization header of its own.
+    func testExchangeSendsNoAuthHeader() async throws {
+        actor Seen { var req: URLRequest?; func set(_ r: URLRequest) { req = r } }
+        let seen = Seen()
+        let c = ClaudeClient(transport: MockTransport(dataHandler: { r in
+            Task { await seen.set(r) }
+            return (Data(#"{"access_token":"sk-ant-oat01-x","expires_in":600}"#.utf8), ResponseHead(status: 200))
+        }))
+        _ = try await c.exchangeFederatedToken(assertion: "jwt", ids: ids)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let r = await seen.req
+        XCTAssertNil(r?.value(forHTTPHeaderField: "x-api-key"))
+        XCTAssertNil(r?.value(forHTTPHeaderField: "authorization"))
+        XCTAssertEqual(r?.url?.host, "api.anthropic.com", "host pin still holds")
+    }
+
+    /// A refused assertion is its own case, so the UI can explain "you signed in
+    /// fine, but access wasn't granted" rather than blaming the sign-in.
+    func testRefusedExchangeIsNotAnApiKeyError() async {
+        let c = ClaudeClient(transport: MockTransport(dataHandler: { _ in
+            (Data(#"{"error":{"message":"Authentication failed"}}"#.utf8),
+             ResponseHead(status: 401, headers: ["request-id": "req_zz"]))
+        }))
+        do {
+            _ = try await c.exchangeFederatedToken(assertion: "jwt", ids: ids)
+            XCTFail("expected throw")
+        } catch {
+            XCTAssertEqual((error as? ClaudeError)?.kind, .federationRefused)
+            XCTAssertTrue(error.localizedDescription.contains("req_zz"))
+        }
+    }
+
+    /// The local pre-flight case: signed in, but no app role. Must not imply the
+    /// sign-in failed, and must not invite a retry.
+    func testNotEntitledCopyBlamesAccessNotSignIn() {
+        let d = ClaudeError.notEntitled(account: "someone@example.com").errorDescription ?? ""
+        XCTAssertTrue(d.contains("signed in"))
+        XCTAssertTrue(d.contains("someone@example.com"))
+        XCTAssertTrue(d.lowercased().contains("ask it"))
+        XCTAssertFalse(d.lowercased().contains("failed"))
     }
 }
