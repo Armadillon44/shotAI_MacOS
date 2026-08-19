@@ -32,7 +32,11 @@ set -uo pipefail
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/shotai"
 CONFIG="$CONFIG_DIR/wif-probe.env"
-APP_NAME="claude-api-federation"
+# Shown to users on the Entra consent screen ("Are you trying to sign in
+# to …?"), so it is the product name, not an internal one. Only used to
+# FIND the registration when APP_ID is not cached; the ID is what the
+# federation rule matches, and renaming does not change it.
+APP_NAME="shotAI"
 AZ_CLI_APP_ID="04b07795-8ddb-461a-bbee-02f9e1bf7b46"   # Microsoft Azure CLI, first-party
 
 # Two separate buckets, deliberately. BLOCKERS decide the verdict; WARNINGS are
