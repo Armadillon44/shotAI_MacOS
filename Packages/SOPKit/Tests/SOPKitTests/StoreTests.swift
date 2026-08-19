@@ -20,6 +20,13 @@ final class AssemblerTests: XCTestCase {
         let lead = content.first?["text"] as? String
         XCTAssertEqual(lead?.contains("Test SOP"), true)
         XCTAssertEqual(lead?.contains("Current project name"), true)
+        // The name is QUOTED and stands alone, so no adjacent word can be
+        // mistaken for it. Claude once returned "placeholder" as the title
+        // because that word sat beside the value.
+        XCTAssertEqual(lead?.contains("\"Test SOP\""), true)
+        XCTAssertEqual(lead?.contains("Never return"), true)
+        XCTAssertEqual(lead?.contains("placeholder\", \"untitled"), true,
+                       "generic titles are forbidden by name")
         XCTAssertEqual(lead?.contains("The 2 steps"), true)
         XCTAssertEqual(content.filter { $0["type"] as? String == "image" }.count, 2)
         XCTAssertNotNil((content.last?["cache_control"]))

@@ -75,12 +75,22 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
             .compactMap { $0 }.joined(separator: "\n")
     }()
 
+    var header = ""
     // Built in pieces: as one expression this exceeded the type-checker's budget.
-    var header = "Current project name (usually an auto-generated placeholder such as a "
-    header += "date/time stamp): \(manifest.title)\n"
-    header += "You MUST set `title` to a clear, specific name for the overall procedure, "
-    header += "derived from what the steps accomplish. Only keep the current name if it "
-    header += "already reads as a real, descriptive procedure title (it usually does not).\n"
+    // The current name is quoted and kept on its own line, away from any word
+    // describing it. It previously read "(usually an auto-generated placeholder
+    // such as a date/time stamp): <title>", which put "placeholder" directly
+    // beside the value in the one sentence about what a title is — and Claude
+    // returned "placeholder" as the title. Describe the name AFTER stating it,
+    // and forbid generic answers outright.
+    header += "Current project name: \"\(manifest.title)\"\n"
+    header += "That name is almost always auto-generated (typically just a date and time) "
+    header += "and is not part of the content. You MUST set `title` to a clear, specific "
+    header += "name for the PROCEDURE ITSELF, derived from what the steps accomplish — for "
+    header += "example \"Configuring VPN access in the admin console\". Keep the current name "
+    header += "only if it already reads as a real, descriptive procedure title. Never return "
+    header += "a generic or filler title such as \"placeholder\", \"untitled\", \"SOP\" or "
+    header += "\"Project\"; if the steps are sparse, still name the specific task they show.\n"
     header += "The \(source.count) steps below are in order. Write one edit-plan entry per "
     header += "SCREENSHOT step, setting its stepNumber to that step's number. Keep the "
     header += "screenshots in this order. Redactions are already baked into the images — "
