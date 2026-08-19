@@ -654,13 +654,28 @@ $(bold "[wif-probe] PASS")
     entra_tenant_id     $TENANT_ID
     entra_audience      api://$APP_ID
 
+  A PASS says the rule ACCEPTED this token. It does not say the rule REJECTS
+  anything — a rule matching only on tid accepts every user in the tenant and
+  passes identically. To learn whether a rule discriminates, run it again as a
+  user who should be denied and confirm a FAIL. That negative run is the only
+  evidence an access rule is doing its job.
+
   Next, in this order:
-    1. Add an App Role (e.g. shotAI.User) on a shotAI app registration and
-       tighten the rule with a CEL condition requiring it. That assignment
-       becomes who may use the AI features.
-    2. Set a spend cap on the workspace — every user shares its limits.
-    3. Build the Swift side: ASWebAuthenticationSession → this exchange →
+    1. Set a spend cap on the workspace — every user shares its limits, so one
+       runaway session is everyone's problem.
+    2. Build the Swift side: ASWebAuthenticationSession → this exchange →
        Authorization: Bearer, refreshing ~2 min before expiry.
+
+  Gating on an Entra App Role is DONE and proven (2026-08-19). Both directions
+  were tested against a parallel rule before the live rule was touched:
+
+    claims.tid == "<TENANT>" && "roles" in claims && "shotAI.User" in claims.roles
+
+  The middle clause is load-bearing, not redundant. Entra OMITS `roles` for an
+  unassigned user rather than sending an empty array, and in CEL a missing map
+  key is a runtime error, not false. `"roles" in claims` is a map OPERATOR (so
+  it needs no macro support) and lets && short-circuit, which is what turns an
+  unassigned user into a clean 401 instead of an undocumented error path.
 
   DO NOT DELETE THE APP REGISTRATION. On a PASS it stops being scratch: the
   federation rule matches its ID as the audience, and it is the app your users
