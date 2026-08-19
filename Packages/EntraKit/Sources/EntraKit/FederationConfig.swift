@@ -34,6 +34,24 @@ public struct FederationConfig: Sendable, Equatable {
     /// The app role a user must hold. Checked locally only to explain a denial
     /// early — the federation rule's CEL condition is the enforcement point.
     public static let requiredRole = "shotAI.User"
+
+    /// Build a state from a key lookup. Shared by every source so "what counts as
+    /// missing" cannot drift between them.
+    static func assemble(_ lookup: (String) -> String?) -> FederationConfigState {
+        let found = Key.all.reduce(into: [String: String]()) { acc, k in
+            if let v = lookup(k) { acc[k] = v }
+        }
+        if found.isEmpty { return .absent }
+        let missing = Key.all.filter { found[$0] == nil }
+        guard missing.isEmpty else { return .invalid(missing: missing) }
+        return .ready(FederationConfig(
+            entra: EntraConfig(tenantId: found[Key.tenantId]!, clientId: found[Key.clientId]!,
+                               audienceAppId: found[Key.audienceAppId]!,
+                               redirectURI: redirectURI, callbackScheme: callbackScheme),
+            anthropic: AnthropicFederationIds(
+                federationRuleId: found[Key.ruleId]!, organizationId: found[Key.organizationId]!,
+                serviceAccountId: found[Key.serviceAccountId]!, workspaceId: found[Key.workspaceId]!)))
+    }
 }
 
 /// Outcome of looking for federation config. Distinguishes "this Mac isn't set up
@@ -58,6 +76,67 @@ public enum FederationConfigState: Sendable, Equatable {
 /// without touching real user defaults.
 public protocol FederationConfigSource: Sendable {
     func load() -> FederationConfigState
+}
+
+/// Reads config from a plist bundled in the app.
+///
+/// This is the normal path: the values are baked into the build so a user can
+/// download shotAI, sign in, and be done — no profile to deploy, nothing to type.
+///
+/// They are NOT encrypted or obfuscated, deliberately. Anything shipped inside an
+/// app is extractable with `strings` or a debugger, so obfuscation buys minutes
+/// against anyone who cares while costing real complexity and creating false
+/// confidence. It also isn't needed: none of these is a credential. Using them
+/// requires an Entra token from the tenant carrying the required app role, which
+/// the federation rule's CEL condition enforces server-side. The OAuth client_id
+/// in particular is *expected* to be public — that is precisely what PKCE exists
+/// for, because a public client cannot hold a secret.
+///
+/// What IS avoided is putting them in the public SOURCE, where they would be free
+/// reconnaissance (naming a tenant and an Anthropic org) and would live in git
+/// history forever. Hence: gitignored plist, baked at build time.
+public struct BundledFederationConfig: FederationConfigSource {
+    private let info: [String: String]
+
+    /// Reads `Federation.plist` from the app bundle. That file is gitignored, so a
+    /// fresh clone of this public repo has none, `load()` returns `.absent`, and
+    /// the app uses bring-your-own-key — exactly right for an external user.
+    public init(bundle: Bundle = .main, resource: String = "Federation") {
+        guard let url = bundle.url(forResource: resource, withExtension: "plist"),
+              let data = try? Data(contentsOf: url),
+              let raw = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        else { self.info = [:]; return }
+        self.info = raw.compactMapValues { $0 as? String }
+    }
+
+    public func load() -> FederationConfigState {
+        FederationConfig.assemble { key in
+            let v = info[key]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (v?.isEmpty ?? true) ? nil : v
+        }
+    }
+}
+
+/// Tries each source in order and takes the first that yields anything.
+///
+/// Managed preferences come FIRST so IT can correct a baked-in value (a rotated
+/// federation rule, say) with a configuration profile instead of a new build,
+/// without that being the normal requirement.
+public struct ChainedFederationConfig: FederationConfigSource {
+    private let sources: [any FederationConfigSource]
+    public init(_ sources: [any FederationConfigSource]) { self.sources = sources }
+
+    public func load() -> FederationConfigState {
+        var firstProblem: FederationConfigState?
+        for s in sources {
+            switch s.load() {
+            case .ready(let c): return .ready(c)
+            case .invalid(let m): if firstProblem == nil { firstProblem = .invalid(missing: m) }
+            case .absent: continue
+            }
+        }
+        return firstProblem ?? .absent
+    }
 }
 
 /// Fixed config, for tests and the self-test executable.
@@ -103,25 +182,6 @@ public final class ManagedFederationConfigStore: FederationConfigSource, @unchec
     }
 
     public func load() -> FederationConfigState {
-        let found = FederationConfig.Key.all.reduce(into: [String: String]()) { acc, k in
-            if let v = value(k) { acc[k] = v }
-        }
-        if found.isEmpty { return .absent }
-
-        let missing = FederationConfig.Key.all.filter { found[$0] == nil }
-        guard missing.isEmpty else { return .invalid(missing: missing) }
-
-        return .ready(FederationConfig(
-            entra: EntraConfig(
-                tenantId: found[FederationConfig.Key.tenantId]!,
-                clientId: found[FederationConfig.Key.clientId]!,
-                audienceAppId: found[FederationConfig.Key.audienceAppId]!,
-                redirectURI: FederationConfig.redirectURI,
-                callbackScheme: FederationConfig.callbackScheme),
-            anthropic: AnthropicFederationIds(
-                federationRuleId: found[FederationConfig.Key.ruleId]!,
-                organizationId: found[FederationConfig.Key.organizationId]!,
-                serviceAccountId: found[FederationConfig.Key.serviceAccountId]!,
-                workspaceId: found[FederationConfig.Key.workspaceId]!)))
+        FederationConfig.assemble { value($0) }
     }
 }

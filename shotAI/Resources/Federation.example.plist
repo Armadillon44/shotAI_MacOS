@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Entra SSO configuration (#69, docs/SSO-WIF.md).
+
+  Copy this file to `Federation.plist` in the same folder and fill in the six
+  values. That file is gitignored: the values are baked into the BUILD, never
+  committed to the public source. With no Federation.plist present the app falls
+  back to bring-your-own-key, which is exactly right for anyone outside the org.
+
+  None of these is a credential — the JWT is what authenticates, and access is
+  enforced server-side by the federation rule's CEL condition requiring the
+  shotAI.User app role. They are not encrypted, deliberately: anything inside a
+  shipped app is extractable, so obfuscation would buy minutes while creating
+  false confidence. Keeping them out of the public repo avoids handing over free
+  reconnaissance; that is the whole goal.
+
+  A managed preference (MDM configuration profile) with the same keys OVERRIDES
+  these, so a rotated federation rule can be corrected without a new build.
+-->
+<plist version="1.0">
+<dict>
+    <key>federationEntraTenantId</key>
+    <string>&lt;Entra directory (tenant) ID GUID&gt;</string>
+    <key>federationEntraClientId</key>
+    <string>&lt;Entra application (client) ID GUID&gt;</string>
+    <key>federationEntraAudienceAppId</key>
+    <string>&lt;app registration exposing api://&lt;id&gt; — same as the client today&gt;</string>
+    <key>federationRuleId</key>
+    <string>&lt;fdrl_…&gt;</string>
+    <key>federationOrganizationId</key>
+    <string>&lt;Anthropic organization UUID&gt;</string>
+    <key>federationServiceAccountId</key>
+    <string>&lt;svac_…&gt;</string>
+    <key>federationWorkspaceId</key>
+    <string>&lt;wrkspc_… or the literal "default"&gt;</string>
+</dict>
+</plist>

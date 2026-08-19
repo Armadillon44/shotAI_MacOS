@@ -12,3 +12,8 @@ xcuserdata/
 # Read-only reference clone of the Windows app (its own git repo — re-clone
 # from github.com/Armadillon44/shotAI; see CLAUDE.md).
 shotAI-original/
+
+# Entra SSO config baked into the build (#69). Not credentials, but they name a
+# tenant and an Anthropic org, and this repo is public — so they ship in the
+# binary, never in source. See shotAI/Resources/Federation.example.plist.
+shotAI/Resources/Federation.plist

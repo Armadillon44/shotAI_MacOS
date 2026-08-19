@@ -35,7 +35,13 @@ final class AuthModel {
     @ObservationIgnored let federated: FederatedCredentialProvider?
     @ObservationIgnored private let browser = WebAuthSignIn()
 
-    init(configSource: any FederationConfigSource = ManagedFederationConfigStore()) {
+    /// Managed preferences first so IT can correct a baked-in value with a
+    /// configuration profile, then the plist baked into the app — which is the
+    /// normal path, and why a user can just download shotAI and sign in.
+    init(configSource: any FederationConfigSource = ChainedFederationConfig([
+        ManagedFederationConfigStore(),
+        BundledFederationConfig(),
+    ])) {
         let state = configSource.load()
         self.configState = state
         self.federated = state.config.map { FederatedCredentialProvider(config: $0) }

@@ -195,3 +195,52 @@ final class EntraAuthClientTests: XCTestCase {
         XCTAssertEqual(after, 7)
     }
 }
+
+final class ChainedConfigTests: XCTestCase {
+    private var ready: FederationConfigState { .ready(testConfig) }
+
+    /// Managed preferences win, so IT can correct a baked-in value with a profile
+    /// instead of requiring a new build.
+    func testManagedOverridesBundled() {
+        let other = FederationConfig(
+            entra: EntraConfig(tenantId: "managed", clientId: "c", audienceAppId: "a",
+                               redirectURI: FederationConfig.redirectURI,
+                               callbackScheme: FederationConfig.callbackScheme),
+            anthropic: testConfig.anthropic)
+        let c = ChainedFederationConfig([StaticFederationConfig(.ready(other)),
+                                         StaticFederationConfig(ready)])
+        XCTAssertEqual(c.load().config?.entra.tenantId, "managed")
+    }
+
+    func testFallsThroughToBundled() {
+        let c = ChainedFederationConfig([StaticFederationConfig(.absent),
+                                         StaticFederationConfig(ready)])
+        XCTAssertEqual(c.load().config?.entra.tenantId, testConfig.entra.tenantId)
+    }
+
+    /// A complete later source beats an earlier broken one — a half-written
+    /// profile must not permanently mask a working baked-in config.
+    func testCompleteSourceBeatsAnEarlierPartialOne() {
+        let c = ChainedFederationConfig([StaticFederationConfig(.invalid(missing: ["federationRuleId"])),
+                                         StaticFederationConfig(ready)])
+        XCTAssertNotNil(c.load().config)
+    }
+
+    /// But if nothing is complete, the problem is reported rather than swallowed.
+    func testReportsTheProblemWhenNothingIsComplete() {
+        let c = ChainedFederationConfig([StaticFederationConfig(.invalid(missing: ["federationRuleId"])),
+                                         StaticFederationConfig(.absent)])
+        XCTAssertEqual(c.load().missingFields, ["federationRuleId"])
+    }
+
+    func testAllAbsentIsAbsent() {
+        let c = ChainedFederationConfig([StaticFederationConfig(.absent), StaticFederationConfig(.absent)])
+        XCTAssertEqual(c.load(), .absent)
+    }
+
+    /// A bundle with no Federation.plist yields .absent, which is what a fresh
+    /// clone of this public repo must do: fall back to bring-your-own-key.
+    func testMissingBundledPlistIsAbsent() {
+        XCTAssertEqual(BundledFederationConfig(bundle: .main).load(), .absent)
+    }
+}
