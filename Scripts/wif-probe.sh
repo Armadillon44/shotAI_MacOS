@@ -364,8 +364,11 @@ info "(cached in $CONFIG — delete that file to re-enter them)"
 # exactly like "the federation rule is wrong":
 #   1. A newly-assigned App Role will not appear in a cached token, no matter
 #      how long you wait or how many times you re-run this script.
-#   2. Issuers default to check_jti=true, so replaying a cached token replays
-#      its jti and is rejected as a single-use violation.
+#   2. Where the IdP emits a real `jti`, replaying a cached token replays it and
+#      is rejected as single-use. NB Entra emits `uti`, not `jti`, and check_jti
+#      is documented fail-open for tokens lacking one — so on this issuer that
+#      second reason does not apply, and one token can be reused deliberately to
+#      A/B two rule IDs with the match block as the only variable.
 # A bare `az login` does NOT fix either: it mints an ARM-scoped token under a
 # different cache key and leaves this resource's token untouched. Scoping the
 # login to the resource is what actually refreshes it.
@@ -442,11 +445,17 @@ info "iat->exp span ${SPREAD:-?}s"
 # It is only worth raising if the exchange actually fails AND History says so.
 LONG_SPAN=0
 if [ -n "$SPREAD" ] && [ "$SPREAD" -gt 3600 ] 2>/dev/null; then LONG_SPAN=1; fi
+# Entra access tokens carry `uti`, not `jti`, and Anthropic's check_jti is
+# documented fail-open ("tokens without one are accepted without single-use
+# enforcement"), so this branch should not fire on an Entra issuer. It stays for
+# the case where an optional claim or a different IdP puts a real jti in play.
 if [ -n "$T_JTI" ]; then
   warn "token carries a jti and issuers default to check_jti=true (single-use)"
-  info "az caches tokens, so a SECOND probe run may replay this jti and be rejected,"
-  info "which looks exactly like 'user tokens are not accepted'. Turn the issuer's"
-  info "check_jti off while testing, or force a fresh token before re-running."
+  info "az caches tokens, so a SECOND run may replay this jti and be rejected —"
+  info "indistinguishable from a rule mismatch. Re-run with --fresh."
+  info "Do NOT turn the issuer's check_jti off to get past this: check_jti is an"
+  info "ISSUER-level setting shared by every rule on that issuer, so disabling it"
+  info "removes replay protection from your production rule too."
 fi
 
 # Second gate on the token itself. `az account show` said "user"; this confirms
