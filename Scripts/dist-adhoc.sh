@@ -21,6 +21,35 @@ xcodebuild -project shotAI.xcodeproj -scheme "$SCHEME" -configuration Release \
   -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO clean build >/dev/null
 BUILT="$DD/Build/Products/Release/$APP_NAME.app"
 [ -d "$BUILT" ] || { echo "✗ build product missing" >&2; exit 1; }
+# Entra SSO config is baked in at build time from the gitignored
+# shotAI/Resources/Federation.plist (#69). Which way this should go depends
+# entirely on WHO the artifact is for, and getting it wrong is silent either way:
+#
+#   PUBLIC release  -> SHOTAI_SSO=off. The values are not credentials, but a DMG
+#                      on a public releases page publishes a tenant, an app
+#                      registration and an Anthropic org to anyone, permanently,
+#                      for no benefit — an outside user cannot use that
+#                      federation anyway.
+#   INTERNAL build  -> SHOTAI_SSO=on. Staff sign in with their work account and
+#                      never see an API key.
+#
+# Required explicitly, with no default, because both mistakes are invisible: a
+# public DMG that leaks the config looks fine, and an internal DMG missing it
+# just quietly shows everyone the API-key path.
+FED="$BUILT/Contents/Resources/Federation.plist"
+case "${SHOTAI_SSO:-}" in
+  on)
+    [ -f "$FED" ] || { echo "✗ SHOTAI_SSO=on but no shotAI/Resources/Federation.plist on this machine — the build has no SSO" >&2; exit 1; }
+    echo "  SSO:        baked in (INTERNAL build — do not publish this DMG)" ;;
+  off)
+    rm -f "$FED"
+    echo "  SSO:        stripped (PUBLIC build — bring-your-own-key)" ;;
+  *)
+    echo "✗ set SHOTAI_SSO=off for a public release, or SHOTAI_SSO=on for an internal build." >&2
+    echo "  off strips the bundled Entra config; on requires it to be present." >&2
+    exit 1 ;;
+esac
+
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUILT/Contents/Info.plist")"
 BUILDNO="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$BUILT/Contents/Info.plist")"
 echo "  $APP_NAME $VERSION (build $BUILDNO)"
