@@ -512,12 +512,12 @@ final class AppModel {
     /// Store the key (Keychain). Returns an error message, or nil on success. The
     /// key value never returns to the caller.
     @discardableResult func setApiKey(_ key: String) -> String? {
-        defer { refreshApiKeyStatus() }
+        defer { refreshApiKeyStatus(); Task { await refreshAuthStatus() } }
         do { try apiKeyStore.set(key); return nil } catch { return error.localizedDescription }
     }
 
     @discardableResult func clearApiKey() -> String? {
-        defer { refreshApiKeyStatus() }
+        defer { refreshApiKeyStatus(); Task { await refreshAuthStatus() } }
         do { try apiKeyStore.clear(); return nil } catch { return error.localizedDescription }
     }
 
@@ -528,6 +528,11 @@ final class AppModel {
             return "Connected — the key works with \(m.rawValue)."
         } catch { return error.localizedDescription }
     }
+
+    /// Some credential is available — a signed-in session OR a stored key.
+    /// The report panel gates on this rather than on `apiKeyPresent`, which was
+    /// the only option before federation existed.
+    var hasCredential: Bool { auth.isSignedIn || apiKeyPresent }
 
     /// Generate is available when SOP is on, SOME credential resolves (a signed-in
     /// session or a stored key), and there's a shot step to work from.

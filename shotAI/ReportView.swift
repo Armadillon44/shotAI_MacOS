@@ -219,7 +219,7 @@ struct ReportView: View {
                         if model.canRevertSop {
                             Button("Revert AI edits") { Task { await model.revertSop() } }
                         }
-                        if model.apiKeyPresent {
+                        if model.hasCredential {
                             Button {
                                 model.prepareSop()
                             } label: {
@@ -227,14 +227,30 @@ struct ReportView: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .disabled(!model.canGenerateSop)
-                        } else {
+                        } else if model.auth.federationAvailable && !model.auth.isSignedIn {
+                            // Offer the fix in place. Sending someone to Settings
+                            // to come back is a detour when one click does it.
+                            Button {
+                                Task { await model.signInFromError() }
+                            } label: {
+                                Label("Sign In…", systemImage: "person.crop.circle")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.auth.busy)
+                        } else if !model.auth.federationAvailable {
                             SettingsLink { Text("Add API key…") }
                         }
+                        // Signed in WITHOUT the app role gets no button at all:
+                        // there is no action this user can take, and offering one
+                        // would just teach them to click it repeatedly.
                     }
                 }
-                if !model.apiKeyPresent {
-                    Text("Add your Anthropic API key in Settings ▸ AI, then Claude can turn these screenshots into a step-by-step SOP.")
+                // One source of truth for why generation is unavailable, shared
+                // with the alert — so the panel cannot drift from the error text.
+                if let reason = model.sopBlockedReason {
+                    Text(reason)
                         .font(.system(size: 11)).foregroundStyle(Palette.ink3)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(14)

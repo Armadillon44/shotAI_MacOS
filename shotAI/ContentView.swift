@@ -77,6 +77,10 @@ struct ContentView: View {
             }
             .task {
                 await model.startup()  // one-time auto-archive sweep, then list
+                // Read the stored sign-in back at launch. Without this the app
+                // starts as "signed out" even with an account in the Keychain,
+                // and the report panel offers Sign In to someone already signed in.
+                await model.refreshAuthStatus()
                 // Live-refresh the report as steps land; refresh everything when
                 // a session ends (stop or discard may even delete the project).
                 capture.onStepAdded = { _ in
