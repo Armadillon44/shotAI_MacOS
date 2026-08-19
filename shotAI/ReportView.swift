@@ -184,10 +184,17 @@ struct ReportView: View {
             }
         }
         .alert(
-            "SOP generation failed",
+            model.sopErrorTitle,
             isPresented: Binding(get: { model.sopError != nil }, set: { if !$0 { model.sopError = nil } })
         ) {
-            Button("OK", role: .cancel) {}
+            // Offer the fix where the user hit the wall, rather than sending them
+            // to Settings and back.
+            if model.sopErrorOffersSignIn {
+                Button("Sign In…") { Task { await model.signInFromError() } }
+                Button("Not Now", role: .cancel) {}
+            } else {
+                Button("OK", role: .cancel) {}
+            }
         } message: {
             Text(model.sopError ?? "")
         }

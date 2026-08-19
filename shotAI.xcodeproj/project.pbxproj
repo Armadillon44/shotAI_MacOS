@@ -12,6 +12,7 @@
 		D0D00000000000000000E023 /* EditorKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D00000000000000000E022 /* EditorKit */; };
 		D0D00000000000000000E033 /* ExportKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D00000000000000000E032 /* ExportKit */; };
 		D0D00000000000000000E043 /* SOPKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D00000000000000000E042 /* SOPKit */; };
+		D0D00000000000000000E063 /* EntraKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D00000000000000000E062 /* EntraKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +33,7 @@
 				D0D00000000000000000E023 /* EditorKit in Frameworks */,
 				D0D00000000000000000E033 /* ExportKit in Frameworks */,
 				D0D00000000000000000E043 /* SOPKit in Frameworks */,
+				D0D00000000000000000E063 /* EntraKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -80,6 +82,7 @@
 				D0D00000000000000000E032 /* ExportKit */,
 				D0D00000000000000000E042 /* SOPKit */,
 				D0D00000000000000000E052 /* UpdateKit */,
+				D0D00000000000000000E062 /* EntraKit */,
 			);
 			productName = shotAI;
 			productReference = D0D00000000000000000A003 /* shotAI.app */;
@@ -115,6 +118,7 @@
 				D0D00000000000000000E031 /* XCLocalSwiftPackageReference "Packages/ExportKit" */,
 				D0D00000000000000000E041 /* XCLocalSwiftPackageReference "Packages/SOPKit" */,
 				D0D00000000000000000E051 /* XCLocalSwiftPackageReference "Packages/UpdateKit" */,
+				D0D00000000000000000E061 /* XCLocalSwiftPackageReference "Packages/EntraKit" */,
 			);
 			productRefGroup = D0D00000000000000000A004 /* Products */;
 			projectDirPath = "";
@@ -293,6 +297,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/UpdateKit;
 		};
+		D0D00000000000000000E061 /* XCLocalSwiftPackageReference "Packages/EntraKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/EntraKit;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -319,6 +327,10 @@
 		D0D00000000000000000E052 /* UpdateKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = UpdateKit;
+		};
+		D0D00000000000000000E062 /* EntraKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EntraKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
