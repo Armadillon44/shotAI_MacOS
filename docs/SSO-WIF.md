@@ -123,6 +123,28 @@ reconnaissance that would live in git history forever.
 The probe caches its own copy at `~/.config/shotai/wif-probe.env`, mode 0600,
 outside the repo.
 
+### Public release artifacts carry them — a deliberate decision
+
+**Decided 2026-08-19: the public GitHub release DMG is built with the config
+baked in** (`SHOTAI_SSO=on`), so staff download from the same page as everyone
+else and sign in.
+
+The consequence is understood and accepted: anyone can run `strings` on the DMG
+and recover the tenant, the app registration, and the Anthropic org, service
+account, workspace and rule IDs, permanently. That is **reconnaissance, not
+access** — using any of it requires an Entra token from the tenant carrying the
+`shotAI.User` role, which the federation rule enforces server-side, and the OAuth
+`client_id` is public by design under PKCE.
+
+The rejected alternative was two artifacts: a public DMG with `SHOTAI_SSO=off`
+and a separate internal one. It removes the exposure entirely at the cost of a
+second build and a separate distribution channel. Chosen against because a single
+download path is materially simpler for staff.
+
+**Do not "fix" this by stripping the config from public releases without asking.**
+It is a considered trade, not an oversight. If the trade is ever revisited, the
+mechanism is already there: `SHOTAI_SSO=off` in `Scripts/dist-adhoc.sh`.
+
 ## Operational notes
 
 Each of these cost real debugging time.
