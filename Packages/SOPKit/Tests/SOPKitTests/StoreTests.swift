@@ -148,3 +148,150 @@ final class ApplyRevertTests: XCTestCase {
         XCTAssertEqual(reverted.steps.count, 3)
     }
 }
+
+/// #73 — author-written context that Claude previously never saw.
+final class AuthorContextTests: XCTestCase {
+    private func text(_ req: AssembledRequest) -> String {
+        (req.messages[0]["content"] as! [[String: Any]])
+            .compactMap { $0["text"] as? String }.joined(separator: "\n")
+    }
+
+    /// `intro` is in the OUTPUT schema, so Claude writes one every time. It was
+    /// never sent as INPUT, so an author who described the goal of their
+    /// procedure had it silently replaced by a version written without ever
+    /// seeing it.
+    func testAuthorOverviewIsSentAsInput() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        var m = try await store.openProject(at: path).manifest
+        m.intro = SopIntro(heading: "Before you begin",
+                           body: "This runs on the warehouse terminal, not your laptop.")
+        let t = text(try assembleRequest(dir: dir, manifest: m, settings: SopSettings()))
+        XCTAssertTrue(t.contains("Before you begin"))
+        XCTAssertTrue(t.contains("warehouse terminal"))
+        XCTAssertTrue(t.contains("author already wrote this overview"))
+        XCTAssertTrue(t.contains("PRESERVES its substance"),
+                      "instruction to preserve, not just the text, or it gets rewritten anyway")
+    }
+
+    /// An absent or blank overview must add nothing — no empty scaffolding that
+    /// invites Claude to 'preserve' something that does not exist.
+    func testNoOverviewSectionWhenThereIsNoOverview() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        var m = try await store.openProject(at: path).manifest
+        XCTAssertFalse(text(try assembleRequest(dir: dir, manifest: m, settings: SopSettings()))
+            .contains("author already wrote this overview"))
+
+        m.intro = SopIntro(heading: "   ", body: "\n ")
+        XCTAssertFalse(text(try assembleRequest(dir: dir, manifest: m, settings: SopSettings()))
+            .contains("author already wrote this overview"),
+            "whitespace-only counts as absent")
+    }
+
+    /// note/caution/warning/section are all `text` steps distinguished by
+    /// `callout`. Sending them identically meant a red warning, a phase divider
+    /// and an ordinary paragraph arrived as the same thing.
+    func testCalloutKindIsDistinguishable() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        var m = try await store.openProject(at: path).manifest
+        m.steps.append(ProjectStep(id: "w", order: 5, kind: .text, screenshot: "", trigger: .hotkey,
+                                   heading: "Do not skip", body: "Data loss follows.", callout: .warning))
+        m.steps.append(ProjectStep(id: "s", order: 6, kind: .text, screenshot: "", trigger: .hotkey,
+                                   heading: "Phase 2", body: "", callout: .section))
+        m.steps.append(ProjectStep(id: "p", order: 7, kind: .text, screenshot: "", trigger: .hotkey,
+                                   heading: "Aside", body: "Plain paragraph."))
+        let t = text(try assembleRequest(dir: dir, manifest: m, settings: SopSettings()))
+
+        XCTAssertTrue(t.contains("Warning callout"))
+        XCTAssertTrue(t.contains("Section heading"))
+        XCTAssertTrue(t.contains("Text step"))
+        // Labelling alone is not enough — Claude also needs to know what to DO.
+        XCTAssertTrue(t.contains("do not contradict it"), "warnings carry handling guidance")
+        XCTAssertTrue(t.contains("do not insert your own sectionHeading where one"),
+                      "existing phase structure must be respected, not duplicated")
+    }
+
+    /// A plain text step gets no callout guidance — nothing to respect or avoid.
+    func testPlainTextStepGetsNoExtraGuidance() {
+        XCTAssertNil(AssembledRequest.authorBlockGuidance(nil))
+        XCTAssertEqual(AssembledRequest.authorBlockLabel(nil), "Text step")
+        XCTAssertEqual(AssembledRequest.authorBlockLabel(.caution), "Caution callout")
+    }
+}
+
+/// #73 gap 3 — telling "Claude wrote this" from "the author fixed what Claude
+/// wrote". Without the flag both merely differ from the pre-AI backup, so a
+/// regeneration discarded the human's correction.
+final class AuthorCaptionEditTests: XCTestCase {
+    private func text(_ req: AssembledRequest) -> String {
+        (req.messages[0]["content"] as! [[String: Any]])
+            .compactMap { $0["text"] as? String }.joined(separator: "\n")
+    }
+
+    /// Baseline that must not regress: with a backup present and no author edit,
+    /// the PRE-AI caption is sent. This is what stops successive regenerations
+    /// compounding Claude's own rewrites.
+    func testUnflaggedCaptionStillSendsThePreAIOriginal() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        var m = try await store.openProject(at: path).manifest
+        var original = m.steps[0]
+        original.caption = "Captured: clicked Save"
+        m.sopBackup = SopBackup(steps: [original], title: "t", intro: nil,
+                                model: "claude-sonnet-5", tone: .professional, at: "2026-01-01")
+        m.steps[0].caption = "Claude's rewrite"       // AI output, not author-edited
+        let t = text(try assembleRequest(dir: dir, manifest: m, settings: SopSettings()))
+        XCTAssertTrue(t.contains("Captured: clicked Save"))
+        XCTAssertFalse(t.contains("Claude's rewrite"), "must not feed Claude its own text back")
+    }
+
+    /// The fix: an author-edited caption IS sent, because it is a deliberate
+    /// human correction and the thing worth rewriting from.
+    func testAuthorEditedCaptionIsSentInstead() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        var m = try await store.openProject(at: path).manifest
+        var original = m.steps[0]
+        original.caption = "Captured: clicked Save"
+        m.sopBackup = SopBackup(steps: [original], title: "t", intro: nil,
+                                model: "claude-sonnet-5", tone: .professional, at: "2026-01-01")
+        m.steps[0].caption = "Click Save on the Invoices tab"
+        m.steps[0].captionEditedByUser = true
+        let t = text(try assembleRequest(dir: dir, manifest: m, settings: SopSettings()))
+        XCTAssertTrue(t.contains("Click Save on the Invoices tab"))
+        XCTAssertFalse(t.contains("Captured: clicked Save"))
+    }
+
+    /// Applying a generation clears the flag — the AI just overwrote the edit, so
+    /// leaving it set would send Claude its own text back as if a human wrote it.
+    func testApplyingAGenerationClearsTheFlag() async throws {
+        let (store, path, _) = try await makeProject(shots: 1)
+        let m = try await store.openProject(at: path).manifest
+        let id = m.steps[0].id
+        _ = try await store.editStepText(at: path, stepId: id, caption: "author wording")
+        let edited = try await store.openProject(at: path).manifest
+        XCTAssertEqual(edited.steps[0].captionEditedByUser, true, "manual edit sets it")
+
+        let plan = SopEditPlan(title: "T", intro: nil,
+                               steps: [SopStepEdit(stepNumber: 1, caption: "AI wording",
+                                                   body: "b", sectionHeading: nil, sectionBody: nil)])
+        _ = try await SOPKit.applySopEdits(store: store, projectPath: path, plan: plan,
+                                           model: .sonnet5, tone: .professional)
+        let after = try await store.openProject(at: path).manifest
+        XCTAssertEqual(after.steps[0].caption, "AI wording")
+        XCTAssertNil(after.steps[0].captionEditedByUser, "AI overwrote it — flag must clear")
+    }
+
+    /// Absent must stay the safe default. A client that does not yet set this
+    /// field produces exactly this, so a mixed-version fleet degrades to today's
+    /// behaviour rather than to feeding Claude its own output.
+    func testAbsentFlagIsTreatedAsMachineWritten() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        var m = try await store.openProject(at: path).manifest
+        var original = m.steps[0]
+        original.caption = "Captured text"
+        m.sopBackup = SopBackup(steps: [original], title: "t", intro: nil,
+                                model: "claude-sonnet-5", tone: .professional, at: "2026-01-01")
+        m.steps[0].caption = "something else"
+        m.steps[0].captionEditedByUser = nil
+        XCTAssertTrue(text(try assembleRequest(dir: dir, manifest: m, settings: SopSettings()))
+            .contains("Captured text"))
+    }
+}

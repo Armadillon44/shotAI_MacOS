@@ -8,6 +8,34 @@ struct AssembledRequest {
     let messages: [[String: Any]]
 }
 
+extension AssembledRequest {
+    /// Human-readable label for an author-written text block, by callout kind.
+    static func authorBlockLabel(_ callout: CalloutKind?) -> String {
+        switch callout {
+        case .note: "Note callout"
+        case .caution: "Caution callout"
+        case .warning: "Warning callout"
+        case .section: "Section heading"
+        case nil: "Text step"
+        }
+    }
+
+    /// What Claude should DO about each kind, since "leave it alone" alone does
+    /// not tell it how the block relates to the steps around it.
+    static func authorBlockGuidance(_ callout: CalloutKind?) -> String? {
+        switch callout {
+        case .note, .caution, .warning:
+            "(This is a callout the author considered important enough to highlight. Do not "
+                + "repeat its content in the surrounding steps, and do not contradict it.)"
+        case .section:
+            "(This is a NON-NUMBERED phase heading that already groups the steps that follow. "
+                + "Respect this structure — do not insert your own sectionHeading where one "
+                + "already exists, and keep step wording consistent with the phase it sits in.)"
+        case nil: nil
+        }
+    }
+}
+
 /// Build the Claude request from a project: a system prompt + one user message
 /// interleaving each step's image (the redaction-baked render) and its metadata,
 /// with author text steps as prose. REDACTION-ENFORCED: a shot step with an
@@ -29,26 +57,56 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
 
     let system: [[String: Any]] = [["type": "text", "text": buildSystemPrompt(settings: settings)]]
 
-    var content: [[String: Any]] = [[
-        "type": "text",
-        "text":
-            "Current project name (usually an auto-generated placeholder such as a date/time "
-            + "stamp): \(manifest.title)\n"
-            + "You MUST set `title` to a clear, specific name for the overall procedure, derived "
-            + "from what the steps accomplish. Only keep the current name if it already reads as a "
-            + "real, descriptive procedure title (it usually does not).\n"
-            + "The \(source.count) steps below are in order. Write one edit-plan entry "
-            + "per SCREENSHOT step, setting its stepNumber to that step's number. Keep the "
-            + "screenshots in this order. Redactions are already baked into the images — never "
-            + "describe or guess at blurred/obscured areas.",
-    ]]
+    // The author's Overview, when they wrote one. `intro` is in the OUTPUT schema,
+    // so Claude writes one every time — but it was never sent as INPUT, which
+    // meant a user who described the goal of their procedure had it silently
+    // replaced by a version written without ever seeing it. Their statement of
+    // intent is the single most useful piece of context for every other step.
+    let authorIntro: String? = {
+        guard let i = manifest.intro else { return nil }
+        let h = i.heading.trimmingCharacters(in: .whitespacesAndNewlines)
+        let b = i.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !(h.isEmpty && b.isEmpty) else { return nil }
+        return [h.isEmpty ? nil : "Heading: \(h)", b.isEmpty ? nil : "Body: \(b)"]
+            .compactMap { $0 }.joined(separator: "\n")
+    }()
+
+    // Built in pieces: as one expression this exceeded the type-checker's budget.
+    var header = "Current project name (usually an auto-generated placeholder such as a "
+    header += "date/time stamp): \(manifest.title)\n"
+    header += "You MUST set `title` to a clear, specific name for the overall procedure, "
+    header += "derived from what the steps accomplish. Only keep the current name if it "
+    header += "already reads as a real, descriptive procedure title (it usually does not).\n"
+    header += "The \(source.count) steps below are in order. Write one edit-plan entry per "
+    header += "SCREENSHOT step, setting its stepNumber to that step's number. Keep the "
+    header += "screenshots in this order. Redactions are already baked into the images — "
+    header += "never describe or guess at blurred/obscured areas."
+    if let authorIntro {
+        header += "\n\n--- The author already wrote this overview ---\n"
+        header += authorIntro
+        header += "\n\nTreat it as their statement of intent for the whole procedure: let it "
+        header += "guide the wording and emphasis of every step. Return an `intro` that "
+        header += "PRESERVES its substance — tighten or clarify the wording at most. Do not "
+        header += "replace their goal with your own reading of the screenshots, and do not "
+        header += "drop details they chose to include."
+    }
+
+    var content: [[String: Any]] = [["type": "text", "text": header]]
 
     for (idx, step) in source.enumerated() {
         let n = idx + 1
         if step.kind == .text {
-            var parts = ["--- Text step \(n) (author-written — leave this content alone) ---"]
+            // The KIND matters. note/caution/warning/section are all text steps
+            // distinguished by `callout`, and sending them identically meant a red
+            // warning, a phase divider and an ordinary paragraph reached Claude as
+            // the same thing. It was told to leave them alone but had no idea what
+            // role each played — so it could not avoid duplicating a warning it
+            // could not see was a warning, or place its own section headings
+            // around a structure it could not see existed.
+            var parts = ["--- \(AssembledRequest.authorBlockLabel(step.callout)) \(n) (author-written — leave this content alone) ---"]
             if let h = step.heading, !h.isEmpty { parts.append("Heading: \(h)") }
             if let b = step.body, !b.isEmpty { parts.append("Body: \(b)") }
+            if let guidance = AssembledRequest.authorBlockGuidance(step.callout) { parts.append(guidance) }
             content.append(["type": "text", "text": parts.joined(separator: "\n")])
             continue
         }
@@ -69,7 +127,11 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
         ])
 
         let orig = originalById[step.id]
-        let caption = orig?.caption ?? step.caption
+        // Prefer the pre-AI original so Claude is never fed its own prior
+        // rewrites (successive regenerations would compound). The exception is a
+        // caption the AUTHOR edited after a generation: that is a deliberate
+        // human correction and is exactly what should be rewritten from (#73).
+        let caption = step.captionEditedByUser == true ? step.caption : (orig?.caption ?? step.caption)
         let note = orig?.note ?? step.note
         var meta = ["--- Screenshot step \(n) ---"]
         if let app = step.window?.app, !app.isEmpty { meta.append("App: \(app)") }
