@@ -127,7 +127,11 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
         ])
 
         let orig = originalById[step.id]
-        let caption = orig?.caption ?? step.caption
+        // Prefer the pre-AI original so Claude is never fed its own prior
+        // rewrites (successive regenerations would compound). The exception is a
+        // caption the AUTHOR edited after a generation: that is a deliberate
+        // human correction and is exactly what should be rewritten from (#73).
+        let caption = step.captionEditedByUser == true ? step.caption : (orig?.caption ?? step.caption)
         let note = orig?.note ?? step.note
         var meta = ["--- Screenshot step \(n) ---"]
         if let app = step.window?.app, !app.isEmpty { meta.append("App: \(app)") }

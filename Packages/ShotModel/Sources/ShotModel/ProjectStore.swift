@@ -454,7 +454,14 @@ public actor ProjectStore {
             guard let i = m.steps.firstIndex(where: { $0.id == stepId }) else {
                 throw StoreError.stepNotFound(stepId)
             }
-            if let caption { m.steps[i].caption = caption }
+            if let caption {
+                m.steps[i].caption = caption
+                // Mark it as the author's, so a later regeneration sends THIS
+                // rather than reverting to the pre-AI auto-caption (#73). Only
+                // meaningful once an AI backup exists; harmless before that,
+                // since the assembler falls back to the current caption anyway.
+                m.steps[i].captionEditedByUser = true
+            }
             if let note { m.steps[i].note = note }
             if let heading { m.steps[i].heading = heading }
             if let body { m.steps[i].body = body }

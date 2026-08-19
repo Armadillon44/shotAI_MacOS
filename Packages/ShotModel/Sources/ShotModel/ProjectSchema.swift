@@ -341,6 +341,20 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
     public var callout: CalloutKind?
     /// True for a text step inserted by Claude's SOP generation.
     public var aiInserted: Bool?
+    /// The author edited this step's `caption` by hand AFTER an AI generation.
+    ///
+    /// Set on a manual caption edit; CLEARED whenever a generation writes a new
+    /// caption (the AI just overwrote whatever was there). Without it, nothing
+    /// distinguishes "Claude wrote this" from "the author corrected what Claude
+    /// wrote" — both simply differ from the pre-AI backup — so regeneration fed
+    /// Claude the original auto-caption and discarded the human's fix (#73).
+    ///
+    /// Absent is the safe default: the caption is treated as machine-written and
+    /// the pre-AI original is sent, which is the long-standing behaviour. That
+    /// matters because it is also what a client that does not yet set this field
+    /// produces, so a mixed-version fleet degrades to today rather than to
+    /// feeding Claude its own output.
+    public var captionEditedByUser: Bool?
     /// Optional crop rect, in image px.
     public var crop: Rect?
     /// Click-register marker color; defaults to the accent when unset.
@@ -373,7 +387,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
     private static let knownKeys: [String] = [
         "id", "order", "kind", "screenshot", "trigger", "click", "monitor",
         "window", "element", "caption", "note", "heading", "body", "callout",
-        "aiInserted", "crop", "markerColor", "annotations", "flattened",
+        "aiInserted", "captionEditedByUser", "crop", "markerColor", "annotations", "flattened",
         "renderRev", "markerBaked", "reportZoom", "reportPanX", "reportPanY",
     ]
 
@@ -393,6 +407,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         body: String? = nil,
         callout: CalloutKind? = nil,
         aiInserted: Bool? = nil,
+        captionEditedByUser: Bool? = nil,
         crop: Rect? = nil,
         markerColor: String? = nil,
         annotations: [Annotation] = [],
@@ -419,6 +434,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         self.body = body
         self.callout = callout
         self.aiInserted = aiInserted
+        self.captionEditedByUser = captionEditedByUser
         self.crop = crop
         self.markerColor = markerColor
         self.annotations = annotations
@@ -451,6 +467,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         body = try? c.decodeIfPresent(String.self, forKey: key("body"))
         callout = try? c.decodeIfPresent(CalloutKind.self, forKey: key("callout"))
         aiInserted = try? c.decodeIfPresent(Bool.self, forKey: key("aiInserted"))
+        captionEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: key("captionEditedByUser"))
         crop = try? c.decodeIfPresent(Rect.self, forKey: key("crop"))
         markerColor = try? c.decodeIfPresent(String.self, forKey: key("markerColor"))
         annotations = (try? c.decodeIfPresent([Annotation].self, forKey: key("annotations"))) ?? []
@@ -487,6 +504,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         try c.encodeIfPresent(body, forKey: key("body"))
         try c.encodeIfPresent(callout, forKey: key("callout"))
         try c.encodeIfPresent(aiInserted, forKey: key("aiInserted"))
+        try c.encodeIfPresent(captionEditedByUser, forKey: key("captionEditedByUser"))
         try c.encode(crop, forKey: key("crop"))
         try c.encodeIfPresent(markerColor, forKey: key("markerColor"))
         try c.encode(annotations, forKey: key("annotations"))

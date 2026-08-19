@@ -273,3 +273,48 @@ enum Fixture {
         }
     }
 }
+
+/// #73 — `captionEditedByUser` is a NEW key in the byte-compatible project.json
+/// contract shared with the Windows app, so it has to behave like every other
+/// known field: encoded when set, omitted when nil, and never leaking into the
+/// unknown-key bag (which would duplicate it on the wire).
+@Suite struct CaptionEditedFlagCodec {
+    private func roundTrip(_ step: ProjectStep) throws -> ProjectStep {
+        let m = ProjectManifest(id: "p", title: "t", createdAt: "2026-01-01",
+                                updatedAt: "2026-01-01", steps: [step])
+        let data = try JSONEncoder().encode(m)
+        return try JSONDecoder().decode(ProjectManifest.self, from: data).steps[0]
+    }
+
+    @Test func survivesRoundTripWhenSet() throws {
+        var s = ProjectStep(id: "a", order: 0, kind: .shot, screenshot: "a.png", trigger: .click)
+        s.captionEditedByUser = true
+        let back = try roundTrip(s)
+        #expect(back.captionEditedByUser == true)
+        #expect(back.extra["captionEditedByUser"] == nil, "must be a known key, not an unknown one")
+    }
+
+    /// Absent is the safe default and must stay genuinely absent — writing
+    /// `false` everywhere would churn every project file on first open.
+    @Test func omittedWhenUnset() throws {
+        let s = ProjectStep(id: "a", order: 0, kind: .shot, screenshot: "a.png", trigger: .click)
+        let data = try JSONEncoder().encode(ProjectManifest(
+            id: "p", title: "t", createdAt: "2026-01-01", updatedAt: "2026-01-01", steps: [s]))
+        let json = String(decoding: data, as: UTF8.self)
+        #expect(!json.contains("captionEditedByUser"))
+        #expect(try roundTrip(s).captionEditedByUser == nil)
+    }
+
+    /// A project written by a client that predates the field decodes cleanly,
+    /// which is what makes a staged cross-platform rollout safe.
+    @Test func absentInOlderProjectsDecodesAsNil() throws {
+        let json = #"""
+        {"id":"p","title":"t","createdAt":"2026-01-01","updatedAt":"2026-01-01",
+         "steps":[{"id":"a","order":0,"kind":"shot","screenshot":"a.png","trigger":"click",
+                   "caption":"hi"}]}
+        """#
+        let m = try JSONDecoder().decode(ProjectManifest.self, from: Data(json.utf8))
+        #expect(m.steps[0].captionEditedByUser == nil)
+        #expect(m.steps[0].caption == "hi")
+    }
+}

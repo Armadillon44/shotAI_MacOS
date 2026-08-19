@@ -64,7 +64,13 @@ public func applySopEdits(
             }
             var edited = step
             let cap = e.caption.trimmingCharacters(in: .whitespacesAndNewlines)
-            edited.caption = cap.isEmpty ? step.caption : cap
+            if !cap.isEmpty {
+                edited.caption = cap
+                // The AI just overwrote whatever was here, so any previous
+                // author edit is gone — clear the flag or the next regeneration
+                // would send Claude its own text back as if a human wrote it.
+                edited.captionEditedByUser = nil
+            }
             let bod = e.body.trimmingCharacters(in: .whitespacesAndNewlines)
             edited.body = bod.isEmpty ? (step.body ?? "") : bod
             // The generator no longer writes `note`; keep whatever was there
