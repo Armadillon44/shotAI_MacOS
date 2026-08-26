@@ -132,12 +132,19 @@ struct DocScaleControl: View {
     /// distinguishable was dispatching its own synthetic event and measuring
     /// itself.
     ///
-    /// The draft must never be SHORTER than what the user typed — see the note
-    /// in `PercentField.updateNSView`. Out-of-range digits are left alone here
-    /// and clamped on commit; only non-digits, and a 5th character, are refused.
+    /// At most 3 digits — the range is 65 to 125. A 4th is REFUSED, by returning
+    /// without touching the draft: `PercentField.updateNSView` then writes the
+    /// unchanged text back and the extra character disappears.
+    ///
+    /// Refusing is not the same as truncating, and the difference is the bug
+    /// this shipped with once. `prefix(3)` stored a draft SHORTER than what was
+    /// typed, which the write-back turned into a deleted keystroke — and worse,
+    /// the truncated prefix was then tested against the detent list, so typing a
+    /// digit into "100" silently re-committed 100%.
     private func typed(_ raw: String) {
         editTarget = editTarget ?? model.selectedPath ?? model.opened?.dir
-        let digits = String(raw.filter(\.isNumber).prefix(4))
+        let digits = String(raw.filter(\.isNumber))
+        guard digits.count <= 3 else { return }
         draft = digits
         guard let pct = Int(digits),
               let i = DocScale.detents.firstIndex(of: Double(pct) / 100)

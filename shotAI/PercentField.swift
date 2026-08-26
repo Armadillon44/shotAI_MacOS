@@ -78,11 +78,14 @@ struct PercentField: NSViewRepresentable {
             abandoning = false
             finishing = false
             parent.editing = true
-            // Select all on focus. The field is 3 characters wide and its whole
-            // purpose is replacing one number with another, so a click that
-            // parked a caret mid-value and left the user typing "1|00" was never
-            // the intent.
-            (n.object as? NSTextField)?.currentEditor()?.selectAll(nil)
+            // A click places a caret; it does NOT select the value. Three
+            // attempts at select-on-focus all lost to AppKit's ordering — from
+            // this callback (fires on mouse-DOWN, so the click's caret wins),
+            // deferred a runloop turn (serviced during the click's tracking
+            // loop, so it still lost, and sometimes landed on the next keystroke
+            // instead and ate it), and after `super.mouseDown` returned. Not
+            // worth a fourth attempt without instrumenting the real event order.
+            // Select or delete the value first, the same as any text field.
         }
 
         func controlTextDidEndEditing(_ n: Notification) {
