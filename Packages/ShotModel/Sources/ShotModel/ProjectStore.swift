@@ -492,14 +492,20 @@ public actor ProjectStore {
     @discardableResult
     public func setIntro(at projectPath: String, heading: String, body: String) throws -> ProjectManifest {
         Log.store.info("setIntro")
-        return try mutate(at: projectPath) { $0.intro = SopIntro(heading: heading, body: body) }
+        return try mutate(at: projectPath) {
+            $0.intro = SopIntro(heading: heading, body: body)
+            // This is the USER's edit path. The AI apply path writes
+            // manifest.intro directly and must never route through here, or every
+            // generation would flag its own output as author-written (#80).
+            $0.introEditedByUser = true
+        }
     }
 
     /// Remove the SOP overview preamble entirely.
     @discardableResult
     public func removeIntro(at projectPath: String) throws -> ProjectManifest {
         Log.store.info("removeIntro")
-        return try mutate(at: projectPath) { $0.intro = nil }
+        return try mutate(at: projectPath) { $0.intro = nil; $0.introEditedByUser = nil }
     }
 
     /// Add a text step (a plain heading/body block, or a note/caution/warning

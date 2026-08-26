@@ -276,16 +276,22 @@ public struct SopBackup: Codable, Equatable, Sendable {
     public var steps: [ProjectStep]
     public var title: String
     public var intro: SopIntro?
+    /// Whether `intro` above was author-written. Revert must restore AUTHORSHIP,
+    /// not just the text: without this a reverted author overview comes back
+    /// unflagged and the next generate is free to rewrite it again (#80).
+    public var introEditedByUser: Bool?
     public var model: String
     public var tone: SopTone
     public var at: String // ISO 8601
 
-    enum CodingKeys: String, CodingKey { case steps, title, intro, model, tone, at }
+    enum CodingKeys: String, CodingKey { case steps, title, intro, introEditedByUser, model, tone, at }
 
-    public init(steps: [ProjectStep], title: String, intro: SopIntro?, model: String, tone: SopTone, at: String) {
+    public init(steps: [ProjectStep], title: String, intro: SopIntro?,
+                introEditedByUser: Bool? = nil, model: String, tone: SopTone, at: String) {
         self.steps = steps
         self.title = title
         self.intro = intro
+        self.introEditedByUser = introEditedByUser
         self.model = model
         self.tone = tone
         self.at = at
@@ -298,6 +304,7 @@ public struct SopBackup: Codable, Equatable, Sendable {
         steps = try c.decode([ProjectStep].self, forKey: .steps)
         title = try c.decode(String.self, forKey: .title)
         let rawIntro = try? c.decodeIfPresent(SopIntro.self, forKey: .intro)
+        introEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: .introEditedByUser)
         intro = (rawIntro?.isEmpty ?? true) ? nil : rawIntro
         model = (try? c.decodeIfPresent(String.self, forKey: .model)) ?? ""
         tone = (try? c.decodeIfPresent(SopTone.self, forKey: .tone)) ?? .professional
@@ -309,6 +316,7 @@ public struct SopBackup: Codable, Equatable, Sendable {
         try c.encode(steps, forKey: .steps)
         try c.encode(title, forKey: .title)
         try c.encode(intro, forKey: .intro)
+        try c.encodeIfPresent(introEditedByUser, forKey: .introEditedByUser)
         try c.encode(model, forKey: .model)
         try c.encode(tone, forKey: .tone)
         try c.encode(at, forKey: .at)
@@ -534,6 +542,20 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     public var steps: [ProjectStep]
     /// SOP overview rendered as a preamble above the steps (not a step).
     public var intro: SopIntro?
+    /// The author edited `intro` by hand AFTER an AI generation.
+    ///
+    /// The manifest-level twin of `ProjectStep.captionEditedByUser`, and needed
+    /// for the same reason: after any generation `intro` is usually CLAUDE's own
+    /// text, and without this the next run sends it straight back labelled "the
+    /// author already wrote this overview" — laundering the model's guess into
+    /// author intent under the strongest protection instruction in the prompt,
+    /// and hardening an early misreading with every regeneration (#80).
+    ///
+    /// Set when the user edits the overview; CLEARED when a generation writes a
+    /// new one. Absent means "treat it as machine-written", which is also what a
+    /// client that does not yet set this field produces — so a mixed-version
+    /// fleet degrades to sending the pre-AI intro rather than to compounding.
+    public var introEditedByUser: Bool?
     /// Pre-edit snapshot enabling revert of Claude's inline SOP edits.
     public var sopBackup: SopBackup?
     /// Archived state (F2): when true, the project's bulk files (shots/, export/)
@@ -547,7 +569,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
 
     private static let knownKeys: Set<String> = [
         "version", "id", "title", "createdWith", "createdAt", "updatedAt",
-        "captureSettings", "steps", "intro", "sopBackup", "archived", "archivedAt",
+        "captureSettings", "steps", "intro", "introEditedByUser", "sopBackup", "archived", "archivedAt",
     ]
 
     public init(
@@ -592,6 +614,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         captureSettings = try? c.decodeIfPresent(CaptureTarget.self, forKey: key("captureSettings"))
         steps = (try? c.decodeIfPresent([ProjectStep].self, forKey: key("steps"))) ?? []
         let rawIntro = try? c.decodeIfPresent(SopIntro.self, forKey: key("intro"))
+        introEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: key("introEditedByUser"))
         intro = (rawIntro?.isEmpty ?? true) ? nil : rawIntro
         sopBackup = try? c.decodeIfPresent(SopBackup.self, forKey: key("sopBackup"))
         // Tolerant like Windows readManifest: any non-`true` (missing/null/other) → false.
@@ -616,6 +639,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         try c.encode(captureSettings, forKey: key("captureSettings"))
         try c.encode(steps, forKey: key("steps"))
         try c.encode(intro, forKey: key("intro"))
+        try c.encodeIfPresent(introEditedByUser, forKey: key("introEditedByUser"))
         try c.encode(sopBackup, forKey: key("sopBackup"))
         try c.encode(archived, forKey: key("archived"))
         try c.encode(archivedAt, forKey: key("archivedAt"))  // explicit null when live

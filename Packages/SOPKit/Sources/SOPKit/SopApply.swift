@@ -39,12 +39,47 @@ public func applySopEdits(
         // so revert always restores the true original, never a prior AI pass.
         let backup = manifest.sopBackup ?? SopBackup(
             steps: manifest.steps, title: manifest.title, intro: manifest.intro,
+            introEditedByUser: manifest.introEditedByUser,
             model: model.rawValue, tone: tone, at: ProjectJSON.isoNow())
 
-        // Overview is a PREAMBLE on the manifest, not a step. A fresh generate
-        // replaces it (or clears it when the model returned none).
+        // Overview is a PREAMBLE on the manifest, not a step.
+        let authoredIntro = manifest.introEditedByUser == true ? manifest.intro : nil
         if let intro = plan.intro, !(intro.heading.isEmpty && intro.body.isEmpty) {
-            manifest.intro = SopIntro(heading: intro.heading, body: intro.body)
+            if let authored = authoredIntro {
+                // PIN THE AUTHOR'S HEADING IN CODE, and keep the flag.
+                //
+                // The body is accepted as a reword; the heading is restored
+                // verbatim. Asking the model to leave the heading alone is not a
+                // guarantee — an instruction it can quietly ignore is not a
+                // guarantee — and the heading is exactly what a user watched get
+                // overwritten (Armadillon44/shotAI#64).
+                //
+                // Note the DELIBERATE asymmetry with captions: applying an edit
+                // DROPS `captionEditedByUser`, because there the model's caption
+                // replaces the human text outright, so the flag must not outlive
+                // what it describes. Here the author's heading is still in the
+                // manifest verbatim afterwards, so the flag has to persist or the
+                // next run stops protecting it. Do not "fix" one to match the
+                // other.
+                manifest.intro = SopIntro(
+                    heading: authored.heading.isEmpty ? intro.heading : authored.heading,
+                    body: intro.body)
+            } else {
+                manifest.intro = SopIntro(heading: intro.heading, body: intro.body)
+                manifest.introEditedByUser = nil
+            }
+        } else if manifest.introEditedByUser == true {
+            // The model returned no overview and the AUTHOR wrote this one. Keep
+            // it, flag and all.
+            //
+            // This branch used to be an unconditional `manifest.intro = nil`,
+            // which was right while the overview was purely Claude's: a
+            // regenerate that produced none should clear the previous one. #73
+            // made the overview author-writable and turned that same line into
+            // silent DATA LOSS — write an overview, generate, get no intro back,
+            // and your text is gone with no undo short of Revert AI edits.
+            //
+            // Deliberately does nothing: leave manifest.intro and the flag alone.
         } else {
             manifest.intro = nil
         }
@@ -116,6 +151,9 @@ public func revertSop(store: ProjectStore, projectPath: String) async throws -> 
         ProjectStore.renumber(&manifest.steps)
         manifest.title = backup.title
         manifest.intro = backup.intro
+        // Authorship, not just the text: a reverted author overview that comes
+        // back unflagged is free to be rewritten by the very next generate (#80).
+        manifest.introEditedByUser = backup.introEditedByUser
         manifest.sopBackup = nil
     }
 }

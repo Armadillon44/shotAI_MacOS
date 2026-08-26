@@ -66,15 +66,24 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
     // meant a user who described the goal of their procedure had it silently
     // replaced by a version written without ever seeing it. Their statement of
     // intent is the single most useful piece of context for every other step.
+    // Whose overview is this? After any generation `manifest.intro` is CLAUDE's
+    // text unless the author edited it since, so without the flag it would be
+    // sent back under "the author already wrote this" — laundering the model's
+    // guess into author intent and compounding an early misreading (#80).
+    let introIsAuthored = manifest.introEditedByUser == true
     let authorIntro: String? = {
-        guard let i = manifest.intro else { return nil }
+        // With a backup and no flag, the pre-AI intro is sent — often nil,
+        // meaning the author never wrote one and nothing should be sent.
+        let source = introIsAuthored
+            ? manifest.intro
+            : (manifest.sopBackup.map { $0.intro } ?? manifest.intro)
+        guard let i = source else { return nil }
         let h = i.heading.trimmingCharacters(in: .whitespacesAndNewlines)
         let b = i.body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !(h.isEmpty && b.isEmpty) else { return nil }
         return [h.isEmpty ? nil : "Heading: \(h)", b.isEmpty ? nil : "Body: \(b)"]
             .compactMap { $0 }.joined(separator: "\n")
     }()
-
     var header = ""
     // Built in pieces: as one expression this exceeded the type-checker's budget.
     // The current name is quoted and kept on its own line, away from any word
@@ -105,16 +114,33 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
     header += "SCREENSHOT step, setting its stepNumber to that step's number. Keep the "
     header += "screenshots in this order. Redactions are already baked into the images — "
     header += "never describe or guess at blurred/obscured areas."
+
     if let authorIntro {
         header += "\n\n--- The author already wrote this overview ---\n"
         header += authorIntro
-        header += "\n\nTreat this as AUTHORITATIVE CONTEXT, not as text to protect. It states "
-        header += "intent, audience, scope or constraints that the screenshots cannot show you, "
-        header += "and it is the author's own knowledge of the process. Let it inform the whole "
-        header += "guide: your `intro` and the wording and emphasis of every step. You may "
-        header += "rewrite it freely for clarity, structure and tone — write the best overview "
-        header += "you can. What you must not do is CONTRADICT or SILENTLY DROP the facts and "
-        header += "constraints it states; those are things the author knows and you do not."
+        header += "\n\n"
+        if introIsAuthored {
+            // PROTECTIVE mode. The permissive sentences below are REMOVED here,
+            // not merely outweighed: the failure this fixes was the model
+            // following the permissive half of a mixed message and rewriting an
+            // overview a user had just written, heading and all.
+            header += "This is the author's own overview and they edited it themselves. Their "
+            header += "heading is kept exactly as written — shotAI restores it after your reply "
+            header += "— so do not spend effort rewording it. For the body: reword only for "
+            header += "clarity, grammar and voice, and you may ADD context the steps reveal. Do "
+            header += "not restructure it, do not replace it with your own framing, and do not "
+            header += "drop any fact, constraint or audience note it states. If it already reads "
+            header += "well, returning it essentially unchanged is a correct answer."
+        } else {
+            header += "Treat this as AUTHORITATIVE CONTEXT, not as text to protect. It states "
+            header += "intent, audience, scope or constraints that the screenshots cannot show "
+            header += "you, and it is the author's own knowledge of the process. Let it inform "
+            header += "the whole guide: your `intro` and the wording and emphasis of every step. "
+            header += "You may rewrite it freely for clarity, structure and tone — write the "
+            header += "best overview you can. What you must not do is CONTRADICT or SILENTLY "
+            header += "DROP the facts and constraints it states; those are things the author "
+            header += "knows and you do not."
+        }
     }
 
     var content: [[String: Any]] = [["type": "text", "text": header]]
