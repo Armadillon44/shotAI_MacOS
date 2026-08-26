@@ -21,21 +21,28 @@ import SwiftUI
 /// unrepresentable. The slider is the one input that does not persist per
 /// change: one drag crosses up to 13 detents, and each would be a serialized
 /// disk write.
+///
+/// What the control displays is DERIVED from `model.docScale`, never mirrored
+/// into local state. A local copy is how the control ends up disagreeing with
+/// the document: it survives a failed write, so the field goes on showing a
+/// percentage the manifest never got, and it lags a commit, so releasing the
+/// slider flashes the pre-drag value while the write is in flight.
 struct DocScaleControl: View {
     @Environment(AppModel.self) private var model
 
-    /// Live index while dragging or stepping; nil when the committed value shows.
-    @State private var dragIndex: Double?
-    /// Buffered keystrokes. nil when not mid-edit, so the committed value shows.
+    /// Buffered keystrokes. nil when not mid-edit, so the live value shows.
     @State private var draft: String?
     @State private var editing = false
+    /// The project this edit belongs to, captured while it is still open.
+    ///
+    /// A blur fires as the toolbar item is torn down — clicking Back is the
+    /// ordinary case — and by then `opened` is already nil, so a commit that
+    /// resolved the path at write time would silently drop the typed value.
+    @State private var editTarget: String?
 
-    private var committedIndex: Double {
-        Double(DocScale.detentIndex(of: model.docScaleCommitted))
-    }
-    private var index: Double { dragIndex ?? committedIndex }
-    private var shownScale: Double { DocScale.detent(at: Int(index.rounded())) }
-    private var shownPercent: Int { Int((shownScale * 100).rounded()) }
+    /// Live scale, including an uncommitted preview, snapped to a detent index.
+    private var index: Int { DocScale.detentIndex(of: model.docScale) }
+    private var shownPercent: Int { Int((DocScale.detent(at: index) * 100).rounded()) }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -45,32 +52,37 @@ struct DocScaleControl: View {
                 .accessibilityHidden(true)
 
             Slider(
-                value: Binding(get: { index }, set: { new in
-                    dragIndex = new
-                    model.previewDocScale(DocScale.detent(at: Int(new.rounded())))
-                }),
+                value: Binding(get: { Double(index) },
+                               set: { model.previewDocScale(DocScale.detent(at: Int($0.rounded()))) }),
                 in: 0...Double(DocScale.detents.count - 1),
                 step: 1
             ) { isEditing in
-                if !isEditing {
-                    let target = shownScale
-                    dragIndex = nil
-                    Task { await model.commitDocScale(target) }
-                }
+                if !isEditing { apply(DocScale.detent(at: index)) }
             }
             .frame(width: 92)
             .controlSize(.small)
+            // The slider's value is a detent INDEX, so without these VoiceOver
+            // announces "7" or "58%" — neither of which is a document size.
+            .accessibilityLabel("Document size")
+            .accessibilityValue("\(shownPercent) percent")
 
             percentField
 
             Stepper("", onIncrement: { step(+1) }, onDecrement: { step(-1) })
                 .labelsHidden()
                 .controlSize(.small)
+                // Hold the window resize while the pointer is parked here, or a
+                // second click lands where the button USED to be — the window
+                // grows center-preserving, so the right-aligned toolbar walks
+                // right by half the delta on every step. Released on exit, which
+                // is the honest "done clicking" signal. See
+                // AppModel.docScaleStepperHot.
+                .onHover { model.docScaleStepperHot = $0 }
+                .onDisappear { model.docScaleStepperHot = false }
                 .accessibilityLabel("Step document size")
+                .accessibilityValue("\(shownPercent) percent")
         }
         .help("Document size — how wide this guide renders in the report and every export (\(Int(DocScale.min * 100))–\(Int(DocScale.max * 100))%). Type a value, or use ↑ ↓.")
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Document size")
     }
 
     private var percentField: some View {
@@ -98,12 +110,16 @@ struct DocScaleControl: View {
 
     /// One detent, applied immediately — from ↑/↓ or the stepper. A stepper that
     /// only previewed would read as the control ignoring the click.
+    ///
+    /// Steps from whatever is ON SCREEN, so a buffered "83" plus ↑ moves up from
+    /// 85 rather than throwing the typed value away and stepping off the
+    /// committed one.
     private func step(_ delta: Int) {
-        let current = Int(index.rounded())
-        let next = min(max(current + delta, 0), DocScale.detents.count - 1)
-        guard next != current else { return }
+        let base = draft.flatMap(Int.init).map { DocScale.detentIndex(of: Double($0) / 100) } ?? index
+        let next = min(max(base + delta, 0), DocScale.detents.count - 1)
         draft = nil
-        dragIndex = Double(next)
+        editTarget = nil
+        guard next != index || next != base else { return }
         apply(DocScale.detent(at: next))
     }
 
@@ -115,15 +131,19 @@ struct DocScaleControl: View {
     /// inspecting the input event; the probe that appeared to prove they were
     /// distinguishable was dispatching its own synthetic event and measuring
     /// itself.
+    ///
+    /// The draft must never be SHORTER than what the user typed — see the note
+    /// in `PercentField.updateNSView`. Out-of-range digits are left alone here
+    /// and clamped on commit; only non-digits, and a 5th character, are refused.
     private func typed(_ raw: String) {
-        let digits = String(raw.filter(\.isNumber).prefix(3))
+        editTarget = editTarget ?? model.selectedPath ?? model.opened?.dir
+        let digits = String(raw.filter(\.isNumber).prefix(4))
         draft = digits
-        // Exact membership, NOT `detentIndex(of:)` — that snaps, so it would
-        // report `83` as legal and apply 85% while the user was still typing.
         guard let pct = Int(digits),
               let i = DocScale.detents.firstIndex(of: Double(pct) / 100)
         else { return }
-        dragIndex = Double(i)
+        // Exact membership, NOT `detentIndex(of:)` — that snaps, so it would
+        // report "83" as legal and jump to 85% while the user was still typing.
         apply(DocScale.detent(at: i))
     }
 
@@ -133,21 +153,26 @@ struct DocScaleControl: View {
     private func commitDraft() {
         guard let d = draft else { return }
         draft = nil
-        guard let pct = Int(d) else { dragIndex = nil; return }
-        let i = DocScale.detentIndex(of: Double(pct) / 100)
-        dragIndex = Double(i)
-        apply(DocScale.detent(at: i))
+        defer { editTarget = nil }
+        guard let pct = Int(d) else { return }
+        apply(DocScale.detent(at: DocScale.detentIndex(of: Double(pct) / 100)))
     }
 
-    /// Escape: throw the edit away and put the committed value back on screen.
+    /// Escape: throw the edit away.
+    ///
+    /// Clears the preview rather than setting it to the committed value. Setting
+    /// it leaves `AppModel.docScalePreview` non-nil with nothing queued to clear
+    /// it — only a commit does that — so the abandoned project's scale shadowed
+    /// every project opened afterwards for the rest of the session.
     private func abandon() {
         draft = nil
-        dragIndex = nil
-        model.previewDocScale(model.docScaleCommitted)
+        editTarget = nil
+        model.clearDocScalePreview()
     }
 
     private func apply(_ scale: Double) {
+        let target = editTarget ?? model.selectedPath ?? model.opened?.dir
         model.previewDocScale(scale)
-        Task { await model.commitDocScale(scale) }
+        Task { await model.commitDocScale(scale, at: target) }
     }
 }

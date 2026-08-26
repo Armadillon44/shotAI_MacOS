@@ -27,6 +27,9 @@ struct ContentView: View {
     @State private var editorError: String?
     /// The hosting window, captured once, so we can size it per surface.
     @State private var window: NSWindow?
+    /// A window resize the document-scale stepper is holding back — see
+    /// `AppModel.docScaleStepperHot`.
+    @State private var pendingWindowResize = false
     /// Honor Reduce Motion for the overlay fades below.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -164,6 +167,7 @@ struct ContentView: View {
             // Returning to Home (e.g. replay-tour from Settings calls closeToHome
             // while the editor overlay is up) must not strand the editor overlay.
             if model.opened == nil { editor = nil }
+            pendingWindowResize = false   // belongs to the project being left
             guard let window else { return }
             // Defer to the next runloop tick so the resize animation runs AFTER
             // the Home⇄detail content swap settles. Entering a project happens
@@ -177,8 +181,30 @@ struct ContentView: View {
         // applyWindowWidth for why that distinction is load-bearing.
         .onChange(of: model.docScaleCommitted) {
             guard let window else { return }
+            // Held while the pointer sits on the stepper, so repeated clicks
+            // don't walk the button away from the cursor.
+            guard !model.docScaleStepperHot else {
+                pendingWindowResize = true
+                return
+            }
             DispatchQueue.main.async { applyWindowWidth(window, animated: true) }
         }
+        // Pointer left the stepper: the user is done clicking, so let the window
+        // catch up.
+        .onChange(of: model.docScaleStepperHot) { _, hot in
+            guard !hot, pendingWindowResize, let window else { return }
+            pendingWindowResize = false
+            DispatchQueue.main.async { applyWindowWidth(window, animated: true) }
+        }
+        // NB: no timer rescue here, deliberately. A deadline on the hold fires
+        // while the pointer is still on the stepper — someone who reads the
+        // report between clicks is idle far longer than any "click cadence" —
+        // and moving the button out from under a stationary cursor is the exact
+        // failure the hold exists to prevent. The hold is released by events
+        // that mean the interaction really is over: pointer exit, the control
+        // disappearing, and leaving the project. Every one of those is a mouse
+        // move or a navigation, so a stranded hold needs the user to touch
+        // nothing at all — at which point the stale width is not observable.
         // The window toolbar is the native title-bar chrome. While editing, we
         // REPLACE its items with the editor's Cancel/Save (keeping the toolbar
         // VISIBLE) so the title bar reads as functional chrome — traffic lights
