@@ -67,7 +67,10 @@ byte-compatible, so projects **round-trip between platforms**.
    PNG** copy of the screenshot; the original pixels never leave your machine for any export
    or AI request (the send/export path is **fail-closed** and refuses a step whose
    redactions aren't baked). Each report step supports liquid-glass image zoom
-   with drag-to-pan.
+   with drag-to-pan. A per-project **document size** (65–125%, in the report toolbar) scales
+   the whole guide — drag the slider, type a percentage, or nudge it with ↑/↓ — so dense
+   screenshots get more room and short ones read tighter. It's stored in the project, so it
+   travels with a `.zip` package and round-trips with the Windows app.
 
 3. **Generate the SOP (optional).** With **your own** Anthropic API key — or, where your
    organization has configured it, a **single sign-on** with your work account and no key at
@@ -82,7 +85,8 @@ byte-compatible, so projects **round-trip between platforms**.
    every step as its own card — the same visual step separation you see in the report.
    Markdown lands as a self-contained **`<name>/` folder** (the `.md` plus its `images/`).
    Or export a shareable **`.zip` package** that another shotAI user (macOS or Windows) can
-   **import** and keep editing.
+   **import** and keep editing. The report and every export render at the **same width**, so
+   what you see is what you send.
 
 5. **Manage.** The Home screen lists projects with **search**, sort, and **date grouping**,
    a **Draft / SOP-ready** status chip, and **multi-select** for bulk **archive / export /
