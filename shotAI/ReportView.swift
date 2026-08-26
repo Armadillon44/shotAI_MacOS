@@ -39,7 +39,14 @@ struct ReportView: View {
     /// The measured report column width (≤ 880), used to size each step figure so
     /// it (and its zoom controls) always fit — even when the window is dragged
     /// narrow. Seeded at the 880 cap; updated by the geometry probe below.
-    @State private var reportColumnWidth: CGFloat = 880
+    /// Width the report is OFFERED (the window's content area), measured. The
+    /// column itself is derived from this and the scale — never measured off the
+    /// content, which would feed back on itself. See the note at the measurement.
+    @State private var reportAvailableWidth: CGFloat = 880
+    /// The column the steps actually get: the scaled target, capped by what fits.
+    private var reportColumnWidth: CGFloat {
+        min(DocScale.reportFrame(model.docScale), reportAvailableWidth)
+    }
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
@@ -108,13 +115,25 @@ struct ReportView: View {
             // Scaled per project (#83). Re-derived from the base, never a stored
             // constant, so the report and the exports cannot drift apart.
             .frame(maxWidth: DocScale.reportFrame(model.docScale))
-            // Measure the resulting column so each figure is sized to what is
-            // ACTUALLY there. Measuring rather than computing is what stops a
-            // card's border and padding silently cropping the figure.
-            .background(GeometryReader { g in
-                Color.clear.preference(key: ReportColumnWidthKey.self, value: g.size.width)
-            })
             .frame(maxWidth: .infinity)
+            // MEASURE THE AVAILABLE WIDTH, NOT THE CONTENT WIDTH.
+            //
+            // Measuring the framed container instead creates a feedback loop that
+            // pins the whole feature: `.frame(maxWidth:)` only PROPOSES a width,
+            // so the stack still sizes to its widest child — and that child sizes
+            // itself from the measured column. At 100% it settles at 880 and
+            // looks perfectly correct; at 125% nothing pushes it wider, so the
+            // measurement stays 880, the figure stays 756, and the slider appears
+            // to do nothing above 100%.
+            //
+            // Windows hit the same shape through CSS (an auto cross-axis margin
+            // made the column content-sized, so `max-width` could only cap it) and
+            // it had been latent for releases, hidden by content that happened to
+            // fill the column. Deriving the column from the frame target and the
+            // space actually offered breaks the loop in both directions.
+            .background(GeometryReader { g in
+                Color.clear.preference(key: ReportAvailableWidthKey.self, value: g.size.width)
+            })
             // A click anywhere off a field commits the active edit (macOS text
             // fields don't resign on a dead-space click). Field buttons/fields
             // take gesture priority, so this only fires on empty space + labels.
@@ -149,7 +168,7 @@ struct ReportView: View {
             }
         }
         .background(Palette.surface)
-        .onPreferenceChange(ReportColumnWidthKey.self) { reportColumnWidth = $0 }
+        .onPreferenceChange(ReportAvailableWidthKey.self) { reportAvailableWidth = $0 }
         // Size every step figure to fill the live card so a full-width screenshot
         // uses the whole width (and its zoom controls stay inside), at any window.
         .environment(\.reportFigureFitWidth, max(160, reportColumnWidth - stepFigureGutter))
@@ -498,8 +517,10 @@ private struct IntroBox: View {
 /// column is already bounded at 880, so the figure tops out ≈ 756.
 private let stepFigureGutter: CGFloat = 124
 
-/// Measured width of the report column (the maxWidth-880 content frame).
-private struct ReportColumnWidthKey: PreferenceKey {
+/// Measured width AVAILABLE to the report (the window content area), from which
+/// the column is derived. Deliberately not the content's own width — see the
+/// feedback-loop note at the measurement site.
+private struct ReportAvailableWidthKey: PreferenceKey {
     static let defaultValue: CGFloat = 880
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
