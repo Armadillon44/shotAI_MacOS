@@ -119,7 +119,11 @@ struct ReportView: View {
                         return true
                     } isTargeted: { autoScroller.noteHover($0) }
             }
-            .padding(24)
+            // Horizontal padding matches the HTML `.doc` (32px per side) so the
+            // report column IS the exported column. It was 24, which made every
+            // card 16pt wider on screen than in the export.
+            .padding(.horizontal, DocScale.docPadding)
+            .padding(.vertical, 24)
             // Scaled per project (#83). Re-derived from the base, never a stored
             // constant, so the report and the exports cannot drift apart.
             .frame(maxWidth: DocScale.reportFrame(model.docScale))
@@ -511,18 +515,21 @@ private struct IntroBox: View {
     }
 }
 
-/// Horizontal chrome around the step figure: outer padding (24·2) + the rail
-/// gutter (badge 32 + spacing 14) + card padding (14·2) ≈ 122; 124 leaves a hair
-/// of margin. The figure fills the card content (column − gutter) so a full-width
-/// screenshot uses the whole card — and its floating zoom controls stay inside —
-/// shrinking with the window down to the 680 minimum. No fixed upper cap: the
-/// column is already bounded at 880, so the figure tops out ≈ 756.
-private let stepFigureGutter: CGFloat = 124
+/// Horizontal chrome around the step figure: doc padding (32·2) + the rail
+/// gutter (badge 32 + spacing 14 = 46) + card padding (16·2). Not a measured
+/// approximation any more — it is `DocScale.reportFigureChrome`, the same 142
+/// the HTML spends, so `frame − gutter` lands exactly on `htmlImageMax` and the
+/// on-screen figure matches the exported one at every scale.
+///
+/// The figure still fills the live card, so a full-width screenshot uses the
+/// whole card — and its floating zoom controls stay inside — shrinking with the
+/// window down to the 680 minimum.
+private let stepFigureGutter = CGFloat(DocScale.reportFigureChrome)
 
 /// The resolved per-step figure fit width, pushed down so StepFigure sizes itself
 /// to the live column without threading a parameter through StepRow/shotBlock.
 private struct ReportFigureFitWidthKey: EnvironmentKey {
-    static let defaultValue: CGFloat = 880 - stepFigureGutter
+    static let defaultValue = CGFloat(DocScale.reportFrameBase - DocScale.reportFigureChrome)
 }
 /// The per-project document scale (#83), pushed down the same way so a figure
 /// can size its HEIGHT cap without threading a parameter through StepRow.
@@ -633,7 +640,9 @@ private struct StepRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
+            // 14/16 matches the HTML `.step__main { padding: 14px 16px }`.
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
             .background {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(fill)

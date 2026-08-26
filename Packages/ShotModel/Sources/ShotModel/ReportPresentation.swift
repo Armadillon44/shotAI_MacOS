@@ -6,7 +6,7 @@ import Foundation
 /// are unit-tested by `swift test`.
 public enum ReportPresentation {
     /// Base display box for report images (display only — export is full-res).
-    public static let baseWidth: Double = 820
+    public static let baseWidth: Double = DocScale.htmlColumnBase
     public static let baseHeight: Double = 600
     /// Report zoom is IN-only: 1 = fit, never below (a legacy/hand-edited
     /// sub-1 value is floored to 1 on read, matching Windows ZOOM_MIN).

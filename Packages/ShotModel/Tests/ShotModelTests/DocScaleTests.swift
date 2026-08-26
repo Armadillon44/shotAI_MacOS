@@ -63,19 +63,19 @@ import Testing
     /// ceiling is re-derived — `htmlImageMax(s) != 738 * s`, and they agree only
     /// at s == 1, which is what lets the wrong version pass a spot check.
     @Test(arguments: [
-        (0.65, 572.0, 533.0, 530, 452, 904, 520),
-        (0.70, 616.0, 574.0, 571, 493, 986, 560),
-        (0.75, 660.0, 615.0, 612, 534, 1068, 600),
-        (0.80, 704.0, 656.0, 653, 575, 1150, 640),
-        (0.85, 748.0, 697.0, 694, 616, 1232, 680),
-        (0.90, 792.0, 738.0, 734, 656, 1312, 720),
-        (0.95, 836.0, 779.0, 775, 697, 1394, 760),
-        (1.00, 880.0, 820.0, 816, 738, 1476, 800),
-        (1.05, 924.0, 861.0, 857, 779, 1558, 840),
-        (1.10, 968.0, 902.0, 898, 820, 1640, 880),
-        (1.15, 1012.0, 943.0, 938, 860, 1720, 920),
-        (1.20, 1056.0, 984.0, 979, 901, 1802, 960),
-        (1.25, 1100.0, 1025.0, 1020, 942, 1884, 1000),
+        (0.65, 594.0, 530.0, 530, 452, 904, 520),
+        (0.70, 635.0, 571.0, 571, 493, 986, 560),
+        (0.75, 676.0, 612.0, 612, 534, 1068, 600),
+        (0.80, 717.0, 653.0, 653, 575, 1150, 640),
+        (0.85, 758.0, 694.0, 694, 616, 1232, 680),
+        (0.90, 798.0, 734.0, 734, 656, 1312, 720),
+        (0.95, 839.0, 775.0, 775, 697, 1394, 760),
+        (1.00, 880.0, 816.0, 816, 738, 1476, 800),
+        (1.05, 921.0, 857.0, 857, 779, 1558, 840),
+        (1.10, 962.0, 898.0, 898, 820, 1640, 880),
+        (1.15, 1002.0, 938.0, 938, 860, 1720, 920),
+        (1.20, 1043.0, 979.0, 979, 901, 1802, 960),
+        (1.25, 1084.0, 1020.0, 1020, 942, 1884, 1000),
     ])
     func derivedWidths(s: Double, frame: Double, column: Double,
                        htmlCol: Int, img: Int, embed: Int, plain: Int) {
@@ -87,12 +87,35 @@ import Testing
         #expect(DocScale.plainBody(s) == plain)
     }
 
+    /// The report figure and the exported figure must be the SAME width at every
+    /// scale. They were not: the report scaled its whole 880 frame (padding
+    /// included) and subtracted a measured 124, while the export scaled only the
+    /// 816 column and subtracted 78 — so the report ran 18px wide at 100% and
+    /// 34px wide at 125%. Agreeing at 100% is why it went unnoticed.
+    @Test func reportFigureMatchesExport() {
+        for s in DocScale.detents {
+            #expect(DocScale.reportFrame(s) - DocScale.reportFigureChrome
+                    == Double(DocScale.htmlImageMax(s)), "scale \(s)")
+        }
+    }
+
+    /// The chrome the report spends must be the chrome the export spends, or the
+    /// SwiftUI paddings and the CSS drift apart again.
+    @Test func reportChromeIsDocPaddingPlusStepChrome() {
+        #expect(DocScale.reportFigureChrome == 2 * DocScale.docPadding + DocScale.stepChrome)
+        #expect(DocScale.reportFigureChrome == 142)
+    }
+
     /// The multiplication trap, stated as a test so nobody "simplifies" it back.
     @Test func imageCeilingIsRederivedNotMultiplied() {
         #expect(DocScale.htmlImageMax(1.0) == 738)
         for s in DocScale.detents where s != 1.0 {
             #expect(DocScale.htmlImageMax(s) != Int((738.0 * s).rounded()),
                     "738 * s agrees with the correct derivation only at s == 1")
+            // Same trap, the report side: the frame is NOT 880 * s, because the
+            // doc padding inside it does not scale.
+            #expect(DocScale.reportFrame(s) != (880.0 * s).rounded(),
+                    "880 * s agrees with the correct derivation only at s == 1")
         }
     }
 
@@ -188,7 +211,7 @@ import Testing
         let big = ReportPresentation.viewport(for: s, imagePixelSize: (2400, 1200), docScale: 1.25)
         #expect(small!.boxWidth < unity!.boxWidth)
         #expect(big!.boxWidth > unity!.boxWidth)
-        #expect(unity!.boxWidth == 820, "1.0 reproduces the pre-feature column exactly")
+        #expect(abs(unity!.boxWidth - 816) < 1e-9, "1.0 renders at the width it exports")
     }
 
     /// The HEIGHT cap scales too. A portrait capture is height-limited, so
@@ -222,8 +245,10 @@ import Testing
     /// slider do anything above 100%.
     @Test func growsWithScaleWhenThereIsRoom() {
         #expect(DocScale.reportColumnFitting(1.00, available: 2000) == 880)
-        #expect(DocScale.reportColumnFitting(1.25, available: 2000) == 1100)
-        #expect(DocScale.reportColumnFitting(0.65, available: 2000) == 572)
+        // Column + the fixed 64pt of doc padding, NOT 880 * s: the padding is
+        // chrome. Scaling it is what made the report wider than the export.
+        #expect(DocScale.reportColumnFitting(1.25, available: 2000) == 1084)
+        #expect(DocScale.reportColumnFitting(0.65, available: 2000) == 594)
     }
 
     /// A window narrower than the target still wins, so the report never

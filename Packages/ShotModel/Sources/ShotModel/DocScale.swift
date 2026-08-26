@@ -74,20 +74,35 @@ public enum DocScale {
     // agree only at s == 1, which is exactly what lets the wrong version pass a
     // spot check.
 
-    /// Report frame (the outer `.frame(maxWidth:)`).
-    public static let reportFrameBase: Double = 880
-    /// Report content column (`ReportPresentation.baseWidth`).
-    public static let reportColumnBase: Double = 820
-    /// HTML content column; `.doc` adds 32px padding per side.
+    /// HTML content column; `.doc` adds `docPadding` per side.
     public static let htmlColumnBase: Double = 816
+    /// The fixed horizontal padding `.doc` adds OUTSIDE the column, per side.
+    /// Chrome: it does not scale.
+    public static let docPadding: Double = 32
+    /// Report frame (the outer `.frame(maxWidth:)`) — the same box as the HTML
+    /// `.doc`, so at 100% this is still 880.
+    public static let reportFrameBase: Double = htmlColumnBase + 2 * docPadding
+    /// Report content column (`ReportPresentation.baseWidth`) — the SAME column
+    /// the HTML uses. These were 880/820 against the HTML's 816, which is how
+    /// the report came to render its cards and figures wider than the export.
+    public static let reportColumnBase: Double = htmlColumnBase
     /// "HTML for Word" body width.
     public static let plainBodyBase: Double = 800
     /// Fixed step chrome subtracted from the column: 30 badge + 16 gap + 32 card
     /// padding. Does NOT scale.
     public static let stepChrome: Double = 78
 
-    public static func reportFrame(_ s: Double) -> Double { (reportFrameBase * s).rounded() }
-    public static func reportColumn(_ s: Double) -> Double { (reportColumnBase * s).rounded() }
+    /// The report frame, derived — NOT `880 * s`.
+    ///
+    /// The doc padding is chrome and does not scale, so multiplying the whole
+    /// 880 scaled the padding too. That is the second half of the same
+    /// re-derive-don't-multiply rule as `htmlImageMax`, and breaking it made the
+    /// report drift wider than the export as the scale rose: +18px at 100%,
+    /// +34px at 125%. Agreeing at 100% is exactly what let it pass a spot check.
+    public static func reportFrame(_ s: Double) -> Double {
+        Double(htmlColumn(s)) + 2 * docPadding
+    }
+    public static func reportColumn(_ s: Double) -> Double { Double(htmlColumn(s)) }
     public static func htmlColumn(_ s: Double) -> Int { Int((htmlColumnBase * s).rounded()) }
     public static func plainBody(_ s: Double) -> Int { Int((plainBodyBase * s).rounded()) }
 
@@ -106,6 +121,19 @@ public enum DocScale {
 
     /// Displayed image ceiling inside a step card. Re-derived, never multiplied.
     public static func htmlImageMax(_ s: Double) -> Int { htmlColumn(s) - Int(stepChrome) }
+
+    /// Horizontal chrome between the report FRAME and the step figure: doc
+    /// padding (32·2) + the badge rail (46) + step-card padding (16·2).
+    ///
+    /// Equal to `2 * docPadding + stepChrome` by construction, which is what
+    /// makes `reportFrame(s) - reportFigureChrome == htmlImageMax(s)` hold at
+    /// every scale — the report figure and the exported figure are the same
+    /// width. `DocScaleTests.reportFigureMatchesExport` pins it.
+    ///
+    /// The SwiftUI report must actually SPEND this: 32pt outer padding per side,
+    /// a 32 + 14 badge rail, and 16pt step-card padding per side. It previously
+    /// spent 24 / 46 / 14, which is the other half of the drift.
+    public static let reportFigureChrome: Double = 2 * docPadding + stepChrome
     /// The @2x resample target from the shared contract.
     ///
     /// **macOS does not consume this, deliberately.** `HTMLExport` embeds at 1x
