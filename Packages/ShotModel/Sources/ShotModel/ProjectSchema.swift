@@ -276,16 +276,22 @@ public struct SopBackup: Codable, Equatable, Sendable {
     public var steps: [ProjectStep]
     public var title: String
     public var intro: SopIntro?
+    /// Whether `intro` above was author-written. Revert must restore AUTHORSHIP,
+    /// not just the text: without this a reverted author overview comes back
+    /// unflagged and the next generate is free to rewrite it again (#80).
+    public var introEditedByUser: Bool?
     public var model: String
     public var tone: SopTone
     public var at: String // ISO 8601
 
-    enum CodingKeys: String, CodingKey { case steps, title, intro, model, tone, at }
+    enum CodingKeys: String, CodingKey { case steps, title, intro, introEditedByUser, model, tone, at }
 
-    public init(steps: [ProjectStep], title: String, intro: SopIntro?, model: String, tone: SopTone, at: String) {
+    public init(steps: [ProjectStep], title: String, intro: SopIntro?,
+                introEditedByUser: Bool? = nil, model: String, tone: SopTone, at: String) {
         self.steps = steps
         self.title = title
         self.intro = intro
+        self.introEditedByUser = introEditedByUser
         self.model = model
         self.tone = tone
         self.at = at
@@ -298,6 +304,7 @@ public struct SopBackup: Codable, Equatable, Sendable {
         steps = try c.decode([ProjectStep].self, forKey: .steps)
         title = try c.decode(String.self, forKey: .title)
         let rawIntro = try? c.decodeIfPresent(SopIntro.self, forKey: .intro)
+        introEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: .introEditedByUser)
         intro = (rawIntro?.isEmpty ?? true) ? nil : rawIntro
         model = (try? c.decodeIfPresent(String.self, forKey: .model)) ?? ""
         tone = (try? c.decodeIfPresent(SopTone.self, forKey: .tone)) ?? .professional
@@ -309,6 +316,7 @@ public struct SopBackup: Codable, Equatable, Sendable {
         try c.encode(steps, forKey: .steps)
         try c.encode(title, forKey: .title)
         try c.encode(intro, forKey: .intro)
+        try c.encodeIfPresent(introEditedByUser, forKey: .introEditedByUser)
         try c.encode(model, forKey: .model)
         try c.encode(tone, forKey: .tone)
         try c.encode(at, forKey: .at)
