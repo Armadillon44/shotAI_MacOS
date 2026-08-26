@@ -469,6 +469,27 @@ public actor ProjectStore {
         }
     }
 
+    /// Set the per-project document scale (#83).
+    ///
+    /// Clamped on write as well as read, and the DEFAULT IS WRITTEN AS ABSENT so
+    /// a project that never touches the slider stays byte-identical on disk.
+    ///
+    /// Returns nil when nothing changed, WITHOUT writing. That guard is
+    /// load-bearing, not an optimisation: `mutate` bumps `updatedAt`
+    /// unconditionally, so a no-op save would re-date the project and throw it to
+    /// the top of the home list under "Today" — Windows shipped exactly that bug,
+    /// where merely focusing or clicking the slider rewrote `project.json`.
+    @discardableResult
+    public func setDisplayScale(at projectPath: String, _ scale: Double) throws -> ProjectManifest? {
+        let snapped = DocScale.clamp(scale)
+        let current = DocScale.clamp(try openProject(at: projectPath).manifest.displayScale)
+        guard snapped != current else { return nil }
+        Log.store.info("setDisplayScale \(Int(snapped * 100), privacy: .public)%")
+        return try mutate(at: projectPath) {
+            $0.displayScale = snapped == DocScale.default ? nil : snapped
+        }
+    }
+
     /// Convert a text step between plain text and a callout by setting (a kind) or
     /// clearing (nil) its `callout`. Unlike `editStepText`, nil here CLEARS the
     /// callout (→ plain text). Only text steps qualify — a shot step is left

@@ -388,6 +388,53 @@ final class AppModel {
     /// failed" is the wrong sentence when the user simply isn't signed in yet.
     private(set) var sopErrorKind: ClaudeError.Kind?
 
+    // MARK: Document scale (#83)
+
+    /// Live value while the slider is being dragged. Drives LAYOUT only.
+    ///
+    /// Split from the committed value deliberately. Windows drove its window
+    /// resize from the live preview, so every drag step resized the window, the
+    /// window moved under the pointer, and the pointer dragged the slider with
+    /// it — a drag from 125% ran away to 65% regardless of where you let go.
+    private(set) var docScalePreview: Double?
+
+    /// The scale as last persisted. Drives anything that must NOT react
+    /// mid-drag (the window width).
+    var docScaleCommitted: Double { DocScale.of(opened?.manifest ?? .init(id: "", title: "", createdAt: "", updatedAt: "", steps: [])) }
+
+    /// What the report and exports should render at right now.
+    var docScale: Double { docScalePreview ?? docScaleCommitted }
+
+    /// Monotonic id so a slow write landing after a newer one cannot yank the
+    /// layout back to an older value.
+    @ObservationIgnored private var docScaleWriteSeq = 0
+
+    /// Live feedback during a drag. Never writes.
+    func previewDocScale(_ v: Double) { docScalePreview = DocScale.clamp(v) }
+
+    /// Persist on release. The store already refuses a no-op write, which
+    /// matters because `mutate` bumps `updatedAt` unconditionally — without that
+    /// guard merely clicking the slider would re-date the project and throw it to
+    /// the top of Home under "Today".
+    func commitDocScale(_ v: Double) async {
+        guard let path = selectedPath ?? opened?.dir else { docScalePreview = nil; return }
+        let target = DocScale.clamp(v)
+        docScaleWriteSeq += 1
+        let seq = docScaleWriteSeq
+        docScalePreview = target
+        do {
+            _ = try await store.setDisplayScale(at: path, target)
+            guard seq == docScaleWriteSeq else { return }   // a newer write won
+            await reloadOpened()
+            if seq == docScaleWriteSeq { docScalePreview = nil }
+        } catch {
+            // Never leave the UI rendering a size the manifest does not have.
+            docScalePreview = nil
+            sopError = nil
+            Log.store.error("setDisplayScale failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// Sign-in state. Owns the federation config and provider; never sees a token.
     let auth = AuthModel()
     /// Mirror of the resolved credential path, so views can react.

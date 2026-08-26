@@ -85,7 +85,8 @@ public func exportProject(
         // Native CoreText/CG renderer — NOT WKWebView printing, which hangs the
         // main thread in WebKit's print pagination (see PdfExport.swift).
         try renderPdf(title: manifest.title, createdLine: createdLine,
-                      intro: manifest.intro, items: items, outputPath: outputPath)
+                      intro: manifest.intro, items: items, outputPath: outputPath,
+                      scale: DocScale.of(manifest))
     }
 
     return ExportResult(format: format, outputPath: outputPath)

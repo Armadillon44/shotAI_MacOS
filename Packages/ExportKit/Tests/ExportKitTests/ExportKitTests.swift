@@ -142,9 +142,9 @@ final class ExportKitTests: XCTestCase {
         // asserted in testStyledHtmlUsesAvifAndPlainStaysPng.
         XCTAssertTrue(html.contains("data:image/avif;base64,"))
         XCTAssertTrue(html.contains("class=\"doc__intro-b\">first<br>second<")) // intro br
-        XCTAssertTrue(html.contains(DOC_CSS))
+        XCTAssertTrue(html.contains(docCSS()))
         // #59: a narrow capture centers in the column (equal L/R padding).
-        XCTAssertTrue(DOC_CSS.contains(".step__img{") && DOC_CSS.contains("margin-inline:auto"))
+        XCTAssertTrue(docCSS().contains(".step__img{") && docCSS().contains("margin-inline:auto"))
     }
 
     func testPlainHtmlIsSemanticWithArialCss() async throws {
@@ -157,7 +157,7 @@ final class ExportKitTests: XCTestCase {
         let res = try await exportProject(dir: dir, manifest: m, format: .htmlPlain, generatedAt: fixedDate)
         XCTAssertTrue(res.outputPath.hasSuffix("/export/My SOP-plain.html"))
         let html = try String(contentsOfFile: res.outputPath, encoding: .utf8)
-        // Now carries the minimal Arial stylesheet (parity with Windows PLAIN_CSS)…
+        // Now carries the minimal Arial stylesheet (parity with Windows plainCSS())…
         XCTAssertTrue(html.contains("<style>"))
         XCTAssertTrue(html.contains("font-family:Arial"))
         // …but the markup stays class/inline-style-free so it still pastes cleanly.
@@ -387,7 +387,7 @@ final class ExportKitTests: XCTestCase {
         XCTAssertTrue(html.contains("<div class=\"doc\">"), "outer wrapper must be a plain div")
         XCTAssertTrue(html.contains("<div class=\"doc__col\">"), "width must sit on a nested div")
         XCTAssertFalse(html.contains("<main"), "<main> did not survive the paste sanitizer")
-        XCTAssertTrue(DOC_CSS.contains(".doc__col{max-width:816px"), "the column carries the width")
+        XCTAssertTrue(docCSS().contains(".doc__col{max-width:816px"), "the column carries the width")
         // Tables were ruled out by probe: the destination forces table{width:100%}.
         XCTAssertFalse(html.contains("<table"), "layout tables come back full width; don't use them")
     }
@@ -399,7 +399,7 @@ final class ExportKitTests: XCTestCase {
         // each block, or the flex cards stretch to the destination's width (#64).
         for selector in [".doc__title{", ".doc__meta{", ".doc__intro{", ".step{"] {
             let rule = try XCTUnwrap(
-                DOC_CSS.split(separator: "\n").first { $0.hasPrefix(selector) },
+                docCSS().split(separator: "\n").first { $0.hasPrefix(selector) },
                 "no \(selector) rule")
             XCTAssertTrue(rule.contains("max-width:816px"), "\(selector) must carry the column width")
             XCTAssertTrue(rule.contains("margin:0 auto") || rule.contains("auto"),
@@ -407,9 +407,9 @@ final class ExportKitTests: XCTestCase {
         }
         // .section indents to align its rule with the card, so it centres at 816 and
         // pushes the rule in via .section__inner (inner elements DO survive a paste).
-        let section = try XCTUnwrap(DOC_CSS.split(separator: "\n").first { $0.hasPrefix(".section{") })
+        let section = try XCTUnwrap(docCSS().split(separator: "\n").first { $0.hasPrefix(".section{") })
         XCTAssertTrue(section.contains("max-width:816px") && section.contains("auto"))
-        XCTAssertTrue(DOC_CSS.contains(".section__inner{padding:14px 16px 0;border-top:"))
+        XCTAssertTrue(docCSS().contains(".section__inner{padding:14px 16px 0;border-top:"))
 
         let dir = try makeProjectDir()
         let m = manifest([textStep(id: "sec", order: 0, heading: "Phase", body: "b", callout: .section)])

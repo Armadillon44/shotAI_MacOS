@@ -541,6 +541,19 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     public var captureSettings: CaptureTarget?
     public var steps: [ProjectStep]
     /// SOP overview rendered as a preamble above the steps (not a step).
+    /// Per-project document scale, `0.65`...`1.25` in `0.05` detents (#83).
+    ///
+    /// **ABSENT means 1.0, and absent is the normal state.** The default is
+    /// written as absent (key removed) rather than as `1.0`, so a project that
+    /// never touches the slider stays byte-identical on disk — that is the
+    /// compatibility promise with every project written before the feature, and
+    /// with the Windows client.
+    ///
+    /// Read through `DocScale.of(_:)`, never directly: the stored value is
+    /// clamped on read AND write, and an out-of-range number is CLAMPED rather
+    /// than defaulted (a `3.0` from a future build means "as large as possible",
+    /// not "normal").
+    public var displayScale: Double?
     public var intro: SopIntro?
     /// The author edited `intro` by hand AFTER an AI generation.
     ///
@@ -569,7 +582,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
 
     private static let knownKeys: Set<String> = [
         "version", "id", "title", "createdWith", "createdAt", "updatedAt",
-        "captureSettings", "steps", "intro", "introEditedByUser", "sopBackup", "archived", "archivedAt",
+        "captureSettings", "steps", "displayScale", "intro", "introEditedByUser", "sopBackup", "archived", "archivedAt",
     ]
 
     public init(
@@ -613,6 +626,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         updatedAt = (try? c.decodeIfPresent(String.self, forKey: key("updatedAt"))) ?? ""
         captureSettings = try? c.decodeIfPresent(CaptureTarget.self, forKey: key("captureSettings"))
         steps = (try? c.decodeIfPresent([ProjectStep].self, forKey: key("steps"))) ?? []
+        displayScale = try? c.decodeIfPresent(Double.self, forKey: key("displayScale"))
         let rawIntro = try? c.decodeIfPresent(SopIntro.self, forKey: key("intro"))
         introEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: key("introEditedByUser"))
         intro = (rawIntro?.isEmpty ?? true) ? nil : rawIntro
@@ -638,6 +652,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         try c.encode(updatedAt, forKey: key("updatedAt"))
         try c.encode(captureSettings, forKey: key("captureSettings"))
         try c.encode(steps, forKey: key("steps"))
+        // Omitted when nil, which is how the default stays off disk.
+        try c.encodeIfPresent(displayScale, forKey: key("displayScale"))
         try c.encode(intro, forKey: key("intro"))
         try c.encodeIfPresent(introEditedByUser, forKey: key("introEditedByUser"))
         try c.encode(sopBackup, forKey: key("sopBackup"))

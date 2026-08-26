@@ -105,8 +105,12 @@ struct ReportView: View {
                     } isTargeted: { autoScroller.noteHover($0) }
             }
             .padding(24)
-            .frame(maxWidth: 880)
-            // Measure the (≤880) column so each figure can be sized to fit it.
+            // Scaled per project (#83). Re-derived from the base, never a stored
+            // constant, so the report and the exports cannot drift apart.
+            .frame(maxWidth: DocScale.reportFrame(model.docScale))
+            // Measure the resulting column so each figure is sized to what is
+            // ACTUALLY there. Measuring rather than computing is what stops a
+            // card's border and padding silently cropping the figure.
             .background(GeometryReader { g in
                 Color.clear.preference(key: ReportColumnWidthKey.self, value: g.size.width)
             })
@@ -149,6 +153,7 @@ struct ReportView: View {
         // Size every step figure to fill the live card so a full-width screenshot
         // uses the whole width (and its zoom controls stay inside), at any window.
         .environment(\.reportFigureFitWidth, max(160, reportColumnWidth - stepFigureGutter))
+        .environment(\.reportDocScale, model.docScale)
         .confirmationDialog(
             "Delete this step?",
             isPresented: Binding(get: { deleteStepTarget != nil }, set: { if !$0 { deleteStepTarget = nil } }),
@@ -504,10 +509,19 @@ private struct ReportColumnWidthKey: PreferenceKey {
 private struct ReportFigureFitWidthKey: EnvironmentKey {
     static let defaultValue: CGFloat = 880 - stepFigureGutter
 }
+/// The per-project document scale (#83), pushed down the same way so a figure
+/// can size its HEIGHT cap without threading a parameter through StepRow.
+private struct ReportDocScaleKey: EnvironmentKey {
+    static let defaultValue: Double = 1.0
+}
 extension EnvironmentValues {
     var reportFigureFitWidth: CGFloat {
         get { self[ReportFigureFitWidthKey.self] }
         set { self[ReportFigureFitWidthKey.self] = newValue }
+    }
+    var reportDocScale: Double {
+        get { self[ReportDocScaleKey.self] }
+        set { self[ReportDocScaleKey.self] = newValue }
     }
 }
 
@@ -1067,6 +1081,7 @@ private struct StepFigure: View {
     /// its floating zoom controls) never overflow the step card. Resolved by
     /// ReportView from the measured column width.
     @Environment(\.reportFigureFitWidth) private var fitWidth
+    @Environment(\.reportDocScale) private var docScale
 
     @State private var loaded: (image: NSImage, pixelSize: (width: Double, height: Double))?
     @State private var failed = false
@@ -1090,7 +1105,7 @@ private struct StepFigure: View {
 
     var body: some View {
         Group {
-            if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom, fitWidth: Double(fitWidth)) {
+            if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom, fitWidth: Double(fitWidth), docScale: docScale) {
                 // Center a capture narrower than the column so it gets equal L/R
                 // padding instead of hugging the left edge (#59). A full-width
                 // capture fills the column, so centering is a no-op for it.

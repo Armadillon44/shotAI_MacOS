@@ -16,9 +16,10 @@ import ShotModel
 /// Render the collected export items to a paginated US-Letter PDF at `outputPath`.
 /// Synchronous + pure Core Graphics (safe off the main thread; never blocks it).
 func renderPdf(
-    title: String, createdLine: String, intro: SopIntro?, items: [ExportItem], outputPath: String
+    title: String, createdLine: String, intro: SopIntro?, items: [ExportItem],
+    outputPath: String, scale: Double = 1.0
 ) throws {
-    let pdf = PdfCanvas(outputPath: outputPath)
+    let pdf = PdfCanvas(outputPath: outputPath, scale: scale)
     guard pdf.start() else { throw ExportError.writeFailed("Could not create the PDF document.") }
 
     pdf.beginPage()
@@ -134,7 +135,30 @@ private enum Ink {
 /// down from the content top) and starts a new page when a block won't fit.
 private final class PdfCanvas {
     let pageW: CGFloat = 612, pageH: CGFloat = 792
-    let margin: CGFloat = 40
+    private let baseMargin: CGFloat = 40
+
+    /// Document scale (#83), SHRINK-ONLY — `min(1, scale)`.
+    ///
+    /// A page is a fixed canvas, so this follows the same rule the spec sets for
+    /// `.pptx` rather than the HTML rule. Above 1.0 there is nowhere to grow
+    /// into: the column is already page-limited, and widening would just push
+    /// content into the margin. Below 1.0 the column genuinely narrows, which is
+    /// what a smaller document should look like on paper too.
+    ///
+    /// This is the one format the parity spec does not settle, because on Windows
+    /// the PDF IS the HTML export and inherits its column. macOS renders natively
+    /// from the page, so the behaviour had to be chosen; shrink-only keeps a 65%
+    /// document visibly narrower everywhere without inventing an over-wide page.
+    ///
+    /// Image RESOLUTION is untouched. Windows had to be careful here because
+    /// capping images in the shared HTML dropped a Letter print from ~355 to ~110
+    /// DPI; rendering natively means macOS never had that cap, and must not gain
+    /// one now.
+    let scale: CGFloat
+
+    /// Margin grows as the column shrinks, so a narrowed document stays CENTRED
+    /// rather than hugging the left edge.
+    var margin: CGFloat { baseMargin + (pageW - baseMargin * 2) * (1 - scale) / 2 }
     var contentW: CGFloat { pageW - margin * 2 }
     private var contentTop: CGFloat { pageH - margin }
     private var contentBottom: CGFloat { margin }
@@ -151,7 +175,10 @@ private final class PdfCanvas {
     private var cursorY: CGFloat = 0
     private var pageOpen = false
 
-    init(outputPath: String) { self.outputPath = outputPath }
+    init(outputPath: String, scale: Double = 1.0) {
+        self.outputPath = outputPath
+        self.scale = CGFloat(Swift.min(1.0, scale))
+    }
 
     func start() -> Bool {
         var box = CGRect(x: 0, y: 0, width: pageW, height: pageH)

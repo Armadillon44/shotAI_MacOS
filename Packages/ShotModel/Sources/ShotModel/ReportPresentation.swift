@@ -98,19 +98,26 @@ public enum ReportPresentation {
         for step: ProjectStep,
         imagePixelSize: (width: Double, height: Double),
         zoomOverride: Double? = nil,
-        fitWidth: Double? = nil
+        fitWidth: Double? = nil,
+        docScale: Double = 1.0
     ) -> Viewport? {
         let (w, h) = imagePixelSize
         guard w > 0, h > 0 else { return nil }
         // zoomOverride drives the optimistic in-editor zoom before the persisted
         // value round-trips; both are clamped to the IN-only [1, max] range.
         let zoom = min(max(zoomOverride ?? step.reportZoom ?? 1, zoomMin), zoomMax)
-        // The at-zoom-1 fit width is capped at `baseWidth`, but the caller can
-        // pass a smaller `fitWidth` (the actual on-screen column) so the figure
-        // never overflows its container. All downstream geometry derives from
-        // `baseScale`, so zoom/pan stay self-consistent at the smaller size.
-        let effectiveBase = min(baseWidth, max(1, fitWidth ?? baseWidth))
-        let baseScale = min(effectiveBase / w, baseHeight / h, 1)
+        // The at-zoom-1 fit width is capped at the (scaled) column, but the
+        // caller can pass a smaller `fitWidth` — the actual MEASURED on-screen
+        // column — so the figure never overflows its container. Measuring rather
+        // than computing is what keeps a card's border and padding from silently
+        // cropping the figure. All downstream geometry derives from `baseScale`,
+        // so zoom/pan stay self-consistent at the smaller size.
+        let column = DocScale.reportColumn(min(max(docScale, DocScale.min), DocScale.max))
+        let effectiveBase = min(column, max(1, fitWidth ?? column))
+        // The HEIGHT cap scales too. Without it a scaled-up capture grows
+        // sideways and then hits an unscaled ceiling, so the extra width buys
+        // nothing for anything portrait-ish.
+        let baseScale = min(effectiveBase / w, (baseHeight * docScale) / h, 1)
         let baseW = w * baseScale
         let baseH = h * baseScale
         let boxScale = min(zoom, 1)
