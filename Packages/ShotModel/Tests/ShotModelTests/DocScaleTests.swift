@@ -240,3 +240,47 @@ import Testing
         #expect(DocScale.reportColumnFitting(1.0, available: -50) >= 1)
     }
 }
+
+// MARK: - Detent lookup (#83 manual-entry control)
+
+/// The stepper and the percent field both turn a scale back into a detent INDEX
+/// so they can move by one. That lookup is `Double` equality, safe only because
+/// `clamp` and the `detents` literals produce identical bit patterns. Asserted
+/// here rather than trusted: a regression would not throw, it would silently
+/// snap every step back to 100%.
+@Suite struct DocScaleDetentLookup {
+    @Test func indexRoundTripsForEveryDetent() {
+        for (i, d) in DocScale.detents.enumerated() {
+            #expect(DocScale.detentIndex(of: d) == i, "detent \(d)")
+        }
+    }
+
+    /// The same lookup reached the way the text field reaches it: an integer
+    /// percent the user typed, divided by 100.
+    @Test func indexRoundTripsFromTypedPercent() {
+        for (i, d) in DocScale.detents.enumerated() {
+            let pct = Int((d * 100).rounded())
+            #expect(DocScale.detentIndex(of: Double(pct) / 100) == i, "typed \(pct)")
+        }
+    }
+
+    /// Typed values that are not detents snap the way `clamp` snaps, and a
+    /// finite out-of-range value clamps to an end rather than defaulting to 100%.
+    @Test(arguments: [(0.83, 0.85), (2.00, 1.25), (0.10, 0.65), (1.00, 1.00)])
+    func snapsAndClamps(input: Double, expected: Double) {
+        #expect(DocScale.detent(at: DocScale.detentIndex(of: input)) == expected)
+    }
+
+    /// Not-a-finite-number is the "missing" case, which is 100% — not a clamp.
+    @Test func nonFiniteIsTheDefaultDetent() {
+        #expect(DocScale.detent(at: DocScale.detentIndex(of: nil)) == 1.00)
+        #expect(DocScale.detent(at: DocScale.detentIndex(of: .nan)) == 1.00)
+        #expect(DocScale.detent(at: DocScale.detentIndex(of: .infinity)) == 1.00)
+    }
+
+    /// Stepping off either end holds, instead of wrapping or trapping.
+    @Test func detentAtClampsIndex() {
+        #expect(DocScale.detent(at: -1) == DocScale.min)
+        #expect(DocScale.detent(at: 999) == DocScale.max)
+    }
+}

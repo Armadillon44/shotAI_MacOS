@@ -47,6 +47,26 @@ public enum DocScale {
     /// Read the scale off a manifest, already snapped.
     public static func of(_ manifest: ProjectManifest) -> Double { clamp(manifest.displayScale) }
 
+    /// Index into `detents` of the detent a value snaps to.
+    ///
+    /// This is the ONLY place `Double` equality against `detents` is performed.
+    /// It is sound because `clamp` builds its result as `pct / 100` from the same
+    /// whole-number percents the literals spell, and IEEE division of exact
+    /// integers is correctly rounded — but that is a bit-pattern argument, not
+    /// something a reader should have to re-derive at each call site, and a
+    /// stepper that silently fell back to 100% would be a quiet bug rather than
+    /// a loud one. `DocScaleTests.detentIndexRoundTrips` asserts it.
+    public static func detentIndex(of v: Double?) -> Int {
+        let snapped = clamp(v)
+        return detents.firstIndex(of: snapped)
+            ?? detents.firstIndex(of: `default`)!
+    }
+
+    /// The detent at `i`, clamped to the ends — what a step off either end lands on.
+    public static func detent(at i: Int) -> Double {
+        detents[Swift.min(Swift.max(i, 0), detents.count - 1)]
+    }
+
     // MARK: Derived widths
     //
     // Chrome and font sizes do NOT scale, so the image ceiling is RE-DERIVED from
