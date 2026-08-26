@@ -107,21 +107,23 @@ import Testing
 
     @Test func viewportAtZoom1FitsWithinTheBaseBox() {
         let v = ReportPresentation.viewport(for: shotStep(), imagePixelSize: (2176, 1224))
-        // 2176x1224 fit in 820x600 → scale 820/2176, box == image, no pan.
+        // 2176x1224 fit in 816x600 → scale 816/2176, box == image, no pan.
+        // 816 is the shared column: the report renders at the width it exports.
         #expect(v != nil)
-        #expect(abs((v?.boxWidth ?? 0) - 820) < 1e-9)
+        #expect(abs((v?.boxWidth ?? 0) - 816) < 1e-9)
         #expect(v?.imageWidth == v?.boxWidth)
         #expect(v?.offsetX == 0)
         #expect(v?.offsetY == 0)
     }
 
     @Test func viewportAtZoom2KeepsTheBoxAndOverflowsTheImage() {
-        let v = ReportPresentation.viewport(for: shotStep(zoom: 2), imagePixelSize: (820, 600))
-        #expect(v?.boxWidth == 820)
+        // Exactly column-sized, so baseScale is 1 and the numbers stay whole.
+        let v = ReportPresentation.viewport(for: shotStep(zoom: 2), imagePixelSize: (816, 600))
+        #expect(v?.boxWidth == 816)
         #expect(v?.boxHeight == 600)
-        #expect(v?.imageWidth == 1640)
-        // Default pan is centered: offset = -(1640-820)*0.5.
-        #expect(v?.offsetX == -410)
+        #expect(v?.imageWidth == 1632)
+        // Default pan is centered: offset = -(1632-816)*0.5.
+        #expect(v?.offsetX == -408)
     }
 
     @Test func smallImagesAreNotUpscaledAtZoom1() {

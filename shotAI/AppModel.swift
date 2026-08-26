@@ -388,6 +388,94 @@ final class AppModel {
     /// failed" is the wrong sentence when the user simply isn't signed in yet.
     private(set) var sopErrorKind: ClaudeError.Kind?
 
+    // MARK: Document scale (#83)
+
+    /// Live value while the slider is being dragged. Drives LAYOUT only.
+    ///
+    /// Split from the committed value deliberately. Windows drove its window
+    /// resize from the live preview, so every drag step resized the window, the
+    /// window moved under the pointer, and the pointer dragged the slider with
+    /// it — a drag from 125% ran away to 65% regardless of where you let go.
+    private(set) var docScalePreview: Double?
+
+    /// The scale as last persisted. Drives anything that must NOT react
+    /// mid-drag (the window width).
+    var docScaleCommitted: Double { DocScale.of(opened?.manifest ?? .init(id: "", title: "", createdAt: "", updatedAt: "", steps: [])) }
+
+    /// What the report and exports should render at right now.
+    var docScale: Double { docScalePreview ?? docScaleCommitted }
+
+    /// Monotonic id so a slow write landing after a newer one cannot yank the
+    /// layout back to an older value.
+    @ObservationIgnored private var docScaleWriteSeq = 0
+
+    /// True while the pointer is parked on the document-scale STEPPER.
+    ///
+    /// The window grows center-preserving, so a wider report pushes the
+    /// right-aligned toolbar — and the stepper with it — out from under the
+    /// cursor. That is the same failure `applyWindowWidth` rule 1 fixes for the
+    /// slider by keying on the committed scale; the stepper reintroduces it
+    /// because every click IS a commit. `ContentView` holds the resize back
+    /// while this is set. Scoped to the stepper alone on purpose: a slider
+    /// release is an explicit end-of-interaction, and should still resize at
+    /// once even though the pointer is inside the control.
+    var docScaleStepperHot = false
+
+    /// Live feedback during a drag. Never writes.
+    func previewDocScale(_ v: Double) { docScalePreview = DocScale.clamp(v) }
+
+    /// Drop an uncommitted preview and fall back to what the manifest says.
+    ///
+    /// Escape needs this. Setting the preview to the committed value instead
+    /// LOOKS equivalent — it renders the same width — but leaves the preview
+    /// non-nil with nothing queued to clear it, since only `commitDocScale`
+    /// ever does. It then shadows `docScaleCommitted` for every project opened
+    /// afterwards, so the next project rendered at the abandoned project's size
+    /// while its toolbar, its window width and its exports all used the real one.
+    func clearDocScalePreview() { docScalePreview = nil }
+
+    /// Persist on release. The store already refuses a no-op write, which
+    /// matters because `mutate` bumps `updatedAt` unconditionally — without that
+    /// guard merely clicking the slider would re-date the project and throw it to
+    /// the top of Home under "Today".
+    /// - Parameter explicit: the project to write to, captured by the caller
+    ///   while it was still open. A blur fires as the toolbar item is torn down
+    ///   — clicking Back is the ordinary case — and by then `opened` is nil, so
+    ///   resolving the path here would silently drop the value the user typed.
+    func commitDocScale(_ v: Double, at explicit: String? = nil) async {
+        guard let path = explicit ?? selectedPath ?? opened?.dir else {
+            docScalePreview = nil
+            return
+        }
+        let target = DocScale.clamp(v)
+        docScaleWriteSeq += 1
+        let seq = docScaleWriteSeq
+        // Only preview a project that is actually on screen. A late commit for
+        // one the user has already navigated away from must still be WRITTEN,
+        // but previewing it would resize whatever they are looking at now.
+        let onScreen = opened?.dir == path
+        docScalePreview = onScreen ? target : nil
+        do {
+            _ = try await store.setDisplayScale(at: path, target)
+            guard seq == docScaleWriteSeq else { return }   // a newer write won
+            guard onScreen, opened?.dir == path else { docScalePreview = nil; return }
+            await reloadOpened()
+            if seq == docScaleWriteSeq { docScalePreview = nil }
+        } catch {
+            // Never leave the UI rendering a size the manifest does not have.
+            // Guarded by the sequence for the same reason the success path is:
+            // an older failed write must not clear a newer preview.
+            guard seq == docScaleWriteSeq else { return }
+            docScalePreview = nil
+            // Say so. This used to clear `sopError` — the wrong channel, and it
+            // silently swallowed an unrelated pending alert — which left a
+            // read-only or disconnected project folder failing every write with
+            // no indication at all.
+            errorMessage = "Couldn't save the document size. \(error.localizedDescription)"
+            Log.store.error("setDisplayScale failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// Sign-in state. Owns the federation config and provider; never sees a token.
     let auth = AuthModel()
     /// Mirror of the resolved credential path, so views can react.
@@ -710,6 +798,10 @@ final class AppModel {
     func open(path: String) async {
         Log.ui.info("open(path:) navigating to project detail")
         lastMerge = nil
+        // Belt and braces with closeToHome: a preview left over from another
+        // project would render this one at the wrong size.
+        docScalePreview = nil
+        docScaleStepperHot = false
         resetSopState()  // don't carry a prior project's SOP run/state across
         selectedPath = path
         await openSelected()
@@ -722,6 +814,10 @@ final class AppModel {
         selectedPath = nil
         opened = nil
         errorMessage = nil
+        // An uncommitted document-scale preview belongs to the project being
+        // left. Carried forward it shadows the next project's real scale.
+        docScalePreview = nil
+        docScaleStepperHot = false
     }
 
     /// Rename a project, then re-list. Empty/whitespace names are ignored.

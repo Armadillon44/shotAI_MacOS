@@ -39,7 +39,14 @@ struct ReportView: View {
     /// The measured report column width (≤ 880), used to size each step figure so
     /// it (and its zoom controls) always fit — even when the window is dragged
     /// narrow. Seeded at the 880 cap; updated by the geometry probe below.
-    @State private var reportColumnWidth: CGFloat = 880
+    /// Width the report is OFFERED (the window's content area), measured. The
+    /// column itself is derived from this and the scale — never measured off the
+    /// content, which would feed back on itself. See the note at the measurement.
+    @State private var reportAvailableWidth: CGFloat = 880
+    /// The column the steps actually get: the scaled target, capped by what fits.
+    private var reportColumnWidth: CGFloat {
+        DocScale.reportColumnFitting(model.docScale, available: reportAvailableWidth)
+    }
 
     private var steps: [ProjectStep] { opened.manifest.steps }
     private var numbers: [String: Int] { ReportPresentation.displayNumbers(for: steps) }
@@ -63,6 +70,14 @@ struct ReportView: View {
     }
 
     var body: some View {
+        // Measures the width the report is OFFERED. Deliberately a wrapping
+        // GeometryReader rather than a PreferenceKey fed from a `.background`:
+        // that arrangement never delivered a value at all here — the key's
+        // default was 880 and the intended measurement was also ~880, so a dead
+        // measurement was indistinguishable from a working one. A sentinel
+        // default is what exposed it. Reading `geo` directly cannot fail
+        // silently, because there is no default to fall back to.
+        GeometryReader { geo in
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
@@ -104,13 +119,26 @@ struct ReportView: View {
                         return true
                     } isTargeted: { autoScroller.noteHover($0) }
             }
-            .padding(24)
-            .frame(maxWidth: 880)
-            // Measure the (≤880) column so each figure can be sized to fit it.
-            .background(GeometryReader { g in
-                Color.clear.preference(key: ReportColumnWidthKey.self, value: g.size.width)
-            })
+            // Horizontal padding matches the HTML `.doc` (32px per side) so the
+            // report column IS the exported column. It was 24, which made every
+            // card 16pt wider on screen than in the export.
+            .padding(.horizontal, DocScale.docPadding)
+            .padding(.vertical, 24)
+            // Scaled per project (#83). Re-derived from the base, never a stored
+            // constant, so the report and the exports cannot drift apart.
+            .frame(maxWidth: DocScale.reportFrame(model.docScale))
             .frame(maxWidth: .infinity)
+            // NOTE: the column is derived from the geometry read at the top of
+            // `body`, NOT measured off this content. Measuring the content
+            // creates a feedback loop that pins the feature: `.frame(maxWidth:)`
+            // only PROPOSES a width, so the stack sizes to its widest child —
+            // and that child sizes itself from the measured column. At 100% it
+            // settles at 880 and looks correct; at 125% nothing pushes it wider.
+            // Windows hit the same shape through CSS (an auto cross-axis margin
+            // made the column content-sized, so `max-width` could only cap it),
+            // latent for releases because content happened to fill the column.
+            // Deriving the column from the frame target and the space actually
+            // offered breaks that loop in both directions.
             // A click anywhere off a field commits the active edit (macOS text
             // fields don't resign on a dead-space click). Field buttons/fields
             // take gesture priority, so this only fires on empty space + labels.
@@ -145,10 +173,12 @@ struct ReportView: View {
             }
         }
         .background(Palette.surface)
-        .onPreferenceChange(ReportColumnWidthKey.self) { reportColumnWidth = $0 }
+        .onChange(of: geo.size.width, initial: true) { _, w in reportAvailableWidth = w }
+        }
         // Size every step figure to fill the live card so a full-width screenshot
         // uses the whole width (and its zoom controls stay inside), at any window.
         .environment(\.reportFigureFitWidth, max(160, reportColumnWidth - stepFigureGutter))
+        .environment(\.reportDocScale, model.docScale)
         .confirmationDialog(
             "Delete this step?",
             isPresented: Binding(get: { deleteStepTarget != nil }, set: { if !$0 { deleteStepTarget = nil } }),
@@ -485,29 +515,35 @@ private struct IntroBox: View {
     }
 }
 
-/// Horizontal chrome around the step figure: outer padding (24·2) + the rail
-/// gutter (badge 32 + spacing 14) + card padding (14·2) ≈ 122; 124 leaves a hair
-/// of margin. The figure fills the card content (column − gutter) so a full-width
-/// screenshot uses the whole card — and its floating zoom controls stay inside —
-/// shrinking with the window down to the 680 minimum. No fixed upper cap: the
-/// column is already bounded at 880, so the figure tops out ≈ 756.
-private let stepFigureGutter: CGFloat = 124
-
-/// Measured width of the report column (the maxWidth-880 content frame).
-private struct ReportColumnWidthKey: PreferenceKey {
-    static let defaultValue: CGFloat = 880
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
+/// Horizontal chrome around the step figure: doc padding (32·2) + the rail
+/// gutter (badge 32 + spacing 14 = 46) + card padding (16·2). Not a measured
+/// approximation any more — it is `DocScale.reportFigureChrome`, the same 142
+/// the HTML spends, so `frame − gutter` lands exactly on `htmlImageMax` and the
+/// on-screen figure matches the exported one at every scale.
+///
+/// The figure still fills the live card, so a full-width screenshot uses the
+/// whole card — and its floating zoom controls stay inside — shrinking with the
+/// window down to the 680 minimum.
+private let stepFigureGutter = CGFloat(DocScale.reportFigureChrome)
 
 /// The resolved per-step figure fit width, pushed down so StepFigure sizes itself
 /// to the live column without threading a parameter through StepRow/shotBlock.
 private struct ReportFigureFitWidthKey: EnvironmentKey {
-    static let defaultValue: CGFloat = 880 - stepFigureGutter
+    static let defaultValue = CGFloat(DocScale.reportFrameBase - DocScale.reportFigureChrome)
+}
+/// The per-project document scale (#83), pushed down the same way so a figure
+/// can size its HEIGHT cap without threading a parameter through StepRow.
+private struct ReportDocScaleKey: EnvironmentKey {
+    static let defaultValue: Double = 1.0
 }
 extension EnvironmentValues {
     var reportFigureFitWidth: CGFloat {
         get { self[ReportFigureFitWidthKey.self] }
         set { self[ReportFigureFitWidthKey.self] = newValue }
+    }
+    var reportDocScale: Double {
+        get { self[ReportDocScaleKey.self] }
+        set { self[ReportDocScaleKey.self] = newValue }
     }
 }
 
@@ -604,7 +640,9 @@ private struct StepRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
+            // 14/16 matches the HTML `.step__main { padding: 14px 16px }`.
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
             .background {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(fill)
@@ -1067,6 +1105,7 @@ private struct StepFigure: View {
     /// its floating zoom controls) never overflow the step card. Resolved by
     /// ReportView from the measured column width.
     @Environment(\.reportFigureFitWidth) private var fitWidth
+    @Environment(\.reportDocScale) private var docScale
 
     @State private var loaded: (image: NSImage, pixelSize: (width: Double, height: Double))?
     @State private var failed = false
@@ -1090,7 +1129,7 @@ private struct StepFigure: View {
 
     var body: some View {
         Group {
-            if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom, fitWidth: Double(fitWidth)) {
+            if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom, fitWidth: Double(fitWidth), docScale: docScale) {
                 // Center a capture narrower than the column so it gets equal L/R
                 // padding instead of hugging the left edge (#59). A full-width
                 // capture fills the column, so centering is a no-op for it.

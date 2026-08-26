@@ -12,6 +12,9 @@ import SwiftUI
 enum WindowLayout {
     static let home: CGFloat = 800
     static let detail: CGFloat = 1040
+    /// Window width minus the report frame at 100% (1040 − 880). Everything
+    /// outside the document column: window chrome, padding, the scroller.
+    static let reportChrome: CGFloat = 160
 }
 
 struct ContentView: View {
@@ -24,6 +27,9 @@ struct ContentView: View {
     @State private var editorError: String?
     /// The hosting window, captured once, so we can size it per surface.
     @State private var window: NSWindow?
+    /// A window resize the document-scale stepper is holding back — see
+    /// `AppModel.docScaleStepperHot`.
+    @State private var pendingWindowResize = false
     /// Honor Reduce Motion for the overlay fades below.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -161,6 +167,7 @@ struct ContentView: View {
             // Returning to Home (e.g. replay-tour from Settings calls closeToHome
             // while the editor overlay is up) must not strand the editor overlay.
             if model.opened == nil { editor = nil }
+            pendingWindowResize = false   // belongs to the project being left
             guard let window else { return }
             // Defer to the next runloop tick so the resize animation runs AFTER
             // the Home⇄detail content swap settles. Entering a project happens
@@ -169,6 +176,35 @@ struct ContentView: View {
             // animating. Deferring makes both directions animate identically.
             DispatchQueue.main.async { applyWindowWidth(window, animated: true) }
         }
+        // Widen for a scaled-up document. Keyed on the COMMITTED scale, so this
+        // fires once on release rather than on every drag step — see the note in
+        // applyWindowWidth for why that distinction is load-bearing.
+        .onChange(of: model.docScaleCommitted) {
+            guard let window else { return }
+            // Held while the pointer sits on the stepper, so repeated clicks
+            // don't walk the button away from the cursor.
+            guard !model.docScaleStepperHot else {
+                pendingWindowResize = true
+                return
+            }
+            DispatchQueue.main.async { applyWindowWidth(window, animated: true) }
+        }
+        // Pointer left the stepper: the user is done clicking, so let the window
+        // catch up.
+        .onChange(of: model.docScaleStepperHot) { _, hot in
+            guard !hot, pendingWindowResize, let window else { return }
+            pendingWindowResize = false
+            DispatchQueue.main.async { applyWindowWidth(window, animated: true) }
+        }
+        // NB: no timer rescue here, deliberately. A deadline on the hold fires
+        // while the pointer is still on the stepper — someone who reads the
+        // report between clicks is idle far longer than any "click cadence" —
+        // and moving the button out from under a stationary cursor is the exact
+        // failure the hold exists to prevent. The hold is released by events
+        // that mean the interaction really is over: pointer exit, the control
+        // disappearing, and leaving the project. Every one of those is a mouse
+        // move or a navigation, so a stranded hold needs the user to touch
+        // nothing at all — at which point the stale width is not observable.
         // The window toolbar is the native title-bar chrome. While editing, we
         // REPLACE its items with the editor's Cancel/Save (keeping the toolbar
         // VISIBLE) so the title bar reads as functional chrome — traffic lights
@@ -249,7 +285,26 @@ struct ContentView: View {
     /// Size the window to the current surface's width (Home vs. project detail),
     /// keeping the window's horizontal center fixed and clamping to the screen.
     private func applyWindowWidth(_ window: NSWindow, animated: Bool) {
-        let target = model.opened == nil ? WindowLayout.home : WindowLayout.detail
+        // A document scaled above 100% needs a wider window, or the report frame
+        // caps the column and the slider looks inert. Three rules, each fixing a
+        // bug Windows shipped (#83):
+        //
+        //  1. Driven by the COMMITTED scale, never the live drag value. Resizing
+        //     on every drag step moves the window under the pointer, which drags
+        //     the slider with it — a drag from 125% ran away to 65% no matter
+        //     where you let go.
+        //  2. GROW-ONLY. Setting the width outright discards a window the user
+        //     widened or zoomed by hand, on every single nudge. `max` also gives
+        //     scale-down for free: a smaller scale narrows the column, never the
+        //     window.
+        //  3. Skipped entirely when zoomed, rather than un-zooming them.
+        guard !window.isZoomed else { return }
+        var target = model.opened == nil ? WindowLayout.home : WindowLayout.detail
+        if model.opened != nil {
+            let needed = DocScale.reportFrame(model.docScaleCommitted) + WindowLayout.reportChrome
+            target = max(target, needed)
+            target = max(target, window.frame.size.width)
+        }
         var f = window.frame
         guard abs(f.size.width - target) > 0.5 else { return }
         f.origin.x -= (target - f.size.width) / 2 // preserve center
@@ -305,6 +360,7 @@ struct ContentView: View {
                 Button("Back", systemImage: "chevron.left") { model.closeToHome() }
                     .help("Back to all projects")
             }
+            ToolbarItem(placement: .primaryAction) { DocScaleControl() }
             ToolbarItem(placement: .primaryAction) { reportExportMenu }
         } else {
             // Home (project list): open a project, import a package, refresh.
