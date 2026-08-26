@@ -71,6 +71,19 @@ public enum DocScale {
     public static func htmlColumn(_ s: Double) -> Int { Int((htmlColumnBase * s).rounded()) }
     public static func plainBody(_ s: Double) -> Int { Int((plainBodyBase * s).rounded()) }
 
+    /// The report column actually used: the scaled target, capped by the space
+    /// available.
+    ///
+    /// Extracted so the derivation is testable. The geometry READ cannot be unit
+    /// tested, but this is the part that can be got wrong later — and it must
+    /// take the space OFFERED, never the content's own measured width. Measuring
+    /// the content creates a feedback loop (the container sizes to its widest
+    /// child, which sizes itself from the measured column) that pins the whole
+    /// feature at whatever it settles on at 100%.
+    public static func reportColumnFitting(_ s: Double, available: Double) -> Double {
+        Swift.min(reportFrame(s), Swift.max(1, available))
+    }
+
     /// Displayed image ceiling inside a step card. Re-derived, never multiplied.
     public static func htmlImageMax(_ s: Double) -> Int { htmlColumn(s) - Int(stepChrome) }
     /// The @2x resample target from the shared contract.

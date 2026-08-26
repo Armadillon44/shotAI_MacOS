@@ -45,7 +45,7 @@ struct ReportView: View {
     @State private var reportAvailableWidth: CGFloat = 880
     /// The column the steps actually get: the scaled target, capped by what fits.
     private var reportColumnWidth: CGFloat {
-        min(DocScale.reportFrame(model.docScale), reportAvailableWidth)
+        DocScale.reportColumnFitting(model.docScale, available: reportAvailableWidth)
     }
 
     private var steps: [ProjectStep] { opened.manifest.steps }

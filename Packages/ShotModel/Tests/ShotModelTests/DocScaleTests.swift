@@ -211,3 +211,32 @@ import Testing
         #expect(v!.boxWidth <= 400)
     }
 }
+
+/// The report column derivation. The geometry READ cannot be unit tested, but
+/// this is the arithmetic around it — and getting it wrong is what pinned the
+/// feature: a column measured off the CONTENT feeds back on itself, because the
+/// container sizes to its widest child and that child sizes itself from the
+/// column. Taking the space OFFERED breaks the loop.
+@Suite struct DocScaleReportColumn {
+    /// Given room, the column is the scaled target — this is what makes the
+    /// slider do anything above 100%.
+    @Test func growsWithScaleWhenThereIsRoom() {
+        #expect(DocScale.reportColumnFitting(1.00, available: 2000) == 880)
+        #expect(DocScale.reportColumnFitting(1.25, available: 2000) == 1100)
+        #expect(DocScale.reportColumnFitting(0.65, available: 2000) == 572)
+    }
+
+    /// A window narrower than the target still wins, so the report never
+    /// overflows the space it was given.
+    @Test func availableWidthCapsTheTarget() {
+        #expect(DocScale.reportColumnFitting(1.25, available: 900) == 900)
+        #expect(DocScale.reportColumnFitting(1.00, available: 600) == 600)
+    }
+
+    /// Degenerate geometry (a zero-size first layout pass) must not produce a
+    /// zero or negative column.
+    @Test func neverCollapsesToZero() {
+        #expect(DocScale.reportColumnFitting(1.0, available: 0) >= 1)
+        #expect(DocScale.reportColumnFitting(1.0, available: -50) >= 1)
+    }
+}
