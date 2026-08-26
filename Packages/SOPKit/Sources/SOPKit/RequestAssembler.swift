@@ -67,7 +67,18 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
     // replaced by a version written without ever seeing it. Their statement of
     // intent is the single most useful piece of context for every other step.
     let authorIntro: String? = {
-        guard let i = manifest.intro else { return nil }
+        // Same shape as the caption rule below. Without a flag, `manifest.intro`
+        // after any generation is CLAUDE's own overview, and sending it back
+        // under "the author already wrote this" launders its guess into author
+        // intent and compounds an early misreading every run (#80).
+        //
+        // With a backup and no flag, the pre-AI intro is sent — which is often
+        // nil, meaning the author never wrote one and nothing should be sent.
+        // That is the point, not an edge case.
+        let source = manifest.introEditedByUser == true
+            ? manifest.intro
+            : (manifest.sopBackup.map { $0.intro } ?? manifest.intro)
+        guard let i = source else { return nil }
         let h = i.heading.trimmingCharacters(in: .whitespacesAndNewlines)
         let b = i.body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !(h.isEmpty && b.isEmpty) else { return nil }

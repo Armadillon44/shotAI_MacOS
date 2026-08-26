@@ -318,3 +318,40 @@ enum Fixture {
         #expect(m.steps[0].caption == "hi")
     }
 }
+
+/// #80 — `introEditedByUser` is a manifest-level addition to the byte-compatible
+/// project.json contract, so it must behave like every other known field.
+@Suite struct IntroEditedFlagCodec {
+    private func roundTrip(_ m: ProjectManifest) throws -> ProjectManifest {
+        try JSONDecoder().decode(ProjectManifest.self, from: JSONEncoder().encode(m))
+    }
+    private func manifest() -> ProjectManifest {
+        ProjectManifest(id: "p", title: "t", createdAt: "2026-01-01", updatedAt: "2026-01-01", steps: [])
+    }
+
+    @Test func survivesRoundTripWhenSet() throws {
+        var m = manifest()
+        m.intro = SopIntro(heading: "h", body: "b")
+        m.introEditedByUser = true
+        let back = try roundTrip(m)
+        #expect(back.introEditedByUser == true)
+        #expect(back.extra["introEditedByUser"] == nil, "known key, not an unknown one")
+    }
+
+    @Test func omittedWhenUnset() throws {
+        let json = String(decoding: try JSONEncoder().encode(manifest()), as: UTF8.self)
+        #expect(!json.contains("introEditedByUser"))
+    }
+
+    /// Projects written before the field existed decode cleanly, which is what
+    /// makes a staged cross-platform rollout safe.
+    @Test func absentInOlderProjectsDecodesAsNil() throws {
+        let json = #"""
+        {"id":"p","title":"t","createdAt":"2026-01-01","updatedAt":"2026-01-01",
+         "steps":[],"intro":{"heading":"h","body":"b"}}
+        """#
+        let m = try JSONDecoder().decode(ProjectManifest.self, from: Data(json.utf8))
+        #expect(m.introEditedByUser == nil)
+        #expect(m.intro?.heading == "h")
+    }
+}

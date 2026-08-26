@@ -41,10 +41,24 @@ public func applySopEdits(
             steps: manifest.steps, title: manifest.title, intro: manifest.intro,
             model: model.rawValue, tone: tone, at: ProjectJSON.isoNow())
 
-        // Overview is a PREAMBLE on the manifest, not a step. A fresh generate
-        // replaces it (or clears it when the model returned none).
+        // Overview is a PREAMBLE on the manifest, not a step.
         if let intro = plan.intro, !(intro.heading.isEmpty && intro.body.isEmpty) {
             manifest.intro = SopIntro(heading: intro.heading, body: intro.body)
+            // The model just overwrote whatever was there, so any author edit is
+            // gone with it (#80) — mirrors the caption rule.
+            manifest.introEditedByUser = nil
+        } else if manifest.introEditedByUser == true {
+            // The model returned no overview and the AUTHOR wrote this one. Keep
+            // it, flag and all.
+            //
+            // This branch used to be an unconditional `manifest.intro = nil`,
+            // which was right while the overview was purely Claude's: a
+            // regenerate that produced none should clear the previous one. #73
+            // made the overview author-writable and turned that same line into
+            // silent DATA LOSS — write an overview, generate, get no intro back,
+            // and your text is gone with no undo short of Revert AI edits.
+            //
+            // Deliberately does nothing: leave manifest.intro and the flag alone.
         } else {
             manifest.intro = nil
         }
