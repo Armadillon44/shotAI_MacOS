@@ -17,3 +17,6 @@ shotAI-original/
 # tenant and an Anthropic org, and this repo is public — so they ship in the
 # binary, never in source. See shotAI/Resources/Federation.example.plist.
 shotAI/Resources/Federation.plist
+
+# LFI design system — 9.6MB vendored reference (node_modules-scale dist/), not a build input
+design/lfi-design-system/

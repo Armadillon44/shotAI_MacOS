@@ -1,0 +1,592 @@
+<title>LFI Corporate Theme Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..700&display=swap">
+
+<style>
+:root{
+  --bg:#F5F2EB; --panel:#FFFFFF; --fg:#47443E; --fg2:#6F695F; --fg3:#938978;
+  --line:#D8D2C6; --line2:#E7E2D7; --pop:#B46B3E; --pop-ink:#8F5430;
+  --code-bg:#EFEAE0; --ok-ink:#2B5B40;
+  --shadow:0 1px 2px rgba(71,68,62,.10), 0 6px 18px rgba(71,68,62,.06);
+  --sans:'Acumin Variable Concept','Archivo',Arial,sans-serif;
+  --mono:'Courier New',Courier,monospace;
+  --r:2px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#25231F; --panel:#2F2D29; --fg:#F8F4EC; --fg2:#CFC7B8; --fg3:#A79C8B;
+    --line:#4A463F; --line2:#3B3833; --pop:#D58B5C; --pop-ink:#E3A579;
+    --code-bg:#3A3833; --ok-ink:#9BCEB1;
+    --shadow:0 1px 2px rgba(0,0,0,.5), 0 6px 18px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#25231F; --panel:#2F2D29; --fg:#F8F4EC; --fg2:#CFC7B8; --fg3:#A79C8B;
+  --line:#4A463F; --line2:#3B3833; --pop:#D58B5C; --pop-ink:#E3A579;
+  --code-bg:#3A3833; --ok-ink:#9BCEB1;
+  --shadow:0 1px 2px rgba(0,0,0,.5), 0 6px 18px rgba(0,0,0,.35);
+}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);
+  font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:48px 28px 96px}
+.cond{font-stretch:72%;text-transform:uppercase;letter-spacing:.11em}
+
+.eyebrow{font-stretch:72%;text-transform:uppercase;letter-spacing:.14em;
+  font-size:12px;font-weight:600;color:var(--fg3)}
+h1{font-stretch:70%;text-transform:uppercase;letter-spacing:.03em;
+  font-size:clamp(34px,6vw,58px);line-height:1;font-weight:700;margin:10px 0 0;
+  text-wrap:balance;color:var(--fg)}
+h2{font-stretch:72%;text-transform:uppercase;letter-spacing:.1em;
+  font-size:15px;font-weight:700;margin:0;color:var(--fg)}
+p{margin:0 0 14px;max-width:66ch;color:var(--fg2)}
+p strong{color:var(--fg);font-weight:600}
+code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);
+  padding:1px 5px;border-radius:2px;color:var(--fg)}
+
+.lede{font-size:17px;line-height:1.6;color:var(--fg2);max-width:62ch;margin-top:18px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 26px;margin-top:26px;
+  font-family:var(--mono);font-size:12px;color:var(--fg3)}
+.sec{margin-top:64px}
+.sechead{display:flex;align-items:baseline;gap:16px;
+  border-top:1px solid var(--line);padding-top:12px;margin-bottom:22px}
+.sechead .n{font-family:var(--mono);font-size:12px;color:var(--pop)}
+.resolved{font-stretch:72%;text-transform:uppercase;letter-spacing:.11em;font-size:10px;
+  font-weight:700;color:var(--ok-ink);border:1px solid currentColor;
+  padding:2px 7px;border-radius:2px;margin-left:auto}
+
+.sw{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);margin-top:28px}
+.sw>div{background:var(--panel)}
+.sw .chip{height:76px}
+.sw .lab{padding:10px 12px 12px}
+.sw .lab b{display:block;font-stretch:72%;text-transform:uppercase;
+  letter-spacing:.09em;font-size:12px;font-weight:700;color:var(--fg)}
+.sw .lab span{font-family:var(--mono);font-size:11px;color:var(--fg3)}
+
+/* type specimen */
+.spec{border:1px solid var(--line);background:var(--panel);padding:26px 28px;margin-top:8px}
+.spec .big{font-stretch:68%;text-transform:uppercase;letter-spacing:.02em;font-weight:700;
+  font-size:clamp(30px,5vw,52px);line-height:1;color:var(--fg);margin:0}
+.spec .row{display:grid;grid-template-columns:118px 1fr;gap:14px 20px;margin-top:22px;
+  border-top:1px solid var(--line2);padding-top:16px}
+.spec .k{font-family:var(--mono);font-size:11px;color:var(--fg3);padding-top:3px}
+.spec .v{color:var(--fg);min-width:0}
+.spec .v small{display:block;font-family:var(--mono);font-size:10.5px;color:var(--fg3);
+  margin-top:3px;text-transform:none;letter-spacing:0;font-stretch:100%}
+
+/* radius comparison */
+.radgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:8px}
+@media(max-width:860px){.radgrid{grid-template-columns:repeat(2,1fr)}}
+.radcol .rl{font-family:var(--mono);font-size:12px;color:var(--pop);margin-bottom:8px}
+.radcol .rl b{color:var(--fg3);font-weight:400}
+
+/* radius picker */
+.picker{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 16px}
+.picker span{font-stretch:72%;text-transform:uppercase;letter-spacing:.11em;
+  font-size:10.5px;font-weight:700;color:var(--fg3)}
+.picker button{font-family:var(--mono);font-size:12px;padding:4px 12px;cursor:pointer;
+  border:1px solid var(--line);background:var(--panel);color:var(--fg2);border-radius:2px}
+.picker button[aria-pressed="true"]{background:var(--pop);border-color:var(--pop);color:#fff}
+.picker button:focus-visible{outline:2px solid var(--pop);outline-offset:2px}
+
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:8px}
+@media(max-width:900px){.pair{grid-template-columns:1fr}}
+.mockwrap{min-width:0}
+.mocklab{font-stretch:72%;text-transform:uppercase;letter-spacing:.12em;
+  font-size:11px;font-weight:600;color:var(--fg3);margin-bottom:8px}
+
+/* ---- app mock-ups: fixed palettes on purpose, so they depict shotAI in each
+       appearance rather than following the page's theme. --mr is the corner
+       radius under test. ---- */
+.mock{--mr:8px;border:1px solid var(--mline);border-radius:var(--mr);overflow:hidden;
+  background:var(--mground);box-shadow:var(--shadow);font-size:12px;color:var(--mink)}
+.mock-light{--mground:#F5F2EB;--msurf:#FFFFFF;--msurf2:#FAF8F3;--mink:#47443E;
+  --mink2:#6F695F;--mink3:#938978;--mline:#D8D2C6;--mline2:#E7E2D7;
+  --macc:#B46B3E;--macct:#F6EDE5;--maccink:#8F5430;--mfield:#FFFFFF;
+  --mok:#3E7D5A;--moktint:#E9F1EB;--mokink:#2B5B40;
+  --mdraft:#C79A72;--mdrafttint:#F7EFE6;--mdraftink:#8A5F35;
+  --mbar:#EDE8DE;--monacc:#fff}
+.mock-dark{--mground:#2F2D29;--msurf:#3A3833;--msurf2:#43403A;--mink:#F8F4EC;
+  --mink2:#CFC7B8;--mink3:#A79C8B;--mline:#4A463F;--mline2:#3F3C36;
+  --macc:#D58B5C;--macct:#3A2E25;--maccink:#E3A579;--mfield:#4A4740;
+  --mok:#6FB089;--moktint:#23302A;--mokink:#9BCEB1;
+  --mdraft:#D5AE89;--mdrafttint:#332A21;--mdraftink:#E0C09E;
+  --mbar:#33312C;--monacc:#211F1C}
+
+.tbar{display:flex;align-items:center;gap:8px;padding:8px 10px;
+  background:var(--mbar);border-bottom:1px solid var(--mline)}
+.lights{display:flex;gap:6px;margin-right:4px}
+.lights i{width:9px;height:9px;border-radius:50%;background:var(--mline);display:block}
+.tbtn{font-size:11px;padding:3px 9px;border:1px solid var(--mline);
+  border-radius:var(--mr);background:var(--msurf);color:var(--mink2)}
+.tbtn.pri{background:var(--macc);border-color:var(--macc);color:var(--monacc)}
+.spacer{flex:1}
+.body{padding:12px}
+
+.tabs{display:flex;gap:16px;border-bottom:1px solid var(--mline);padding:0 2px 7px}
+.tabs span{font-stretch:72%;text-transform:uppercase;letter-spacing:.1em;
+  font-size:11px;font-weight:600;color:var(--mink3)}
+.tabs span.on{color:var(--mink);box-shadow:0 7px 0 -6px var(--macc)}
+.tools{display:flex;gap:8px;margin:10px 0 14px}
+.inp{flex:1;border:1px solid var(--mline);border-radius:var(--mr);
+  background:var(--mfield);padding:4px 8px;color:var(--mink3);font-size:11px}
+.grouplab{font-stretch:72%;text-transform:uppercase;letter-spacing:.13em;
+  font-size:10px;font-weight:600;color:var(--mink3);margin:2px 0 7px}
+.row{display:flex;align-items:center;gap:10px;padding:9px 10px;
+  border:1px solid var(--mline2);border-radius:var(--mr);background:var(--msurf);
+  margin-bottom:6px}
+.row.sel{border-color:var(--macc);background:var(--macct)}
+.thumb{width:34px;height:26px;border-radius:calc(var(--mr) / 2);background:var(--mline2);
+  border:1px solid var(--mline);flex:none}
+.rtxt{flex:1;min-width:0}
+.rtxt b{display:block;font-weight:600;font-size:12px;color:var(--mink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rtxt span{font-size:10.5px;color:var(--mink3);font-variant-numeric:tabular-nums}
+.pill{font-stretch:72%;text-transform:uppercase;letter-spacing:.08em;
+  font-size:9.5px;font-weight:700;padding:3px 7px;border-radius:var(--mr);flex:none;
+  border:1px solid transparent;white-space:nowrap}
+.pill.ok{background:var(--moktint);color:var(--mokink);border-color:var(--mok)}
+.pill.draft{background:var(--mdrafttint);color:var(--mdraftink);border-color:var(--mdraft)}
+
+.docttl{font-stretch:70%;text-transform:uppercase;letter-spacing:.04em;
+  font-size:19px;font-weight:700;color:var(--mink);margin:2px 0 3px}
+.docmeta{font-size:10.5px;color:var(--mink3);margin-bottom:12px}
+.intro{border:1px solid var(--mline);border-left:3px solid var(--macc);
+  background:var(--msurf2);border-radius:var(--mr);padding:9px 11px;margin-bottom:14px}
+.intro b{display:block;font-stretch:72%;text-transform:uppercase;
+  letter-spacing:.1em;font-size:10px;color:var(--maccink);margin-bottom:3px}
+.intro p{margin:0;font-size:11.5px;color:var(--mink2);line-height:1.5;max-width:none}
+.step{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px}
+.badge{width:22px;height:22px;border-radius:var(--mr);background:var(--macc);
+  color:var(--monacc);font-size:11px;font-weight:700;display:flex;align-items:center;
+  justify-content:center;flex:none}
+.card{flex:1;min-width:0;border:1px solid var(--mline);background:var(--msurf);
+  border-radius:var(--mr);padding:9px 10px}
+.card h4{margin:0 0 5px;font-size:12px;font-weight:600;color:var(--mink)}
+.card p{margin:0;font-size:11px;color:var(--mink2);line-height:1.5;max-width:none}
+.shot{border:1px solid var(--mline);border-radius:calc(var(--mr) / 2);
+  background:var(--mground);height:78px;margin-bottom:7px;position:relative;overflow:hidden}
+.shot .chrome{height:13px;background:var(--mline2);border-bottom:1px solid var(--mline)}
+.shot .l{position:absolute;background:var(--mline2);border-radius:1px}
+.shot .mk{position:absolute;width:15px;height:15px;border-radius:50%;
+  border:2px solid var(--macc);background:rgba(180,107,62,.16)}
+.divider{display:flex;align-items:center;gap:9px;margin:14px 0 12px}
+.divider span{font-stretch:72%;text-transform:uppercase;letter-spacing:.13em;
+  font-size:10px;font-weight:700;color:var(--mink2);flex:none}
+.divider i{height:1px;background:var(--mline);flex:1;display:block}
+.callout{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px}
+.cglyph{width:22px;height:22px;border-radius:var(--mr);flex:none;display:flex;
+  align-items:center;justify-content:center;font-size:11px;font-weight:700}
+.cbody{flex:1;min-width:0;border-radius:var(--mr);padding:8px 10px;border:1px solid}
+.cbody b{font-size:11px;display:block;margin-bottom:2px}
+.cbody p{margin:0;font-size:11px;color:var(--mink2);max-width:none;line-height:1.5}
+.c-note .cglyph{background:var(--moktint);color:var(--mokink);border:1px solid var(--mok)}
+.c-note .cbody{background:var(--moktint);border-color:var(--mok)}
+.c-note .cbody b{color:var(--mokink)}
+.c-caut .cglyph{background:var(--mdrafttint);color:var(--mdraftink);border:1px solid var(--mdraft)}
+.c-caut .cbody{background:var(--mdrafttint);border-color:var(--mdraft)}
+.c-caut .cbody b{color:var(--mdraftink)}
+
+.sizectl{display:flex;align-items:center;gap:6px}
+.track{width:56px;height:3px;background:var(--mline);border-radius:2px;position:relative}
+.track i{position:absolute;left:0;top:0;bottom:0;width:58%;background:var(--macc);display:block}
+.track u{position:absolute;left:52%;top:-3.5px;width:10px;height:10px;border-radius:50%;
+  background:var(--macc);display:block}
+.pctbox{font-family:var(--mono);font-size:10px;border:1px solid var(--mline);
+  border-radius:var(--mr);padding:2px 5px;background:var(--mfield);color:var(--mink2)}
+.stepper{display:flex;flex-direction:column;border:1px solid var(--mline);
+  border-radius:var(--mr);overflow:hidden}
+.stepper b{font-size:7px;line-height:1;padding:2px 4px;background:var(--msurf);color:var(--mink2)}
+.stepper b+b{border-top:1px solid var(--mline)}
+
+/* green comparison */
+.gcmp{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);
+  border:1px solid var(--line);margin-top:8px}
+@media(max-width:700px){.gcmp{grid-template-columns:1fr}}
+.gcell{background:var(--panel);padding:20px}
+.gcell .h{font-stretch:72%;text-transform:uppercase;letter-spacing:.11em;font-size:11px;
+  font-weight:700;color:var(--fg3);margin-bottom:14px}
+.gcell .h em{font-style:normal;color:var(--pop)}
+.gstrip{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.gsw{width:34px;height:34px;border-radius:2px;border:1px solid rgba(71,68,62,.2);flex:none}
+.gmeta{font-family:var(--mono);font-size:11px;color:var(--fg3);margin-top:12px}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--line);margin-top:8px}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}
+th{font-stretch:72%;text-transform:uppercase;letter-spacing:.1em;font-size:11px;
+  font-weight:700;text-align:left;padding:9px 12px;background:var(--panel);
+  border-bottom:1px solid var(--line);color:var(--fg)}
+td{padding:8px 12px;border-bottom:1px solid var(--line2);color:var(--fg2)}
+tr:last-child td{border-bottom:0}
+td.tok{font-family:var(--mono);font-size:12px;color:var(--fg);white-space:nowrap}
+.hex{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11.5px;
+  white-space:nowrap;color:var(--fg2)}
+.hex i{width:13px;height:13px;border-radius:1px;border:1px solid rgba(71,68,62,.28);
+  display:block;flex:none}
+tbody tr.grp td{background:var(--panel);font-stretch:72%;text-transform:uppercase;
+  letter-spacing:.11em;font-size:10.5px;font-weight:700;color:var(--fg3);padding:7px 12px}
+
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);margin-top:8px}
+.note{background:var(--panel);padding:18px 18px 20px}
+.note .k{font-family:var(--mono);font-size:11px;color:var(--pop);margin-bottom:8px}
+.note p{font-size:13.5px;margin:0;color:var(--fg2)}
+.note p+p{margin-top:9px}
+.foot{margin-top:64px;border-top:1px solid var(--line);padding-top:16px;
+  font-size:12.5px;color:var(--fg3);max-width:66ch}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">shotAI · Theme investigation · branch design/lfi-theme</div>
+    <h1>LFI Corporate Theme</h1>
+    <p class="lede">shotAI's interface in the LaCrosse Footwear corporate palette, as an
+      alternative to the violet default. All four open questions are now settled: Archivo for type,
+      8px corners, a forest-green semantic ramp, and the hardcoded capture colours left alone.</p>
+    <div class="meta">
+      <span>Source: design/lfi-design-system</span>
+      <span>Target: shotAI/Theme.swift</span>
+      <span>33 tokens</span>
+    </div>
+    <div class="sw">
+      <div><div class="chip" style="background:#47443E"></div>
+        <div class="lab"><b>Charcoal</b><span>#47443E</span></div></div>
+      <div><div class="chip" style="background:#EEE8DB"></div>
+        <div class="lab"><b>Cream</b><span>#EEE8DB</span></div></div>
+      <div><div class="chip" style="background:#938978"></div>
+        <div class="lab"><b>Taupe</b><span>#938978</span></div></div>
+      <div><div class="chip" style="background:#B46B3E"></div>
+        <div class="lab"><b>Rust</b><span>#B46B3E</span></div></div>
+    </div>
+  </header>
+
+  <section class="sec">
+    <div class="sechead"><span class="n">01</span><h2>Typeface — Archivo</h2>
+      <span class="resolved">Settled</span></div>
+    <p>Acumin is a Slimbach neo-grotesque in the Franklin / American-gothic line: tall x-height,
+      moderate stroke contrast, fairly closed apertures, and a full width axis.
+      <strong>Archivo shares that lineage</strong> and — unlike most substitutes — carries a real
+      variable <code>wdth</code> axis from 62 to 125, so the condensed uppercase treatments the
+      guide calls for come from the same family rather than a separate condensed face.</p>
+    <p>It is also <strong>SIL Open Font License</strong>, so it can be bundled inside the
+      <code>.app</code> with no per-seat licence. That retires the blocker from the first pass:
+      the theme no longer has to fall back to the system face and lose its condensed treatment.
+      Everything on this page is set in it.</p>
+    <div class="spec">
+      <p class="big">Review organization details</p>
+      <div class="row"><div class="k">display</div><div class="v cond"
+        style="font-size:24px;font-weight:700;font-stretch:66%">Navigating to My Apps
+        <small>Archivo · wdth 66 · 700 · uppercase, +0.11em — section titles, toolbar labels</small></div></div>
+      <div class="row"><div class="k">body</div><div class="v" style="font-size:15px">
+        In Microsoft Edge, click the New Tab button next to the current tab.
+        <small>Archivo · wdth 100 · 400 — captions, instructions, running text</small></div></div>
+      <div class="row"><div class="k">data</div><div class="v"
+        style="font-family:var(--mono);font-size:14px">105%&nbsp;&nbsp;9 steps&nbsp;&nbsp;#B46B3E
+        <small>Courier New — the guide's own mono, for percentages, counts and hex</small></div></div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sechead"><span class="n">02</span><h2>Corner radius — 8px</h2>
+      <span class="resolved">Settled</span></div>
+    <p>The same step card and status chip at each candidate radius. The guide specifies
+      <strong>2px</strong> — "restrained corner rounding" — while shotAI ships 10–12px today.
+      This is the change most likely to provoke a reaction, and it is independent of the palette.</p>
+    <div class="radgrid">
+      <div class="radcol"><div class="rl">2px <b>· guide</b></div>
+        <div class="mock mock-light" style="--mr:2px"><div class="body">
+          <div class="step"><div class="badge">1</div><div class="card">
+            <h4>Open a new browser tab</h4>
+            <p>Click the New Tab button next to the current tab.</p></div></div>
+          <div class="row"><div class="rtxt"><b>Reset a mailbox</b></div>
+            <div class="pill ok">SOP ready</div></div></div></div></div>
+      <div class="radcol"><div class="rl">8px <b>· chosen</b></div>
+        <div class="mock mock-light" style="--mr:8px"><div class="body">
+          <div class="step"><div class="badge">1</div><div class="card">
+            <h4>Open a new browser tab</h4>
+            <p>Click the New Tab button next to the current tab.</p></div></div>
+          <div class="row"><div class="rtxt"><b>Reset a mailbox</b></div>
+            <div class="pill ok">SOP ready</div></div></div></div></div>
+      <div class="radcol"><div class="rl">10px <b>· today</b></div>
+        <div class="mock mock-light" style="--mr:10px"><div class="body">
+          <div class="step"><div class="badge">1</div><div class="card">
+            <h4>Open a new browser tab</h4>
+            <p>Click the New Tab button next to the current tab.</p></div></div>
+          <div class="row"><div class="rtxt"><b>Reset a mailbox</b></div>
+            <div class="pill ok">SOP ready</div></div></div></div></div>
+      <div class="radcol"><div class="rl">12px <b>· today</b></div>
+        <div class="mock mock-light" style="--mr:12px"><div class="body">
+          <div class="step"><div class="badge">1</div><div class="card">
+            <h4>Open a new browser tab</h4>
+            <p>Click the New Tab button next to the current tab.</p></div></div>
+          <div class="row"><div class="rtxt"><b>Reset a mailbox</b></div>
+            <div class="pill ok">SOP ready</div></div></div></div></div>
+    </div>
+    <p style="margin-top:18px">At 22px the numbered badge is the tell: by 10px it is nearly a
+      circle and reads as a consumer app, at 2px it reads as a printed spec sheet. The step card
+      itself changes far less. <strong>8px is the choice</strong> — visibly crisper than today,
+      without turning the badge into a square. It is a deliberate departure from the guide's 2px:
+      the corporate palette lands, the corporate geometry is softened to suit an app rather than
+      printed collateral. The surfaces below render at 8px; the control still shows the rest.</p>
+  </section>
+
+  <section class="sec">
+    <div class="sechead"><span class="n">03</span><h2>Success green — forest</h2>
+      <span class="resolved">Settled</span></div>
+    <p>LFI defines no green, and the olive from its chart ramp read as ambiguous for success.
+      A forest green sits far enough from rust to be unmistakable while staying warm rather than
+      going teal. It also measures better: <strong>6.8:1 against its own tint versus the olive's
+      5.6:1</strong>.</p>
+    <div class="gcmp">
+      <div class="gcell">
+        <div class="h">Was — chart olive</div>
+        <div class="gstrip">
+          <div class="gsw" style="background:#7D846D"></div>
+          <div class="gsw" style="background:#EDEFE8"></div>
+          <div class="gsw" style="background:#5A6150"></div>
+          <div class="mock mock-light" style="box-shadow:none;border:0;background:none">
+            <span class="pill ok" style="--moktint:#EDEFE8;--mokink:#5A6150;--mok:#7D846D">SOP ready</span>
+          </div>
+        </div>
+        <div class="gmeta">#7D846D · #EDEFE8 · #5A6150 — 5.56:1</div>
+      </div>
+      <div class="gcell">
+        <div class="h">Now — <em>forest</em></div>
+        <div class="gstrip">
+          <div class="gsw" style="background:#3E7D5A"></div>
+          <div class="gsw" style="background:#E9F1EB"></div>
+          <div class="gsw" style="background:#2B5B40"></div>
+          <div class="mock mock-light" style="box-shadow:none;border:0;background:none">
+            <span class="pill ok">SOP ready</span>
+          </div>
+        </div>
+        <div class="gmeta">#3E7D5A · #E9F1EB · #2B5B40 — 6.83:1</div>
+      </div>
+    </div>
+    <p style="margin-top:18px">The same ramp carries the <strong>Note</strong> callout, shown in
+      context below. Dark mode lifts to <code>#6FB089</code> on <code>#23302A</code> at 7.8:1.</p>
+  </section>
+
+  <section class="sec">
+    <div class="sechead"><span class="n">04</span><h2>The surfaces</h2></div>
+    <p>Home and Report, in both appearances, at the chosen 8px with the forest ramp applied. The
+      control re-renders them at the other candidates.</p>
+    <div class="picker" role="group" aria-label="Corner radius">
+      <span>Radius</span>
+      <button type="button" data-r="2" aria-pressed="false">2px</button>
+      <button type="button" data-r="8" aria-pressed="true">8px</button>
+      <button type="button" data-r="10" aria-pressed="false">10px</button>
+      <button type="button" data-r="12" aria-pressed="false">12px</button>
+    </div>
+
+    <div class="pair surfaces">
+      <div class="mockwrap">
+        <div class="mocklab">Home · Light</div>
+        <div class="mock mock-light">
+          <div class="tbar"><div class="lights"><i></i><i></i><i></i></div><div class="spacer"></div>
+            <div class="tbtn pri">Open Project…</div><div class="tbtn">Import</div>
+            <div class="tbtn">Refresh</div></div>
+          <div class="body">
+            <div class="tabs"><span class="on">All 12</span><span>Archive 3</span></div>
+            <div class="tools"><div class="inp">Search projects…</div><div class="tbtn">Newest ▾</div></div>
+            <div class="grouplab">Today</div>
+            <div class="row sel"><div class="thumb"></div><div class="rtxt">
+              <b>Review organization details in Microsoft Account</b>
+              <span>9 steps · 2:53 PM</span></div><div class="pill ok">SOP ready</div></div>
+            <div class="row"><div class="thumb"></div><div class="rtxt">
+              <b>Reset a shared mailbox password</b>
+              <span>6 steps · 11:02 AM</span></div><div class="pill draft">Draft</div></div>
+            <div class="grouplab">Yesterday</div>
+            <div class="row"><div class="thumb"></div><div class="rtxt">
+              <b>Onboard a warehouse workstation</b>
+              <span>14 steps · Sep 8</span></div><div class="pill ok">SOP ready</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="mockwrap">
+        <div class="mocklab">Home · Dark</div>
+        <div class="mock mock-dark">
+          <div class="tbar"><div class="lights"><i></i><i></i><i></i></div><div class="spacer"></div>
+            <div class="tbtn pri">Open Project…</div><div class="tbtn">Import</div>
+            <div class="tbtn">Refresh</div></div>
+          <div class="body">
+            <div class="tabs"><span class="on">All 12</span><span>Archive 3</span></div>
+            <div class="tools"><div class="inp">Search projects…</div><div class="tbtn">Newest ▾</div></div>
+            <div class="grouplab">Today</div>
+            <div class="row sel"><div class="thumb"></div><div class="rtxt">
+              <b>Review organization details in Microsoft Account</b>
+              <span>9 steps · 2:53 PM</span></div><div class="pill ok">SOP ready</div></div>
+            <div class="row"><div class="thumb"></div><div class="rtxt">
+              <b>Reset a shared mailbox password</b>
+              <span>6 steps · 11:02 AM</span></div><div class="pill draft">Draft</div></div>
+            <div class="grouplab">Yesterday</div>
+            <div class="row"><div class="thumb"></div><div class="rtxt">
+              <b>Onboard a warehouse workstation</b>
+              <span>14 steps · Sep 8</span></div><div class="pill ok">SOP ready</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mockwrap">
+        <div class="mocklab">Report · Light</div>
+        <div class="mock mock-light">
+          <div class="tbar"><div class="lights"><i></i><i></i><i></i></div>
+            <div class="tbtn">‹ Back</div><div class="spacer"></div>
+            <div class="sizectl"><div class="track"><i></i><u></u></div>
+              <div class="pctbox">105%</div><div class="stepper"><b>▲</b><b>▼</b></div></div>
+            <div class="tbtn pri">Export ▾</div></div>
+          <div class="body">
+            <div class="docttl">Review organization details</div>
+            <div class="docmeta">Created Sep 9, 2026 · 9 steps</div>
+            <div class="intro"><b>Overview</b><p>How to navigate from GitHub through Microsoft
+              Edge to review organization details in the Microsoft Account portal.</p></div>
+            <div class="divider"><span>Navigating to My Apps</span><i></i></div>
+            <div class="step"><div class="badge">1</div><div class="card">
+              <div class="shot"><div class="chrome"></div>
+                <div class="l" style="left:8px;top:22px;width:52px;height:6px"></div>
+                <div class="l" style="left:8px;top:34px;width:36px;height:6px"></div>
+                <div class="l" style="left:8px;top:46px;width:44px;height:6px"></div>
+                <div class="l" style="left:74px;top:22px;width:120px;height:34px"></div>
+                <div class="mk" style="left:16px;top:17px"></div></div>
+              <h4>Open a new browser tab</h4>
+              <p>In Microsoft Edge, click the New Tab button next to the current tab.</p></div></div>
+            <div class="callout c-note"><div class="cglyph">✓</div><div class="cbody">
+              <b>Note</b><p>My Apps also reaches this portal directly, if the tenant has it
+                enabled.</p></div></div>
+            <div class="callout c-caut"><div class="cglyph">!</div><div class="cbody">
+              <b>Caution</b><p>Sign in with your work account, not a personal Microsoft account —
+                the organization list will be empty otherwise.</p></div></div>
+            <div class="step"><div class="badge">2</div><div class="card">
+              <div class="shot"><div class="chrome"></div>
+                <div class="l" style="left:8px;top:22px;width:186px;height:8px"></div>
+                <div class="l" style="left:8px;top:38px;width:88px;height:22px"></div>
+                <div class="l" style="left:104px;top:38px;width:90px;height:22px"></div>
+                <div class="mk" style="left:112px;top:42px"></div></div>
+              <h4>Select the organization</h4>
+              <p>Choose LaCrosse Footwear from the list to open its detail page.</p></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="mockwrap">
+        <div class="mocklab">Report · Dark</div>
+        <div class="mock mock-dark">
+          <div class="tbar"><div class="lights"><i></i><i></i><i></i></div>
+            <div class="tbtn">‹ Back</div><div class="spacer"></div>
+            <div class="sizectl"><div class="track"><i></i><u></u></div>
+              <div class="pctbox">105%</div><div class="stepper"><b>▲</b><b>▼</b></div></div>
+            <div class="tbtn pri">Export ▾</div></div>
+          <div class="body">
+            <div class="docttl">Review organization details</div>
+            <div class="docmeta">Created Sep 9, 2026 · 9 steps</div>
+            <div class="intro"><b>Overview</b><p>How to navigate from GitHub through Microsoft
+              Edge to review organization details in the Microsoft Account portal.</p></div>
+            <div class="divider"><span>Navigating to My Apps</span><i></i></div>
+            <div class="step"><div class="badge">1</div><div class="card">
+              <div class="shot"><div class="chrome"></div>
+                <div class="l" style="left:8px;top:22px;width:52px;height:6px"></div>
+                <div class="l" style="left:8px;top:34px;width:36px;height:6px"></div>
+                <div class="l" style="left:8px;top:46px;width:44px;height:6px"></div>
+                <div class="l" style="left:74px;top:22px;width:120px;height:34px"></div>
+                <div class="mk" style="left:16px;top:17px"></div></div>
+              <h4>Open a new browser tab</h4>
+              <p>In Microsoft Edge, click the New Tab button next to the current tab.</p></div></div>
+            <div class="callout c-note"><div class="cglyph">✓</div><div class="cbody">
+              <b>Note</b><p>My Apps also reaches this portal directly, if the tenant has it
+                enabled.</p></div></div>
+            <div class="callout c-caut"><div class="cglyph">!</div><div class="cbody">
+              <b>Caution</b><p>Sign in with your work account, not a personal Microsoft account —
+                the organization list will be empty otherwise.</p></div></div>
+            <div class="step"><div class="badge">2</div><div class="card">
+              <div class="shot"><div class="chrome"></div>
+                <div class="l" style="left:8px;top:22px;width:186px;height:8px"></div>
+                <div class="l" style="left:8px;top:38px;width:88px;height:22px"></div>
+                <div class="l" style="left:104px;top:38px;width:90px;height:22px"></div>
+                <div class="mk" style="left:112px;top:42px"></div></div>
+              <h4>Select the organization</h4>
+              <p>Choose LaCrosse Footwear from the list to open its detail page.</p></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sechead"><span class="n">05</span><h2>Token map</h2></div>
+    <p>Every token in <code>Palette.swift</code>. Values marked <em>derived</em> are not in the
+      LFI set — the guide defines four brand colours and a shadcn-shaped web palette; shotAI needs
+      tints, presses and a semantic ramp it does not cover.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Token</th><th>LFI light</th><th>LFI dark</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr class="grp"><td colspan="4">Accent</td></tr>
+          <tr><td class="tok">accent</td><td><span class="hex"><i style="background:#B46B3E"></i>#B46B3E</span></td><td><span class="hex"><i style="background:#D58B5C"></i>#D58B5C</span></td><td>Rust / dark primary</td></tr>
+          <tr><td class="tok">accentPress</td><td><span class="hex"><i style="background:#9A5A33"></i>#9A5A33</span></td><td><span class="hex"><i style="background:#E3A579"></i>#E3A579</span></td><td>derived</td></tr>
+          <tr><td class="tok">accentTint</td><td><span class="hex"><i style="background:#F6EDE5"></i>#F6EDE5</span></td><td><span class="hex"><i style="background:#3A2E25"></i>#3A2E25</span></td><td>derived</td></tr>
+          <tr><td class="tok">accentInk</td><td><span class="hex"><i style="background:#8F5430"></i>#8F5430</span></td><td><span class="hex"><i style="background:#E3A579"></i>#E3A579</span></td><td>derived</td></tr>
+          <tr><td class="tok">onAccent</td><td><span class="hex"><i style="background:#FFFFFF"></i>#FFFFFF</span></td><td><span class="hex"><i style="background:#211F1C"></i>#211F1C</span></td><td>accentForeground</td></tr>
+          <tr class="grp"><td colspan="4">Ink</td></tr>
+          <tr><td class="tok">ink</td><td><span class="hex"><i style="background:#47443E"></i>#47443E</span></td><td><span class="hex"><i style="background:#F8F4EC"></i>#F8F4EC</span></td><td>Charcoal / foreground</td></tr>
+          <tr><td class="tok">ink2</td><td><span class="hex"><i style="background:#6F695F"></i>#6F695F</span></td><td><span class="hex"><i style="background:#CFC7B8"></i>#CFC7B8</span></td><td>mutedForeground</td></tr>
+          <tr><td class="tok">ink3</td><td><span class="hex"><i style="background:#938978"></i>#938978</span></td><td><span class="hex"><i style="background:#A79C8B"></i>#A79C8B</span></td><td>Taupe; lifted on dark</td></tr>
+          <tr class="grp"><td colspan="4">Lines &amp; surfaces</td></tr>
+          <tr><td class="tok">hair</td><td><span class="hex"><i style="background:#D8D2C6"></i>#D8D2C6</span></td><td><span class="hex"><i style="background:#4A463F"></i>#4A463F</span></td><td>border</td></tr>
+          <tr><td class="tok">hair2</td><td><span class="hex"><i style="background:#E7E2D7"></i>#E7E2D7</span></td><td><span class="hex"><i style="background:#3F3C36"></i>#3F3C36</span></td><td>derived</td></tr>
+          <tr><td class="tok">controlBd</td><td><span class="hex"><i style="background:#C9C1B3"></i>#C9C1B3</span></td><td><span class="hex"><i style="background:#686258"></i>#686258</span></td><td>input</td></tr>
+          <tr><td class="tok">surface</td><td><span class="hex"><i style="background:#FFFFFF"></i>#FFFFFF</span></td><td><span class="hex"><i style="background:#3A3833"></i>#3A3833</span></td><td>card</td></tr>
+          <tr><td class="tok">surface2</td><td><span class="hex"><i style="background:#FAF8F3"></i>#FAF8F3</span></td><td><span class="hex"><i style="background:#43403A"></i>#43403A</span></td><td>derived</td></tr>
+          <tr><td class="tok">ground</td><td><span class="hex"><i style="background:#F5F2EB"></i>#F5F2EB</span></td><td><span class="hex"><i style="background:#2F2D29"></i>#2F2D29</span></td><td>muted / background</td></tr>
+          <tr><td class="tok">field</td><td><span class="hex"><i style="background:#FFFFFF"></i>#FFFFFF</span></td><td><span class="hex"><i style="background:#4A4740"></i>#4A4740</span></td><td>derived — stays lighter than surface</td></tr>
+          <tr class="grp"><td colspan="4">Semantic</td></tr>
+          <tr><td class="tok">ok / note</td><td><span class="hex"><i style="background:#3E7D5A"></i>#3E7D5A</span></td><td><span class="hex"><i style="background:#6FB089"></i>#6FB089</span></td><td>forest — derived, 6.8:1</td></tr>
+          <tr><td class="tok">okTint / noteBg</td><td><span class="hex"><i style="background:#E9F1EB"></i>#E9F1EB</span></td><td><span class="hex"><i style="background:#23302A"></i>#23302A</span></td><td>derived</td></tr>
+          <tr><td class="tok">okInk / noteFg</td><td><span class="hex"><i style="background:#2B5B40"></i>#2B5B40</span></td><td><span class="hex"><i style="background:#9BCEB1"></i>#9BCEB1</span></td><td>derived</td></tr>
+          <tr><td class="tok">draft / caution</td><td><span class="hex"><i style="background:#C79A72"></i>#C79A72</span></td><td><span class="hex"><i style="background:#D5AE89"></i>#D5AE89</span></td><td>chart5</td></tr>
+          <tr><td class="tok">danger / warning</td><td><span class="hex"><i style="background:#9D3F32"></i>#9D3F32</span></td><td><span class="hex"><i style="background:#C96253"></i>#C96253</span></td><td>destructive</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sechead"><span class="n">06</span><h2>Decided</h2></div>
+    <div class="notes">
+      <div class="note"><div class="k">Typeface — Archivo</div>
+        <p>Same gothic lineage as Acumin, with a variable width axis so condensed comes from one
+          family. OFL, so it bundles with the app and the fallback problem disappears.</p></div>
+      <div class="note"><div class="k">Radius — 8px</div>
+        <p>Chosen over the guide's 2px. The badge is where the difference reads; the card barely
+          moves. 8px keeps the corporate palette while staying an app rather than a spec sheet.</p></div>
+      <div class="note"><div class="k">Green — forest</div>
+        <p><code>#3E7D5A</code> replaces the chart olive. Unambiguous as success, still warm, and
+          measurably higher contrast on its own tint in both appearances.</p></div>
+      <div class="note"><div class="k">Capture colours — unchanged</div>
+        <p>The recording pill, area-select overlay and marker reds stay hardcoded and
+          theme-agnostic, matching Windows. Consequence: during a recording the violet
+          selection rectangle still appears, so the corporate theme is not end-to-end.</p></div>
+    </div>
+  </section>
+
+  <p class="foot">Mock-up only — nothing in <code>shotAI/Theme.swift</code> has been changed. The
+    app surfaces are hand-built approximations at roughly 70% scale, accurate to the current
+    layout but not pixel-measured against a running build. Both appearances are shown side by side
+    regardless of your own light/dark setting, since a theme has to be judged in both.</p>
+</div>
+
+<script>
+(function(){
+  var btns = document.querySelectorAll('.picker button');
+  var surfaces = document.querySelectorAll('.surfaces .mock');
+  btns.forEach(function(b){
+    b.addEventListener('click', function(){
+      btns.forEach(function(o){ o.setAttribute('aria-pressed', String(o === b)); });
+      surfaces.forEach(function(m){ m.style.setProperty('--mr', b.dataset.r + 'px'); });
+    });
+  });
+})();
+</script>
