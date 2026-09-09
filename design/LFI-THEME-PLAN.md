@@ -1,6 +1,7 @@
 # Implementation plan — the "LFI" theme
 
 **Status:** plan only. Nothing implemented.
+**Open questions:** none — all settled 2026-09-09, see §6.
 **Design source:** [`design/lfi-theme-study.html`](lfi-theme-study.html) (published mock-up) and `design/lfi-design-system/`.
 **Companion issue (Windows):** to be filed on `Armadillon44/shotAI`.
 
@@ -134,7 +135,10 @@ greenfield.
   sign-in chip, update badge. Converting them is a substantial visual change, not a
   token flip. **Recommendation: keep them capsules.** The mock overstated this.
 - The on-screen report card is 10px and the exported HTML card is 12px — they already
-  disagree. Fixing that drift belongs in phase 0, not here.
+  disagree. *Settled: the **export moves to 10** to match the report, not the reverse.*
+  This is a real, if tiny, visual change to already-shipped output, so it cannot ride in
+  phase 0 (which is defined as no-visual-change). It gets its own commit with a test, on
+  both platforms. Default brand is then 10px everywhere; LFI is 8px everywhere.
 
 ### Phase 3 · Typography
 - **154 font references across 16 files; 144 are call sites needing a decision.** 17
@@ -206,7 +210,7 @@ accepting rose markers inside a rust-and-charcoal document, or treating it as se
 
 | Question | Recommendation | Why |
 |---|---|---|
-| Where does the theme live? | **App preference**, not `project.json` | The brand describes the operator's organization, not the document. `displayScale` was genuinely per-document ("this SOP needs bigger screenshots"); a brand is not. Avoids a schema change and a Windows contract dependency. **Reverse this if you want an SOP to look LFI no matter who exports it** — then it must go in the manifest as an additive optional key. |
+| Where does the theme live? | **Both** — see §6a | *Settled 2026-09-09.* App preference drives app chrome; the project carries its own theme so its report and exports are reproducible on any machine. |
 | LFI as a peer of light/dark, or orthogonal? | **Orthogonal** — two pickers | The mock has LFI in both appearances. A single six-case picker would misrepresent them. |
 | Do exports follow the app theme? | **Yes, brand only, always light** | See §5. |
 | Semantic colours | **Forest `#3E7D5A` / tan / destructive**, as settled in the study | Measured 6.83:1 on its own tint against the olive's 5.56:1. |
@@ -214,6 +218,43 @@ accepting rose markers inside a rust-and-charcoal document, or treating it as se
 | Capsules → 8px rects? | **No, keep capsules** | 17 sites, substantial visual change, and the mock overstated it. |
 | wdth 66 or 62? | **62** | Named instance, no variation-axis abstraction, indistinguishable at UI sizes. |
 | Ship the italic TTF? | **No** | 741 KB of the 1.4 MB, and only `PdfExport` has an italic path. |
+
+### 6a. Resolution model — app preference *and* project *(settled)*
+
+The theme lives in two places with a defined precedence, mirroring how `displayScale`
+already works.
+
+**`AppPreferences.brand`** — an app preference. Governs Home, Settings, the sheets and
+the wizard. This is the operator's choice.
+
+**`ProjectManifest.theme`** — an additive optional key in `project.json`. Governs that
+project's report rendering **and all of its exports**, so the same project produces the
+same document on any machine.
+
+**Precedence, stated once so both platforms implement it identically:**
+
+1. A project with a `theme` key renders and exports in that theme, **including the
+   window chrome while it is open.** A half-LFI window — corporate report inside a
+   violet shell — is incoherent, and the report is meant to be WYSIWYG with the export.
+2. A project with no `theme` key falls back to the app preference. Existing projects
+   therefore behave exactly as they do today.
+3. Home and Settings always use the app preference; they belong to no project.
+
+**Write rule, copied from `displayScale`:** the key is stamped at project creation from
+the current app preference, and **omitted entirely when it is the default brand.** A
+shotAI-branded project writes nothing, so existing projects and the common case stay
+byte-identical; only an LFI project carries the key. The store must also refuse a no-op
+write, because `mutate` bumps `updatedAt` unconditionally — the same trap `setDisplayScale`
+already guards against.
+
+**Where the user changes it:** a per-project control in the report toolbar beside the
+document-size slider. Same place, same semantics, same precedent.
+
+**Cross-platform:** this is a schema change and needs the Windows companion issue before
+either side ships it. Tolerant decode means a macOS-written `theme` key round-trips
+through an older Windows build untouched via `extra`, so a staggered rollout is safe —
+Windows will render such a project in its own theme until it learns the key, which is
+the same way `displayScale` rolled out.
 
 ---
 
@@ -244,8 +285,8 @@ literals to extract.
 Fonts: **zero font files and zero `@font-face` rules in the entire Windows repo.**
 
 **Word cannot draw a rounded card.** The `.docx` step card is a single-cell table with
-square borders. Either accept a square-cornered `.docx` as a documented divergence, or
-re-implement the card as a DrawingML shape. Recommend accepting it.
+square borders. *Settled: a square-cornered `.docx` is accepted as a documented
+divergence.* No DrawingML re-implementation.
 
 ---
 
@@ -254,7 +295,9 @@ re-implement the card as a DrawingML shape. Recommend accepting it.
 | Phase | Ships | Visible change |
 |---|---|---|
 | 0 | Tokenize both platforms; parity tests | **None** — by design |
+| 0b | Export card radius 12 → 10, both platforms | 2px, on new exports only |
 | 1 | macOS colour plumbing + LFI palette + Settings picker | Home and report reskin |
+| 1b | `theme` key in `project.json` + per-project control | Projects pin their brand |
 | 2 | Geometry tokens, 8px card radius | Corners tighten |
 | 3 | Archivo bundling + type tokens | Typeface changes |
 | 4 | Themed exports (HTML + PDF) | Exported SOPs reskin |
