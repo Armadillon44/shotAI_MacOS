@@ -119,24 +119,12 @@ public extension ExportTheme {
         warning: Callout(bg: "#fef2f2", border: "#fca5a5", text: "#991b1b")
     )
 
-    /// Where the PDF renderer knowingly disagrees with the HTML today.
+    /// Where the PDF renderer still disagrees with the HTML.
     ///
-    /// All three are section-divider colours: `PdfExport.drawSection` reuses
-    /// `title`/`meta`/`hair` where the CSS has dedicated `section*` values. The
-    /// PDF is therefore slightly cooler and lower-contrast on section headings
-    /// than the HTML for the same project.
-    ///
-    /// **Preserved on purpose.** Tokenizing was supposed to change nothing an
-    /// existing user can see, and fixing these changes the PDF. They are listed
-    /// here — rather than left as an undocumented difference — so
-    /// `exportPalettesAgreeExceptKnownDivergences` fails the moment a FOURTH one
-    /// appears, which is the regression this whole pass exists to make visible.
-    static let knownDivergences: [String] = [
-        "sectionHeading — CSS .section__h #191826, PDF Ink.title #1f2937",
-        "sectionBody — CSS .section__b #5a5772, PDF Ink.meta #6b7280",
-        "sectionRule — CSS .section__inner border-top #e7e4f2, PDF Ink.hair #e5e7eb",
-        "badge text — CSS .step__num color #ffffff, PDF a bare NSColor.white "
-            + "(generic gray, not sRGB). Identical colour; switching it shrinks "
-            + "the PDF ~10% by dropping a DeviceGray colour space.",
-    ]
+    /// Empty. The three section-divider differences were corrected once the
+    /// shared vocabulary made them visible, and the badge's colour space with
+    /// them. Kept as a named, asserted list rather than deleted: it is the
+    /// anchor for `testPdfMatchesTheCSS`, and a future divergence should have to
+    /// be written down here to pass.
+    static let knownDivergences: [String] = []
 }

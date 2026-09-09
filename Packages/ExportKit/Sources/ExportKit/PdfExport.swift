@@ -105,15 +105,13 @@ enum Ink {
     static let introBg = color(t.introBg)
     static let eyebrow = color(t.meta)        // "OVERVIEW" label
 
-    // Section dividers. NOTE these three deliberately reuse title/meta/hair
-    // rather than the theme's dedicated `section*` values, preserving a
-    // divergence from the HTML that predates this refactor. Tokenizing was meant
-    // to change nothing an existing user can see; correcting them changes the
-    // PDF, so it is a separate, deliberate commit. See
-    // `ExportTheme.knownDivergences`.
-    static let sectionHeading = title
-    static let sectionBody = meta
-    static let sectionRule = hair
+    // Section dividers. These now use the theme's dedicated values, matching the
+    // CSS. They previously reused title/meta/hair, which rendered every section
+    // heading in the PDF cooler and lower-contrast than the same heading in the
+    // HTML export of the same project.
+    static let sectionHeading = color(t.sectionHeading)
+    static let sectionBody = color(t.sectionBody)
+    static let sectionRule = color(t.sectionRule)
 
     struct Callout { let bg, border, text: NSColor }
     private static func callout(_ c: ExportTheme.Callout) -> Callout {
