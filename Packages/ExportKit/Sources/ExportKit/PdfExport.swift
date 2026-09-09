@@ -74,27 +74,59 @@ private func Self_cgImage(_ data: Data) -> CGImage? {
 
 // MARK: - Colors / fonts (ported from DOC_CSS)
 
-private enum Ink {
-    static let title = color("#1f2937")
-    static let meta = color("#6b7280")
-    static let body = color("#374151")
-    static let note = color("#6b7280")
-    static let badge = color("#6344f1")       // app accent (Palette.accent)
-    static let hair = color("#e5e7eb")
-    static let cardBg = color("#faf9ff")      // step card fill (Palette.surface2)
-    static let cardBorder = color("#e7e4f2")  // step card border (Palette.hair)
-    static let introBg = color("#efeafe")     // overview fill (Palette.accentTint)
-    static let eyebrow = color("#6b7280")     // "OVERVIEW" label
+/// The PDF's colours, resolved once from `ExportTheme`.
+///
+/// These used to be hand-copied hex literals kept in step with `docCSS` by
+/// comment only, and three of them had already drifted — see
+/// `ExportTheme.knownDivergences`. They now derive from the same values the CSS
+/// emits, so the two renderers cannot drift silently again.
+/// Internal rather than private so `ExportThemeTests` can assert the PDF resolves
+/// to the same colours the CSS emits — the parity check is the whole point of
+/// deriving both from one theme.
+enum Ink {
+    private static let t = ExportTheme.shotAI
+
+    static let title = color(t.text)
+    static let meta = color(t.meta)
+    static let body = color(t.bodyText)
+    static let note = color(t.meta)
+    static let badge = color(t.accent)
+    // NB: the badge's TEXT is drawn with a bare `NSColor.white`, not
+    // `t.onAccent`. Same colour, different colour space — `.white` is generic
+    // gray, the theme's is sRGB — and swapping it rewrites every colour operator
+    // in the file. Measured: the PDF drops from 39,529 to 35,706 bytes, ~10%,
+    // because unifying on sRGB lets it discard a DeviceGray colour space
+    // entirely. That is an improvement worth taking, but it is a change to
+    // shipped output, so it belongs in its own commit rather than a pass whose
+    // whole claim is that nothing changed. See `ExportTheme.knownDivergences`.
+    static let hair = color(t.hair)
+    static let cardBg = color(t.cardBg)
+    static let cardBorder = color(t.cardBorder)
+    static let introBg = color(t.introBg)
+    static let eyebrow = color(t.meta)        // "OVERVIEW" label
+
+    // Section dividers. NOTE these three deliberately reuse title/meta/hair
+    // rather than the theme's dedicated `section*` values, preserving a
+    // divergence from the HTML that predates this refactor. Tokenizing was meant
+    // to change nothing an existing user can see; correcting them changes the
+    // PDF, so it is a separate, deliberate commit. See
+    // `ExportTheme.knownDivergences`.
+    static let sectionHeading = title
+    static let sectionBody = meta
+    static let sectionRule = hair
 
     struct Callout { let bg, border, text: NSColor }
+    private static func callout(_ c: ExportTheme.Callout) -> Callout {
+        Callout(bg: color(c.bg), border: color(c.border), text: color(c.text))
+    }
     static func callout(_ kind: CalloutKindExport) -> Callout {
         switch kind {
-        case .note:    Callout(bg: color("#ecfdf5"), border: color("#6ee7b7"), text: color("#065f46"))
-        case .caution: Callout(bg: color("#fffbeb"), border: color("#fcd34d"), text: color("#92400e"))
-        case .warning: Callout(bg: color("#fef2f2"), border: color("#fca5a5"), text: color("#991b1b"))
+        case .note:    callout(t.note)
+        case .caution: callout(t.caution)
+        case .warning: callout(t.warning)
         // A section divider is drawn by `drawSection`, never through the callout
         // card path — this neutral case only keeps the switch exhaustive.
-        case .section: Callout(bg: color("#ffffff"), border: hair, text: title)
+        case .section: Callout(bg: color(t.pageBg), border: hair, text: title)
         }
     }
 
@@ -443,8 +475,8 @@ private final class PdfCanvas {
         let innerPad: CGFloat = 12                 // match drawStep/drawCallout text inset
         let textX = mainX + innerPad
         let textW = mainW - innerPad * 2
-        let headAttr = heading.isEmpty ? nil : Ink.attr(heading, size: 15, weight: .bold, color: Ink.title)
-        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: Ink.meta)
+        let headAttr = heading.isEmpty ? nil : Ink.attr(heading, size: 15, weight: .bold, color: Ink.sectionHeading)
+        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: Ink.sectionBody)
         let hH = headAttr.map { Self.measure($0, width: textW) } ?? 0
         let bH = bodyAttr.map { Self.measure($0, width: textW) } ?? 0
         let ruleGap: CGFloat = 10     // rule → heading
@@ -456,7 +488,7 @@ private final class PdfCanvas {
         let broke = ensureRoom(leadGap + 2 + ruleGap + max(hH, 12))
         if !broke {
             advance(leadGap)
-            ctx.setStrokeColor(Ink.hair.cgColor)
+            ctx.setStrokeColor(Ink.sectionRule.cgColor)
             ctx.setLineWidth(2)
             ctx.move(to: CGPoint(x: mainX, y: cursorY))
             ctx.addLine(to: CGPoint(x: mainX + mainW, y: cursorY))

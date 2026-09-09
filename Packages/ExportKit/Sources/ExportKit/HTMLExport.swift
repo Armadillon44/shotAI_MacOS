@@ -128,38 +128,39 @@ private func imagePixelDimensions(_ data: Data) -> (w: Int, h: Int)? {
 /// Layout tables are also ruled out: the destination forces `table{width:100%}`.
 func docCSS(scale: Double = 1.0) -> String {
     let col = DocScale.htmlColumn(scale)
+    let t = ExportTheme.shotAI
     return """
 *{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;background:#fff;line-height:1.6}
+body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:\(t.text);background:\(t.pageBg);line-height:1.6}
 .doc{padding:40px 32px 64px}
 .doc__col{max-width:\(col)px;margin:0 auto}
 .doc__title{max-width:\(col)px;margin:0 auto 4px;font-size:1.9rem;line-height:1.25}
-.doc__meta{max-width:\(col)px;margin:0 auto 28px;color:#6b7280;font-size:.85rem}
-.doc__intro{max-width:\(col)px;margin:0 auto 28px;padding:14px 18px;border:1px solid #e7e4f2;border-left:4px solid #6344f1;border-radius:8px;background:#efeafe}
-.doc__intro-eyebrow{text-transform:uppercase;letter-spacing:.6px;font-size:.7rem;font-weight:700;color:#6b7280;margin:0 0 6px}
+.doc__meta{max-width:\(col)px;margin:0 auto 28px;color:\(t.meta);font-size:.85rem}
+.doc__intro{max-width:\(col)px;margin:0 auto 28px;padding:14px 18px;border:1px solid \(t.cardBorder);border-left:4px solid \(t.accent);border-radius:8px;background:\(t.introBg)}
+.doc__intro-eyebrow{text-transform:uppercase;letter-spacing:.6px;font-size:.7rem;font-weight:700;color:\(t.meta);margin:0 0 6px}
 .doc__intro-h{margin:0 0 6px;font-size:1.15rem}
-.doc__intro-b{margin:0;color:#374151;white-space:pre-wrap}
+.doc__intro-b{margin:0;color:\(t.bodyText);white-space:pre-wrap}
 .step{display:flex;gap:16px;max-width:\(col)px;margin:0 auto 18px;align-items:flex-start;page-break-inside:avoid;break-inside:avoid}
-.step__num{flex:0 0 auto;width:30px;height:30px;margin-top:14px;border-radius:50%;background:#6344f1;color:#fff;font-weight:600;display:flex;align-items:center;justify-content:center;font-size:.95rem}
-.step__num--note{background:#ecfdf5;color:#065f46;border:1px solid #6ee7b7}
-.step__num--caution{background:#fffbeb;color:#92400e;border:1px solid #fcd34d}
-.step__num--warning{background:#fef2f2;color:#991b1b;border:1px solid #fca5a5}
-.step__main{flex:1 1 auto;min-width:0;padding:14px 16px;border:1px solid #e7e4f2;border-radius:12px;background:#faf9ff}
-.step__main--note{background:#ecfdf5;border-color:#6ee7b7;color:#065f46}
-.step__main--caution{background:#fffbeb;border-color:#fcd34d;color:#92400e}
-.step__main--warning{background:#fef2f2;border-color:#fca5a5;color:#991b1b}
+.step__num{flex:0 0 auto;width:30px;height:30px;margin-top:14px;border-radius:50%;background:\(t.accent);color:\(t.onAccent);font-weight:600;display:flex;align-items:center;justify-content:center;font-size:.95rem}
+.step__num--note{background:\(t.note.bg);color:\(t.note.text);border:1px solid \(t.note.border)}
+.step__num--caution{background:\(t.caution.bg);color:\(t.caution.text);border:1px solid \(t.caution.border)}
+.step__num--warning{background:\(t.warning.bg);color:\(t.warning.text);border:1px solid \(t.warning.border)}
+.step__main{flex:1 1 auto;min-width:0;padding:14px 16px;border:1px solid \(t.cardBorder);border-radius:12px;background:\(t.cardBg)}
+.step__main--note{background:\(t.note.bg);border-color:\(t.note.border);color:\(t.note.text)}
+.step__main--caution{background:\(t.caution.bg);border-color:\(t.caution.border);color:\(t.caution.text)}
+.step__main--warning{background:\(t.warning.bg);border-color:\(t.warning.border);color:\(t.warning.text)}
 .step__title{font-size:1.15rem;margin:0 0 10px}
-.step__img{display:block;max-width:100%;height:auto;margin-inline:auto;border:1px solid #e5e7eb;border-radius:8px}
+.step__img{display:block;max-width:100%;height:auto;margin-inline:auto;border:1px solid \(t.hair);border-radius:8px}
 .step__instr{margin:10px 0 0;white-space:pre-wrap;font-size:1.02rem}
 .step--textonly .step__instr{margin-top:0}
-.step__note{margin:8px 0 0;color:#6b7280;font-size:.92rem;white-space:pre-wrap}
+.step__note{margin:8px 0 0;color:\(t.meta);font-size:.92rem;white-space:pre-wrap}
 .callout__h{display:block;font-weight:700;margin-bottom:.25rem}
 .callout__b{white-space:pre-wrap}
 .section{max-width:\(col)px;margin:28px auto 4px;padding-left:46px}
-.section__inner{padding:14px 16px 0;border-top:2px solid #e7e4f2}
-.section__h{font-size:1.2rem;font-weight:700;margin:0 0 4px;color:#191826}
-.section__b{margin:0;color:#5a5772;white-space:pre-wrap}
+.section__inner{padding:14px 16px 0;border-top:2px solid \(t.sectionRule)}
+.section__h{font-size:1.2rem;font-weight:700;margin:0 0 4px;color:\(t.sectionHeading)}
+.section__b{margin:0;color:\(t.sectionBody);white-space:pre-wrap}
 @media print{.doc{padding:0 6px}.doc__col,.doc__title,.doc__meta,.doc__intro,.step,.section{max-width:none}.section{break-inside:avoid}}
 """
 }
@@ -277,15 +278,16 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
 /// #42); keep the two in sync.
 func plainCSS(scale: Double = 1.0) -> String {
     let body = DocScale.plainBody(scale)
+    let t = ExportTheme.shotAI
     return """
-body{font-family:Arial,Helvetica,sans-serif;color:#1f2937;line-height:1.5;max-width:\(body)px;margin:24px auto;padding:0 20px}
+body{font-family:Arial,Helvetica,sans-serif;color:\(t.text);line-height:1.5;max-width:\(body)px;margin:24px auto;padding:0 20px}
 h1{font-size:1.8rem;font-weight:700;margin:0 0 .3rem}
 h2{font-size:1.2rem;font-weight:700;margin:1.3rem 0 .4rem}
 p{margin:.5rem 0}
 strong{font-weight:700}
 img{max-width:100%;height:auto}
-blockquote{margin:1rem 0;padding:.4rem .85rem;border-left:3px solid #cbd5e1;color:#374151}
-hr{border:0;border-top:1px solid #e5e7eb;margin:1.4rem 0}
+blockquote{margin:1rem 0;padding:.4rem .85rem;border-left:3px solid \(t.quoteRule);color:\(t.bodyText)}
+hr{border:0;border-top:1px solid \(t.hair);margin:1.4rem 0}
 """
 }
 
