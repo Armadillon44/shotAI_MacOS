@@ -3,6 +3,27 @@ import SwiftUI
 
 /// The app's color-theme preference (Appearance tab). `system` follows the OS.
 /// Mirrors the Windows `ThemePref`.
+/// Which brand palette the UI wears. Orthogonal to `ThemePref`: a brand has both
+/// a light and a dark set, so the two are separate controls rather than one
+/// six-case picker that would misrepresent them as mutually exclusive.
+enum BrandPref: String, Codable, CaseIterable, Sendable {
+    case shotAI, lfi
+
+    var label: String {
+        switch self {
+        case .shotAI: "shotAI"
+        case .lfi: "LFI"
+        }
+    }
+
+    var blurb: String {
+        switch self {
+        case .shotAI: "shotAI's own violet identity."
+        case .lfi: "LaCrosse Footwear corporate — charcoal and rust."
+        }
+    }
+}
+
 enum ThemePref: String, Codable, CaseIterable, Sendable {
     case system, light, dark
 
@@ -38,6 +59,7 @@ enum ThemePref: String, Codable, CaseIterable, Sendable {
 /// `SopSettings`. The byline + capture fields mirror the Windows settings.json.
 struct AppPreferences: Codable, Equatable, Sendable {
     var theme: ThemePref = .system
+    var brand: BrandPref = .shotAI
     /// Display name shown in exported documents' footer when opted in. Default ''.
     var userName: String = ""
     /// Opt-in to include `userName` in reports/exports. Default false.
@@ -82,6 +104,7 @@ struct AppPreferences: Codable, Equatable, Sendable {
         let d = AppPreferences()
         guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { self = d; return }
         theme = (try? c.decodeIfPresent(ThemePref.self, forKey: .theme)) ?? d.theme
+        brand = (try? c.decodeIfPresent(BrandPref.self, forKey: .brand)) ?? d.brand
         userName = (try? c.decodeIfPresent(String.self, forKey: .userName)) ?? d.userName
         includeNameInReports = (try? c.decodeIfPresent(Bool.self, forKey: .includeNameInReports)) ?? d.includeNameInReports
         captureScale = (try? c.decodeIfPresent(Double.self, forKey: .captureScale)) ?? d.captureScale

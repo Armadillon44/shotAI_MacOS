@@ -18,6 +18,7 @@ enum WindowLayout {
 }
 
 struct ContentView: View {
+    @Environment(\.palette) private var palette
     @Environment(AppModel.self) private var model
     @Environment(CaptureCoordinator.self) private var capture
     @State private var showOpenPanel = false
@@ -144,7 +145,7 @@ struct ContentView: View {
         .navigationTitle(model.opened?.manifest.title ?? "shotAI")
         // shotAI's brand accent (violet) for selection, controls, and the
         // editor overlay — propagates down the whole window hierarchy.
-        .tint(Palette.accent)
+        .tint(palette.accent)
         // Capture the hosting window once, then size it per surface: narrow on
         // Home, wide when a project is open. Center-preserving + animated.
         .background(WindowAccessor { w in

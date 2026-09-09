@@ -28,6 +28,7 @@ import SwiftUI
 /// percentage the manifest never got, and it lags a commit, so releasing the
 /// slider flashes the pre-drag value while the write is in flight.
 struct DocScaleControl: View {
+    @Environment(\.palette) private var palette
     @Environment(AppModel.self) private var model
 
     /// Buffered keystrokes. nil when not mid-edit, so the live value shows.
@@ -48,7 +49,7 @@ struct DocScaleControl: View {
         HStack(spacing: 6) {
             Image(systemName: "rectangle.compress.vertical")
                 .font(.system(size: 11))
-                .foregroundStyle(Palette.ink3)
+                .foregroundStyle(palette.ink3)
                 .accessibilityHidden(true)
 
             Slider(
@@ -94,13 +95,13 @@ struct DocScaleControl: View {
                 .frame(width: 26, height: 16)
             Text("%")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Palette.ink3)
+                .foregroundStyle(palette.ink3)
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 3)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Palette.field))
+        .background(RoundedRectangle(cornerRadius: 5).fill(palette.field))
         .overlay(RoundedRectangle(cornerRadius: 5)
-            .stroke(editing ? Palette.accent : Palette.controlBd,
+            .stroke(editing ? palette.accent : palette.controlBd,
                     lineWidth: editing ? 1.5 : 1))
         .accessibilityLabel("Document size percent")
         .accessibilityValue("\(shownPercent) percent")

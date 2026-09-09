@@ -44,6 +44,8 @@ struct ShotAIApp: App {
                 .frame(minWidth: 680, minHeight: 560)
                 // Appearance ▸ Theme override (nil = follow the system).
                 .preferredColorScheme(model.preferences.theme.colorScheme)
+                // Brand is the OTHER axis: appearance above, palette here.
+                .environment(\.palette, PaletteTokens.of(model.preferences.brand))
         }
         .defaultSize(width: WindowLayout.home, height: 760)
         .commands {
@@ -113,6 +115,8 @@ struct ShotAIApp: App {
             SettingsView()
                 .environment(model)
                 .preferredColorScheme(model.preferences.theme.colorScheme)
+                // Brand is the OTHER axis: appearance above, palette here.
+                .environment(\.palette, PaletteTokens.of(model.preferences.brand))
         }
     }
 
