@@ -71,20 +71,19 @@ final class ExportThemeTests: XCTestCase {
                       "untokenized colour(s) in the CSS: \(found.subtracting(known).sorted())")
     }
 
-    /// The PDF resolves to the same colours the CSS emits — except where the two
-    /// are documented to disagree.
+    /// The PDF resolves to exactly the colours the CSS emits.
     ///
-    /// Three section-divider colours drifted before this vocabulary existed and
-    /// are preserved deliberately, because correcting them changes the PDF and
-    /// this pass was meant to change nothing. The point of the test is the
-    /// FOURTH divergence: if anyone adds one, this fails.
-    func testPdfMatchesTheCSSExceptKnownDivergences() {
+    /// Nothing is exempt any more. `knownDivergences` is empty and asserted so:
+    /// a future difference has to be written down there to pass, which makes
+    /// "the two renderers disagree" a deliberate act rather than a slow drift.
+    func testPdfMatchesTheCSS() {
         XCTAssertEqual(hex(Ink.title), t.text)
         XCTAssertEqual(hex(Ink.body), t.bodyText)
         XCTAssertEqual(hex(Ink.meta), t.meta)
         XCTAssertEqual(hex(Ink.note), t.meta)
         XCTAssertEqual(hex(Ink.eyebrow), t.meta)
         XCTAssertEqual(hex(Ink.badge), t.accent)
+        XCTAssertEqual(hex(Ink.onBadge), t.onAccent)
         XCTAssertEqual(hex(Ink.hair), t.hair)
         XCTAssertEqual(hex(Ink.cardBg), t.cardBg)
         XCTAssertEqual(hex(Ink.cardBorder), t.cardBorder)
@@ -99,12 +98,23 @@ final class ExportThemeTests: XCTestCase {
             XCTAssertEqual(hex(c.text), expected.text, "\(kind) text")
         }
 
-        // The three documented divergences, asserted as they ARE, not as they
-        // should be. Each line is a bug with a receipt.
-        XCTAssertEqual(ExportTheme.knownDivergences.count, 4)
-        XCTAssertEqual(hex(Ink.sectionHeading), t.text, "diverges from CSS \(t.sectionHeading)")
-        XCTAssertEqual(hex(Ink.sectionBody), t.meta, "diverges from CSS \(t.sectionBody)")
-        XCTAssertEqual(hex(Ink.sectionRule), t.hair, "diverges from CSS \(t.sectionRule)")
+        XCTAssertEqual(hex(Ink.sectionHeading), t.sectionHeading)
+        XCTAssertEqual(hex(Ink.sectionBody), t.sectionBody)
+        XCTAssertEqual(hex(Ink.sectionRule), t.sectionRule)
+        XCTAssertTrue(ExportTheme.knownDivergences.isEmpty,
+                      "still divergent: \(ExportTheme.knownDivergences)")
+    }
+
+    /// The step card is 10px everywhere — report, HTML and PDF.
+    ///
+    /// The HTML shipped 12 while the on-screen report and the native PDF both
+    /// used 10, so the same card was subtly rounder in one of the three places a
+    /// user sees it. Pinned here because it is one literal in a 2.6 KB string and
+    /// nothing else would notice it moving.
+    func testStepCardRadiusMatchesTheReportAndPdf() {
+        XCTAssertTrue(docCSS().contains("border-radius:10px;background:\(ExportTheme.shotAI.cardBg)}"),
+                      "the HTML step card should be 10px, matching the report and the PDF")
+        XCTAssertFalse(docCSS().contains("border-radius:12px"))
     }
 
     // MARK: helpers
