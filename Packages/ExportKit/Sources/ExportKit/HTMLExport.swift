@@ -146,7 +146,7 @@ body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-s
 .step__num--note{background:\(t.note.bg);color:\(t.note.text);border:1px solid \(t.note.border)}
 .step__num--caution{background:\(t.caution.bg);color:\(t.caution.text);border:1px solid \(t.caution.border)}
 .step__num--warning{background:\(t.warning.bg);color:\(t.warning.text);border:1px solid \(t.warning.border)}
-.step__main{flex:1 1 auto;min-width:0;padding:14px 16px;border:1px solid \(t.cardBorder);border-radius:12px;background:\(t.cardBg)}
+.step__main{flex:1 1 auto;min-width:0;padding:14px 16px;border:1px solid \(t.cardBorder);border-radius:10px;background:\(t.cardBg)}
 .step__main--note{background:\(t.note.bg);border-color:\(t.note.border);color:\(t.note.text)}
 .step__main--caution{background:\(t.caution.bg);border-color:\(t.caution.border);color:\(t.caution.text)}
 .step__main--warning{background:\(t.warning.bg);border-color:\(t.warning.border);color:\(t.warning.text)}

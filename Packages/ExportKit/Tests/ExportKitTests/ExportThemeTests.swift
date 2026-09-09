@@ -105,6 +105,18 @@ final class ExportThemeTests: XCTestCase {
                       "still divergent: \(ExportTheme.knownDivergences)")
     }
 
+    /// The step card is 10px everywhere — report, HTML and PDF.
+    ///
+    /// The HTML shipped 12 while the on-screen report and the native PDF both
+    /// used 10, so the same card was subtly rounder in one of the three places a
+    /// user sees it. Pinned here because it is one literal in a 2.6 KB string and
+    /// nothing else would notice it moving.
+    func testStepCardRadiusMatchesTheReportAndPdf() {
+        XCTAssertTrue(docCSS().contains("border-radius:10px;background:\(ExportTheme.shotAI.cardBg)}"),
+                      "the HTML step card should be 10px, matching the report and the PDF")
+        XCTAssertFalse(docCSS().contains("border-radius:12px"))
+    }
+
     // MARK: helpers
 
     private func hex(_ c: NSColor) -> String {
