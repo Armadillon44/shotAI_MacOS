@@ -83,6 +83,7 @@ final class ExportThemeTests: XCTestCase {
         XCTAssertEqual(hex(Ink.note), t.meta)
         XCTAssertEqual(hex(Ink.eyebrow), t.meta)
         XCTAssertEqual(hex(Ink.badge), t.accent)
+        XCTAssertEqual(hex(Ink.onBadge), t.onAccent)
         XCTAssertEqual(hex(Ink.hair), t.hair)
         XCTAssertEqual(hex(Ink.cardBg), t.cardBg)
         XCTAssertEqual(hex(Ink.cardBorder), t.cardBorder)

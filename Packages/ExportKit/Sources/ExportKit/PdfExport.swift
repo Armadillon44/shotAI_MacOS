@@ -91,14 +91,12 @@ enum Ink {
     static let body = color(t.bodyText)
     static let note = color(t.meta)
     static let badge = color(t.accent)
-    // NB: the badge's TEXT is drawn with a bare `NSColor.white`, not
-    // `t.onAccent`. Same colour, different colour space — `.white` is generic
-    // gray, the theme's is sRGB — and swapping it rewrites every colour operator
-    // in the file. Measured: the PDF drops from 39,529 to 35,706 bytes, ~10%,
-    // because unifying on sRGB lets it discard a DeviceGray colour space
-    // entirely. That is an improvement worth taking, but it is a change to
-    // shipped output, so it belongs in its own commit rather than a pass whose
-    // whole claim is that nothing changed. See `ExportTheme.knownDivergences`.
+    /// Badge text. sRGB, deliberately, not `NSColor.white`.
+    ///
+    /// `.white` is in the generic gray space, so using it forced the PDF to
+    /// carry a DeviceGray colour space alongside the sRGB one every other colour
+    /// uses. Same white on screen and on paper; measurably cheaper on disk.
+    static let onBadge = color(t.onAccent)
     static let hair = color(t.hair)
     static let cardBg = color(t.cardBg)
     static let cardBorder = color(t.cardBorder)
@@ -380,7 +378,7 @@ private final class PdfCanvas {
             fillRoundedRect(CGRect(x: mainX, y: cardTop - cardH, width: cardW, height: cardH),
                             radius: 10, fill: Ink.cardBg, stroke: Ink.cardBorder, ctx: ctx)
             let top = cardTop - innerPad
-            drawBadge(badge, fill: badgeColor, textColor: .white, ring: nil, topY: top, ctx: ctx)
+            drawBadge(badge, fill: badgeColor, textColor: Ink.onBadge, ring: nil, topY: top, ctx: ctx)
             if let capAttr { drawAt(capAttr, x: innerX, width: innerW, height: capH, top: top, ctx: ctx) }
             cursorY = top - headerH
             if imgW > 0, let image {
@@ -401,7 +399,7 @@ private final class PdfCanvas {
             let broke = ensureRoom(sepGap + headerH + (fImgH > 0 ? 10 + fImgH : 0))
             if separator && !broke { advance(14); strokeStepRule(); advance(14) }
             let top = cursorY
-            drawBadge(badge, fill: badgeColor, textColor: .white, ring: nil, topY: top, ctx: ctx)
+            drawBadge(badge, fill: badgeColor, textColor: Ink.onBadge, ring: nil, topY: top, ctx: ctx)
             if let capAttr { drawAt(capAttr, x: mainX, width: mainW, height: capH, top: top, ctx: ctx) }
             cursorY = top - headerH
             if fImgW > 0, let image {
