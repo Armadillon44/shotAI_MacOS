@@ -16,16 +16,18 @@ import ShotModel
 /// Render the collected export items to a paginated US-Letter PDF at `outputPath`.
 /// Synchronous + pure Core Graphics (safe off the main thread; never blocks it).
 func renderPdf(
+    theme: ExportTheme = .shotAI,
     title: String, createdLine: String, intro: SopIntro?, items: [ExportItem],
     outputPath: String, scale: Double = 1.0
 ) throws {
-    let pdf = PdfCanvas(outputPath: outputPath, scale: scale)
+    let ink = Ink(theme)
+    let pdf = PdfCanvas(outputPath: outputPath, scale: scale, ink: ink)
     guard pdf.start() else { throw ExportError.writeFailed("Could not create the PDF document.") }
 
     pdf.beginPage()
-    pdf.draw(Ink.attr(title, size: 22, weight: .bold, color: Ink.title), width: pdf.contentW)
+    pdf.draw(Ink.attr(title, size: 22, weight: .bold, color: ink.title), width: pdf.contentW)
     pdf.advance(4)
-    pdf.draw(Ink.attr(createdLine, size: 10, color: Ink.meta), width: pdf.contentW)
+    pdf.draw(Ink.attr(createdLine, size: 10, color: ink.meta), width: pdf.contentW)
     pdf.advance(18)
 
     if let intro, !(intro.heading.isEmpty && intro.body.isEmpty) {
@@ -38,13 +40,13 @@ func renderPdf(
         case .shot(let n, let caption, let body, let note, _, let image):
             let cg = (try? imageBytes(image)).flatMap(Self_cgImage)
             pdf.drawStep(
-                badge: "\(n)", badgeColor: Ink.badge,
+                badge: "\(n)", badgeColor: ink.badge,
                 caption: caption.isEmpty ? "Step \(n)" : caption,
                 image: cg, body: body, note: note, separator: separator)
 
         case .text(let n, let heading, let body):
             pdf.drawStep(
-                badge: "\(n)", badgeColor: Ink.badge,
+                badge: "\(n)", badgeColor: ink.badge,
                 caption: heading, image: nil, body: body, note: "", separator: separator)
 
         case .callout(let kind, let heading, let body):
@@ -83,45 +85,46 @@ private func Self_cgImage(_ data: Data) -> CGImage? {
 /// Internal rather than private so `ExportThemeTests` can assert the PDF resolves
 /// to the same colours the CSS emits — the parity check is the whole point of
 /// deriving both from one theme.
-enum Ink {
-    private static let t = ExportTheme.shotAI
+struct Ink {
+    private let t: ExportTheme
+    init(_ t: ExportTheme) { self.t = t }
 
-    static let title = color(t.text)
-    static let meta = color(t.meta)
-    static let body = color(t.bodyText)
-    static let note = color(t.meta)
-    static let badge = color(t.accent)
+    var title: NSColor { Self.color(t.text) }
+    var meta: NSColor { Self.color(t.meta) }
+    var body: NSColor { Self.color(t.bodyText) }
+    var note: NSColor { Self.color(t.meta) }
+    var badge: NSColor { Self.color(t.accent) }
     /// Badge text. sRGB, deliberately, not `NSColor.white`.
     ///
     /// `.white` is in the generic gray space, so using it forced the PDF to
     /// carry a DeviceGray colour space alongside the sRGB one every other colour
     /// uses. Same white on screen and on paper; measurably cheaper on disk.
-    static let onBadge = color(t.onAccent)
-    static let hair = color(t.hair)
-    static let cardBg = color(t.cardBg)
-    static let cardBorder = color(t.cardBorder)
-    static let introBg = color(t.introBg)
-    static let eyebrow = color(t.meta)        // "OVERVIEW" label
+    var onBadge: NSColor { Self.color(t.onAccent) }
+    var hair: NSColor { Self.color(t.hair) }
+    var cardBg: NSColor { Self.color(t.cardBg) }
+    var cardBorder: NSColor { Self.color(t.cardBorder) }
+    var introBg: NSColor { Self.color(t.introBg) }
+    var eyebrow: NSColor { Self.color(t.meta) }   // "OVERVIEW" label
 
     // Section dividers. Aliases now, not separate values: the ramp collapse made
     // them identical to the general tokens, so naming them here keeps
     // `drawSection` readable without inviting a second set of values to drift in.
-    static let sectionHeading = title
-    static let sectionBody = body
-    static let sectionRule = hair
+    var sectionHeading: NSColor { title }
+    var sectionBody: NSColor { body }
+    var sectionRule: NSColor { hair }
 
     struct Callout { let bg, border, text: NSColor }
-    private static func callout(_ c: ExportTheme.Callout) -> Callout {
-        Callout(bg: color(c.bg), border: color(c.border), text: color(c.text))
+    private func make(_ c: ExportTheme.Callout) -> Callout {
+        Callout(bg: Self.color(c.bg), border: Self.color(c.border), text: Self.color(c.text))
     }
-    static func callout(_ kind: CalloutKindExport) -> Callout {
+    func callout(_ kind: CalloutKindExport) -> Callout {
         switch kind {
-        case .note:    callout(t.note)
-        case .caution: callout(t.caution)
-        case .warning: callout(t.warning)
+        case .note:    make(t.note)
+        case .caution: make(t.caution)
+        case .warning: make(t.warning)
         // A section divider is drawn by `drawSection`, never through the callout
         // card path — this neutral case only keeps the switch exhaustive.
-        case .section: Callout(bg: color(t.pageBg), border: hair, text: title)
+        case .section: Callout(bg: Self.color(t.pageBg), border: hair, text: title)
         }
     }
 
@@ -182,6 +185,7 @@ private final class PdfCanvas {
     /// DPI; rendering natively means macOS never had that cap, and must not gain
     /// one now.
     let scale: CGFloat
+    let ink: Ink
 
     /// Margin grows as the column shrinks, so a narrowed document stays CENTRED
     /// rather than hugging the left edge.
@@ -202,7 +206,8 @@ private final class PdfCanvas {
     private var cursorY: CGFloat = 0
     private var pageOpen = false
 
-    init(outputPath: String, scale: Double = 1.0) {
+    init(outputPath: String, scale: Double = 1.0, ink: Ink) {
+        self.ink = ink
         self.outputPath = outputPath
         self.scale = CGFloat(Swift.min(1.0, scale))
     }
@@ -252,7 +257,7 @@ private final class PdfCanvas {
     /// separator (#40). Drawn only when the following item fits on this page.
     private func strokeStepRule() {
         guard let ctx, pageOpen else { return }
-        ctx.setStrokeColor(Ink.hair.cgColor)
+        ctx.setStrokeColor(ink.hair.cgColor)
         ctx.setLineWidth(0.5)
         ctx.move(to: CGPoint(x: margin, y: cursorY))
         ctx.addLine(to: CGPoint(x: margin + contentW, y: cursorY))
@@ -344,7 +349,7 @@ private final class PdfCanvas {
         let innerX = mainX + innerPad
         let innerW = cardW - innerPad * 2
 
-        let capAttr = caption.isEmpty ? nil : Ink.attr(caption, size: 13, weight: .semibold, color: Ink.title)
+        let capAttr = caption.isEmpty ? nil : Ink.attr(caption, size: 13, weight: .semibold, color: ink.title)
         let capH = capAttr.map { Self.measure($0, width: innerW) } ?? 0
         let headerH = max(badgeD, capH)
 
@@ -358,9 +363,9 @@ private final class PdfCanvas {
             return (iw, ih)
         }
         let (imgW, imgH) = imageDims(innerW)
-        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: Ink.body)
+        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: ink.body)
         let bodyH = bodyAttr.map { Self.measure($0, width: innerW) } ?? 0
-        let noteAttr = note.isEmpty ? nil : Ink.attr(note, size: 10, color: Ink.note, italic: true)
+        let noteAttr = note.isEmpty ? nil : Ink.attr(note, size: 10, color: ink.note, italic: true)
         let noteH = noteAttr.map { Self.measure($0, width: innerW) } ?? 0
 
         let blockH = headerH + (imgH > 0 ? 10 + imgH : 0) + (bodyH > 0 ? 8 + bodyH : 0) + (noteH > 0 ? 6 + noteH : 0)
@@ -375,9 +380,9 @@ private final class PdfCanvas {
             if separator && !broke { advance(sepGap) }
             let cardTop = cursorY
             fillRoundedRect(CGRect(x: mainX, y: cardTop - cardH, width: cardW, height: cardH),
-                            radius: 10, fill: Ink.cardBg, stroke: Ink.cardBorder, ctx: ctx)
+                            radius: 10, fill: ink.cardBg, stroke: ink.cardBorder, ctx: ctx)
             let top = cardTop - innerPad
-            drawBadge(badge, fill: badgeColor, textColor: Ink.onBadge, ring: nil, topY: top, ctx: ctx)
+            drawBadge(badge, fill: badgeColor, textColor: ink.onBadge, ring: nil, topY: top, ctx: ctx)
             if let capAttr { drawAt(capAttr, x: innerX, width: innerW, height: capH, top: top, ctx: ctx) }
             cursorY = top - headerH
             if imgW > 0, let image {
@@ -386,7 +391,7 @@ private final class PdfCanvas {
                 let imgX = innerX + max(0, (innerW - imgW) / 2)
                 let r = CGRect(x: imgX, y: cursorY - imgH, width: imgW, height: imgH)
                 ctx.draw(image, in: r)
-                ctx.setStrokeColor(Ink.hair.cgColor); ctx.setLineWidth(0.5); ctx.stroke(r)
+                ctx.setStrokeColor(ink.hair.cgColor); ctx.setLineWidth(0.5); ctx.stroke(r)
                 cursorY -= imgH
             }
             if let bodyAttr { advance(8); drawAt(bodyAttr, x: innerX, width: innerW, height: bodyH, top: cursorY, ctx: ctx); cursorY -= bodyH }
@@ -398,7 +403,7 @@ private final class PdfCanvas {
             let broke = ensureRoom(sepGap + headerH + (fImgH > 0 ? 10 + fImgH : 0))
             if separator && !broke { advance(14); strokeStepRule(); advance(14) }
             let top = cursorY
-            drawBadge(badge, fill: badgeColor, textColor: Ink.onBadge, ring: nil, topY: top, ctx: ctx)
+            drawBadge(badge, fill: badgeColor, textColor: ink.onBadge, ring: nil, topY: top, ctx: ctx)
             if let capAttr { drawAt(capAttr, x: mainX, width: mainW, height: capH, top: top, ctx: ctx) }
             cursorY = top - headerH
             if fImgW > 0, let image {
@@ -407,7 +412,7 @@ private final class PdfCanvas {
                 let fImgX = mainX + max(0, (mainW - fImgW) / 2)
                 let r = CGRect(x: fImgX, y: cursorY - fImgH, width: fImgW, height: fImgH)
                 ctx.draw(image, in: r)
-                ctx.setStrokeColor(Ink.hair.cgColor); ctx.setLineWidth(0.5); ctx.stroke(r)
+                ctx.setStrokeColor(ink.hair.cgColor); ctx.setLineWidth(0.5); ctx.stroke(r)
                 cursorY -= fImgH
             }
             if let bodyAttr { advance(8); drawFlowing(bodyAttr, x: mainX, width: mainW) }
@@ -417,7 +422,7 @@ private final class PdfCanvas {
 
     func drawCallout(kind: CalloutKindExport, heading: String, body: String, separator: Bool) {
         guard let ctx else { return }
-        let c = Ink.callout(kind)
+        let c = ink.callout(kind)
         let innerPad: CGFloat = 12
         let cardW = mainW
         let innerX = mainX + innerPad
@@ -470,8 +475,8 @@ private final class PdfCanvas {
         let innerPad: CGFloat = 12                 // match drawStep/drawCallout text inset
         let textX = mainX + innerPad
         let textW = mainW - innerPad * 2
-        let headAttr = heading.isEmpty ? nil : Ink.attr(heading, size: 15, weight: .bold, color: Ink.sectionHeading)
-        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: Ink.sectionBody)
+        let headAttr = heading.isEmpty ? nil : Ink.attr(heading, size: 15, weight: .bold, color: ink.sectionHeading)
+        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: ink.sectionBody)
         let hH = headAttr.map { Self.measure($0, width: textW) } ?? 0
         let bH = bodyAttr.map { Self.measure($0, width: textW) } ?? 0
         let ruleGap: CGFloat = 10     // rule → heading
@@ -483,7 +488,7 @@ private final class PdfCanvas {
         let broke = ensureRoom(leadGap + 2 + ruleGap + max(hH, 12))
         if !broke {
             advance(leadGap)
-            ctx.setStrokeColor(Ink.sectionRule.cgColor)
+            ctx.setStrokeColor(ink.sectionRule.cgColor)
             ctx.setLineWidth(2)
             ctx.move(to: CGPoint(x: mainX, y: cursorY))
             ctx.addLine(to: CGPoint(x: mainX + mainW, y: cursorY))
@@ -506,11 +511,11 @@ private final class PdfCanvas {
         let borderW: CGFloat = 4, padX: CGFloat = 14, padY: CGFloat = 12, radius: CGFloat = 10
         let innerX = margin + borderW + padX
         let innerW = contentW - borderW - padX * 2
-        let eyebrow = Ink.attr("OVERVIEW", size: 9, weight: .bold, color: Ink.eyebrow)
+        let eyebrow = Ink.attr("OVERVIEW", size: 9, weight: .bold, color: ink.eyebrow)
         let eH = Self.measure(eyebrow, width: innerW)
-        let headAttr = heading.isEmpty ? nil : Ink.attr(heading, size: 15, weight: .semibold, color: Ink.title)
+        let headAttr = heading.isEmpty ? nil : Ink.attr(heading, size: 15, weight: .semibold, color: ink.title)
         let hH = headAttr.map { Self.measure($0, width: innerW) } ?? 0
-        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: Ink.body)
+        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: ink.body)
         let bH = bodyAttr.map { Self.measure($0, width: innerW) } ?? 0
         let g1: CGFloat = 4                                // eyebrow → next block (always present)
         let g2: CGFloat = (hH > 0 && bH > 0) ? 6 : 0       // heading → body, only when both exist
@@ -520,9 +525,9 @@ private final class PdfCanvas {
             _ = ensureRoom(boxH)
             let top = cursorY
             fillRoundedRect(CGRect(x: margin, y: top - boxH, width: contentW, height: boxH),
-                            radius: radius, fill: Ink.introBg, stroke: Ink.cardBorder, ctx: ctx)
+                            radius: radius, fill: ink.introBg, stroke: ink.cardBorder, ctx: ctx)
             // Left accent bar, inset vertically so it stays inside the rounded corners.
-            ctx.setFillColor(Ink.badge.cgColor)
+            ctx.setFillColor(ink.badge.cgColor)
             ctx.fill(CGRect(x: margin, y: top - boxH + radius, width: borderW, height: boxH - radius * 2))
             var y = top - padY
             drawAt(eyebrow, x: innerX, width: innerW, height: eH, top: y, ctx: ctx); y -= eH + g1

@@ -126,9 +126,8 @@ private func imagePixelDimensions(_ data: Data) -> (w: Int, h: Int)? {
 /// with the card (not the number gutter) via `.section__inner`, because INNER
 /// elements do survive — only whole-document wrappers are flattened.
 /// Layout tables are also ruled out: the destination forces `table{width:100%}`.
-func docCSS(scale: Double = 1.0) -> String {
+func docCSS(scale: Double = 1.0, theme t: ExportTheme = .shotAI) -> String {
     let col = DocScale.htmlColumn(scale)
-    let t = ExportTheme.shotAI
     return """
 *{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -177,7 +176,8 @@ func calloutGlyphExport(_ kind: CalloutKindExport) -> String {
 
 /// Build the full self-contained styled HTML document (images inlined as base64
 /// data: URIs). Ported from export.ts buildHtmlDoc.
-func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: String) throws -> String {
+func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: String,
+                  theme: ExportTheme = .shotAI) throws -> String {
     // One read, used for the stylesheet, the resample target and the width
     // attributes — so a scaled column and its images cannot drift apart (#83).
     let scale = DocScale.of(manifest)
@@ -255,7 +255,7 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
         + "<meta charset=\"utf-8\">\n"
         + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         + "<title>\(title)</title>\n"
-        + "<style>\(docCSS(scale: scale))</style>\n"
+        + "<style>\(docCSS(scale: scale, theme: theme))</style>\n"
         // Two nested plain DIVs, deliberately (#64). A pasted copy of this document
         // must keep its column width, and empirically it did not: the outer wrapper
         // was a `<main>` carrying `max-width`, and after a paste the steps went full
@@ -276,9 +276,8 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
 /// to read well on its own while staying paste-friendly (Word / Google Docs honor
 /// these basic tags + styles). Ported from the Windows app's PLAIN_CSS (shotAI PR
 /// #42); keep the two in sync.
-func plainCSS(scale: Double = 1.0) -> String {
+func plainCSS(scale: Double = 1.0, theme t: ExportTheme = .shotAI) -> String {
     let body = DocScale.plainBody(scale)
-    let t = ExportTheme.shotAI
     return """
 body{font-family:Arial,Helvetica,sans-serif;color:\(t.text);line-height:1.5;max-width:\(body)px;margin:24px auto;padding:0 20px}
 h1{font-size:1.8rem;font-weight:700;margin:0 0 .3rem}
@@ -296,7 +295,8 @@ hr{border:0;border-top:1px solid \(t.hair);margin:1.4rem 0}
 /// headers, bold, and spacing — images inlined as data: URIs. The markup stays
 /// class/inline-style-free so it still pastes cleanly (the destination editor's
 /// tools work on it). Ported from export.ts buildPlainHtmlDoc.
-func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws -> String {
+func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem],
+                       theme: ExportTheme = .shotAI) throws -> String {
     let scale = DocScale.of(manifest)
     let imgMax = DocScale.htmlImageMax(scale)
     func br(_ s: String) -> String { escapeHTML(s).replacingOccurrences(of: "\n", with: "<br>") }
@@ -342,7 +342,7 @@ func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem]) throws ->
     }
     return "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
         + "<title>\(escapeHTML(manifest.title))</title>\n"
-        + "<style>\(plainCSS(scale: scale))</style>\n</head>\n<body>\n"
+        + "<style>\(plainCSS(scale: scale, theme: theme))</style>\n</head>\n<body>\n"
         + parts.joined(separator: "\n")
         + "\n</body>\n</html>\n"
 }

@@ -1,4 +1,5 @@
 import Foundation
+import ShotModel
 
 /// The colour vocabulary every styled export renders from.
 ///
@@ -27,12 +28,11 @@ import Foundation
 /// identical to `text`, `bodyText` and `hair`. A section heading *is* primary
 /// text; keeping a second name for the same role is how they drift apart again.
 ///
-/// ⚠️ **The mirroring is a convention, not a mechanism.** ExportKit cannot see
-/// `Palette` — it is a separate package with no app dependency, deliberately, so
-/// an export renders the same whatever appearance the app is in. Nothing fails
-/// if someone changes `Palette.ink` and not `text` here. Making it structural
-/// means lifting the shared light values into ShotModel, which both sides
-/// already depend on; that is worth doing if this ever drifts again.
+/// **The mirroring is structural, not a convention.** Both this type and the
+/// app's `PaletteTokens` are built from one `ShotModel.BrandPalette`, so a
+/// changed token reaches both by construction. ExportKit still has no
+/// dependency on the app target — the shared definition sits in the model
+/// package they both already use.
 ///
 /// **Values are 6-digit hex strings, always.** `Ink.color(_:)` scans with
 /// `scanHexInt64`, so a 3-digit `#fff` would parse as `0x000fff` — blue, silently.
@@ -108,25 +108,45 @@ public struct ExportTheme: Sendable, Equatable {
 }
 
 public extension ExportTheme {
-    /// shotAI's default brand — the violet identity, at the exact values both
-    /// renderers already shipped. Changing anything here changes every existing
-    /// user's next export, so `ExportThemeTests` pins all of them.
-    static let shotAI = ExportTheme(
-        text: "#191826",        // Palette.ink
-        bodyText: "#5a5772",    // Palette.ink2
-        meta: "#6f6c88",        // Palette.ink3
-        pageBg: "#ffffff",
-        accent: "#6344f1",      // Palette.accent
-        onAccent: "#ffffff",
-        cardBg: "#faf9ff",      // Palette.surface2
-        cardBorder: "#e7e4f2",  // Palette.hair
-        hair: "#e7e4f2",        // Palette.hair
-        introBg: "#efeafe",     // Palette.accentTint
-        quoteRule: "#cbc7db",   // Palette.controlBd
-        note: Callout(bg: "#ecfdf5", border: "#6ee7b7", text: "#065f46"),
-        caution: Callout(bg: "#fffbeb", border: "#fcd34d", text: "#92400e"),
-        warning: Callout(bg: "#fef2f2", border: "#fca5a5", text: "#991b1b")
-    )
+    /// Derive a document theme from a brand.
+    ///
+    /// Takes the brand's LIGHT values unconditionally. The export axis is *which
+    /// brand*, never *which appearance*: a dark-background SOP is unreadable
+    /// printed and ruinous on toner, so a user in dark mode still exports a
+    /// light document.
+    ///
+    /// One ramp, and it is the app's. `hair` and `cardBorder` both resolve to
+    /// the same token today — different elements, same hairline — and are kept
+    /// separate so a brand could distinguish them without a schema change.
+    init(_ b: BrandPalette) {
+        self.init(
+            text: BrandPalette.hex(b.ink.light),
+            bodyText: BrandPalette.hex(b.ink2.light),
+            meta: BrandPalette.hex(b.ink3.light),
+            pageBg: BrandPalette.hex(b.surface.light),
+            accent: BrandPalette.hex(b.accent.light),
+            onAccent: BrandPalette.hex(b.onAccent.light),
+            cardBg: BrandPalette.hex(b.surface2.light),
+            cardBorder: BrandPalette.hex(b.hair.light),
+            hair: BrandPalette.hex(b.hair.light),
+            introBg: BrandPalette.hex(b.accentTint.light),
+            quoteRule: BrandPalette.hex(b.controlBd.light),
+            note: Callout(bg: BrandPalette.hex(b.noteBg.light),
+                          border: BrandPalette.hex(b.noteBd.light),
+                          text: BrandPalette.hex(b.noteFg.light)),
+            caution: Callout(bg: BrandPalette.hex(b.cautBg.light),
+                             border: BrandPalette.hex(b.cautBd.light),
+                             text: BrandPalette.hex(b.cautFg.light)),
+            warning: Callout(bg: BrandPalette.hex(b.warnBg.light),
+                             border: BrandPalette.hex(b.warnBd.light),
+                             text: BrandPalette.hex(b.warnFg.light))
+        )
+    }
+
+    static let shotAI = ExportTheme(.shotAI)
+    static let lfi = ExportTheme(.lfi)
+
+    static func of(_ brand: BrandPref) -> ExportTheme { ExportTheme(BrandPalette.of(brand)) }
 
     /// Where the PDF renderer still disagrees with the HTML.
     ///
