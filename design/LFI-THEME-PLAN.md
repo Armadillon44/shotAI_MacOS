@@ -1,7 +1,7 @@
 # Implementation plan — the "LFI" theme
 
-**Status (2026-09-10):** macOS phases **0**, **0b** and **1** are merged or committed.
-Windows phase 0 + 0b are done on its `design/lfi-theme`.
+**Status (2026-09-10):** macOS is COMPLETE except 1b. Windows phase 0 + 0b are done
+on its `design/lfi-theme`, with two follow-ups outstanding (see §6b).
 **Open questions:** none — see §6 and §6b.
 **Design source:** [`design/lfi-theme-study.html`](lfi-theme-study.html) (published mock-up) and `design/lfi-design-system/`.
 **Companion issue (Windows):** `Armadillon44/shotAI#77`.
@@ -15,12 +15,14 @@ Windows phase 0 + 0b are done on its `design/lfi-theme`.
 | — · one brand definition in ShotModel | ✅ #93 | — |
 | 4 · themed exports | ✅ #93 | — |
 | 2 · geometry, chips, badges, glyph | ✅ #95 | partial (`--radius-card`) |
-| 1b · `project.json` theme key | blocked on Windows | — |
-| 3 · typography (Archivo) | — | — |
+| 3 · typography (Archivo) | ✅ #96 | — |
+| 1b · `project.json` theme key | **blocked on Windows** | — |
 
-**macOS is colour- and geometry-complete.** LFI renders end to end in the app,
-the report, HTML and PDF. Only typography (phase 3) and the per-project `theme`
-key (1b, which needs the Windows schema change) remain.
+**macOS is complete.** LFI renders end to end — app chrome, the report, HTML and
+PDF — in colour, geometry and typeface. The only remaining phase is 1b, the
+per-project `theme` key, which enters the byte-compatible cross-platform schema
+and therefore needs the Windows side first. `BrandPref` already sits in ShotModel
+waiting for it.
 
 This document is written to be ported. Every count and file reference below was
 measured against the tree at `985515b`, and the Windows section is a survey of the
