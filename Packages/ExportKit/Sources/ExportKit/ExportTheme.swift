@@ -79,6 +79,13 @@ public struct ExportTheme: Sendable, Equatable {
     /// The blockquote rule in the Word-facing export.
     public let quoteRule: String
 
+    // Geometry. Part of the brand: the report and the document must agree, or
+    // the same card is a different shape on screen and in the file.
+    /// Document cards — the step card and the overview.
+    public let cardRadius: Int
+    /// The screenshot, nested inside a card, so smaller than `cardRadius`.
+    public let figureRadius: Int
+
     // Callouts.
     public let note: Callout
     public let caution: Callout
@@ -88,6 +95,7 @@ public struct ExportTheme: Sendable, Equatable {
         text: String, bodyText: String, meta: String, pageBg: String,
         accent: String, onAccent: String,
         cardBg: String, cardBorder: String, hair: String, introBg: String, quoteRule: String,
+        cardRadius: Int, figureRadius: Int,
         note: Callout, caution: Callout, warning: Callout
     ) {
         self.text = text
@@ -101,6 +109,8 @@ public struct ExportTheme: Sendable, Equatable {
         self.hair = hair
         self.introBg = introBg
         self.quoteRule = quoteRule
+        self.cardRadius = cardRadius
+        self.figureRadius = figureRadius
         self.note = note
         self.caution = caution
         self.warning = warning
@@ -131,6 +141,8 @@ public extension ExportTheme {
             hair: BrandPalette.hex(b.hair.light),
             introBg: BrandPalette.hex(b.accentTint.light),
             quoteRule: BrandPalette.hex(b.controlBd.light),
+            cardRadius: Int(b.radii.card),
+            figureRadius: Int(b.radii.figure),
             note: Callout(bg: BrandPalette.hex(b.noteBg.light),
                           border: BrandPalette.hex(b.noteBd.light),
                           text: BrandPalette.hex(b.noteFg.light)),

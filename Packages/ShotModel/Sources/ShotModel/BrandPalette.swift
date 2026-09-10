@@ -13,7 +13,41 @@ import Foundation
 ///
 /// No SwiftUI, no AppKit: raw `UInt32` in `0xRRGGBB`, and each consumer builds
 /// its own representation. That is what keeps ShotModel UI-free.
+/// A brand's corner radii, by ROLE rather than by number.
+///
+/// The LFI guide calls for "restrained corner rounding" and specifies 2px; the
+/// study settled on **8** for cards, because at a 22px badge 2px reads as
+/// printed collateral while 10px reads as a consumer app. See
+/// `design/lfi-theme-study.html`.
+///
+/// The default brand's values are exactly what shipped before this type existed,
+/// so nothing moves for anyone who does not switch brand.
+///
+/// Only `card` was decided explicitly. `panel`, `figure` and `control` are
+/// derived from it on one principle: **siblings match, and a nested element
+/// takes a smaller radius than its container.** That is why the screenshot sits
+/// below the card it lives inside, on both brands.
+public struct BrandRadii: Sendable, Equatable {
+    /// Large surfaces: Home's project cards, the report's AI panel.
+    public let panel: Double
+    /// Document cards: the report's step card and overview. Siblings, one value.
+    public let card: Double
+    /// Nested media: the screenshot inside a step card, and drop targets.
+    public let figure: Double
+    /// Small controls: the search field, inline editors, the zoom pill.
+    public let control: Double
+
+    public init(panel: Double, card: Double, figure: Double, control: Double) {
+        self.panel = panel
+        self.card = card
+        self.figure = figure
+        self.control = control
+    }
+}
+
 public struct BrandPalette: Sendable, Equatable {
+    public let radii: BrandRadii
+
     /// A token's light and dark values. Appearance is resolved by the consumer —
     /// the app through `NSColor`'s dynamic provider, exports by taking `.light`
     /// unconditionally, because a dark-background document is unreadable printed.
@@ -76,6 +110,7 @@ public struct BrandPalette: Sendable, Equatable {
     public let warnFg: Pair
 
     public init(
+        radii: BrandRadii,
         accent: Pair,
         accentPress: Pair,
         accentTint: Pair,
@@ -112,6 +147,7 @@ public struct BrandPalette: Sendable, Equatable {
         warnBd: Pair,
         warnFg: Pair
     ) {
+        self.radii = radii
         self.accent = accent
         self.accentPress = accentPress
         self.accentTint = accentTint
@@ -158,6 +194,7 @@ public struct BrandPalette: Sendable, Equatable {
 public extension BrandPalette {
     /// shotAI's own identity — violet. Ported from the Windows app's CSS custom properties; these are the values every existing user sees.
     static let shotAI = BrandPalette(
+        radii: BrandRadii(panel: 12, card: 10, figure: 8, control: 6),
         accent: Pair(0x6344F1, 0x9A8BF7),
         accentPress: Pair(0x5233D4, 0xB0A4FA),
         accentTint: Pair(0xEFEAFE, 0x241F3A),
@@ -197,6 +234,7 @@ public extension BrandPalette {
 
     /// LaCrosse Footwear corporate — charcoal and warm neutrals carrying the surface, rust as a focused pop. See design/lfi-theme-study.html.
     static let lfi = BrandPalette(
+        radii: BrandRadii(panel: 8, card: 8, figure: 6, control: 5),
         accent: Pair(0xB46B3E, 0xD58B5C),
         accentPress: Pair(0x9A5A33, 0xE3A579),
         accentTint: Pair(0xF6EDE5, 0x3A2E25),

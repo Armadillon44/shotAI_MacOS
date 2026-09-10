@@ -28,6 +28,9 @@ import SwiftUI
 /// hardcoded at their call sites, matching the Windows app. See
 /// `design/LFI-THEME-PLAN.md` §2.
 struct PaletteTokens: Sendable {
+    /// Corner radii, by role. Part of the brand: the LFI guide treats corner
+    /// rounding as identity, not decoration.
+    let radii: BrandRadii
     // Brand accent + supporting shades.
     let accent, accentPress, accentTint, accentInk, onAccent: Color
     // Ink ramp (text).
@@ -57,6 +60,7 @@ extension PaletteTokens {
     /// adding it there, and both consumers get it.
     init(_ b: BrandPalette) {
         self.init(
+            radii: b.radii,
             accent: dyn(b.accent), accentPress: dyn(b.accentPress),
             accentTint: dyn(b.accentTint), accentInk: dyn(b.accentInk),
             onAccent: dyn(b.onAccent),

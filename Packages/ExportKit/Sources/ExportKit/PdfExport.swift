@@ -106,6 +106,9 @@ struct Ink {
     var introBg: NSColor { Self.color(t.introBg) }
     var eyebrow: NSColor { Self.color(t.meta) }   // "OVERVIEW" label
 
+    /// Document-card radius, so the PDF matches the report and the HTML.
+    var cardRadius: CGFloat { CGFloat(t.cardRadius) }
+
     // Section dividers. Aliases now, not separate values: the ramp collapse made
     // them identical to the general tokens, so naming them here keeps
     // `drawSection` readable without inviting a second set of values to drift in.
@@ -380,7 +383,7 @@ private final class PdfCanvas {
             if separator && !broke { advance(sepGap) }
             let cardTop = cursorY
             fillRoundedRect(CGRect(x: mainX, y: cardTop - cardH, width: cardW, height: cardH),
-                            radius: 10, fill: ink.cardBg, stroke: ink.cardBorder, ctx: ctx)
+                            radius: ink.cardRadius, fill: ink.cardBg, stroke: ink.cardBorder, ctx: ctx)
             let top = cardTop - innerPad
             drawBadge(badge, fill: badgeColor, textColor: ink.onBadge, ring: nil, topY: top, ctx: ctx)
             if let capAttr { drawAt(capAttr, x: innerX, width: innerW, height: capH, top: top, ctx: ctx) }
@@ -441,7 +444,7 @@ private final class PdfCanvas {
             if separator && !broke { advance(sepGap) }   // gap between cards (skip after a break)
             let cardTop = cursorY
             fillRoundedRect(CGRect(x: mainX, y: cardTop - cardH, width: cardW, height: cardH),
-                            radius: 10, fill: c.bg, stroke: c.border, ctx: ctx)
+                            radius: ink.cardRadius, fill: c.bg, stroke: c.border, ctx: ctx)
             // Glyph badge in the gutter (light fill + colored ring), matching the report.
             let top = cardTop - innerPad
             drawBadge(calloutGlyphExport(kind), fill: c.bg, textColor: c.text, ring: c.border, topY: top, ctx: ctx)
@@ -507,8 +510,9 @@ private final class PdfCanvas {
     /// overview that can't fit a page. Adds its own trailing gap.
     func drawIntro(heading: String, body: String) {
         guard let ctx else { return }
-        // radius 10 matches the step card and the HTML `.doc__intro`.
-        let borderW: CGFloat = 4, padX: CGFloat = 14, padY: CGFloat = 12, radius: CGFloat = 10
+        // Matches the step card and the HTML `.doc__intro`.
+        let borderW: CGFloat = 4, padX: CGFloat = 14, padY: CGFloat = 12
+        let radius = ink.cardRadius
         let innerX = margin + borderW + padX
         let innerW = contentW - borderW - padX * 2
         let eyebrow = Ink.attr("OVERVIEW", size: 9, weight: .bold, color: ink.eyebrow)

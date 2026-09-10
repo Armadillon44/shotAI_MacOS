@@ -153,6 +153,28 @@ final class ExportThemeTests: XCTestCase {
         XCTAssertEqual(lfi.pageBg, "#ffffff")
     }
 
+    /// Geometry follows the brand, and keeps the concentric relationship.
+    ///
+    /// The screenshot is nested inside a card, so it must stay SMALLER than the
+    /// card on every brand — not merely different. Asserting the relationship
+    /// rather than two numbers is what stops a future brand flattening them,
+    /// which is exactly what the Windows port did when "10px everywhere" was
+    /// read literally (Armadillon44/shotAI#77).
+    func testRadiiFollowTheBrandAndStayConcentric() {
+        for theme in [ExportTheme.shotAI, .lfi] {
+            XCTAssertGreaterThan(theme.cardRadius, theme.figureRadius,
+                                 "a nested figure must be rounder-inward than its card")
+        }
+        XCTAssertEqual(ExportTheme.shotAI.cardRadius, 10)
+        XCTAssertEqual(ExportTheme.shotAI.figureRadius, 8)
+        XCTAssertEqual(ExportTheme.lfi.cardRadius, 8)
+        XCTAssertEqual(ExportTheme.lfi.figureRadius, 6)
+
+        XCTAssertTrue(docCSS(theme: .lfi).contains("border-radius:8px"))
+        XCTAssertFalse(docCSS(theme: .lfi).contains("border-radius:10px"),
+                       "an LFI document should carry no default-brand radius")
+    }
+
     // MARK: helpers
 
     private func hex(_ c: NSColor) -> String {

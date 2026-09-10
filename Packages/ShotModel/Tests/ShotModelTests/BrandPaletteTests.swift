@@ -81,3 +81,32 @@ import Testing
         return (max(x, y) + 0.05) / (min(x, y) + 0.05)
     }
 }
+
+/// The radius scale.
+@Suite struct BrandRadiiContract {
+    /// The default brand must be exactly what shipped before radii were
+    /// tokenized — introducing a token set is not licence to restyle the app.
+    @Test func defaultBrandIsUnchanged() {
+        let r = BrandPalette.shotAI.radii
+        #expect(r.panel == 12)
+        #expect(r.card == 10)
+        #expect(r.figure == 8)
+        #expect(r.control == 6)
+    }
+
+    /// LFI's card radius is the one value the study settled explicitly.
+    @Test func lfiCardIsEight() {
+        #expect(BrandPalette.lfi.radii.card == 8)
+    }
+
+    /// Siblings match, and a nested element takes a smaller radius than its
+    /// container. Asserted as a RELATIONSHIP, on every brand, because the
+    /// Windows port flattened all three when "10px everywhere" was read as one
+    /// number (Armadillon44/shotAI#77).
+    @Test(arguments: [BrandPalette.shotAI, BrandPalette.lfi])
+    func nestedElementsAreRounderInward(b: BrandPalette) {
+        #expect(b.radii.figure < b.radii.card, "the screenshot sits inside a card")
+        #expect(b.radii.control < b.radii.card, "a control is smaller than a card")
+        #expect(b.radii.card <= b.radii.panel, "a card sits inside a panel")
+    }
+}
