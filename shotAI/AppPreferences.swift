@@ -1,3 +1,4 @@
+import AppKit
 import CaptureKit
 import SwiftUI
 
@@ -40,6 +41,18 @@ enum ThemePref: String, Codable, CaseIterable, Sendable {
         case .system: "Match your macOS light/dark setting."
         case .light: "Always use the light theme."
         case .dark: "Always use the dark theme."
+        }
+    }
+
+    /// The AppKit appearance to force app-wide; nil = follow the system.
+    ///
+    /// This, not `colorScheme`, is what actually reaches every window. See
+    /// `AppModel.applyAppearance()`.
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
         }
     }
 
