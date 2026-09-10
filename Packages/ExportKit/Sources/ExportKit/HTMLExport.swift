@@ -133,7 +133,7 @@ func docCSS(scale: Double = 1.0, theme t: ExportTheme = .shotAI) -> String {
     return """
 *{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:\(t.text);background:\(t.pageBg);line-height:1.6}
+body{margin:0;font-family:\(t.fontStack);color:\(t.text);background:\(t.pageBg);line-height:1.6}
 .doc{padding:40px 32px 64px}
 .doc__col{max-width:\(col)px;margin:0 auto}
 .doc__title{max-width:\(col)px;margin:0 auto 4px;font-size:1.9rem;line-height:1.25}

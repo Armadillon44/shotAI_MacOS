@@ -149,3 +149,21 @@ import Testing
         #expect(ReportPresentation.calloutGlyph(.section).isEmpty, "a divider carries no glyph")
     }
 }
+
+/// The brand typeface.
+@Suite struct BrandTypefaceContract {
+    /// The default brand names no face: it uses the platform's, which is not a
+    /// family name and must not be invented as one.
+    @Test func defaultBrandUsesTheSystemFace() {
+        #expect(BrandPalette.shotAI.fontFamily == nil)
+    }
+
+    /// LFI names Archivo. The guide specifies Acumin Variable Concept, which is
+    /// an Adobe Fonts family and cannot be embedded in a distributed app without
+    /// a licence that permits it; Archivo is the same American-gothic lineage,
+    /// carries a real `wdth` axis so condensed comes from one family, and is
+    /// SIL OFL. See design/LFI-THEME-PLAN.md §4 phase 3.
+    @Test func lfiNamesArchivo() {
+        #expect(BrandPalette.lfi.fontFamily == "Archivo")
+    }
+}

@@ -1,16 +1,22 @@
 import SwiftUI
 
-/// A small shared type scale for the Home surface, so titles and labels sit on
-/// one ladder instead of ad-hoc `.system(size:)` values scattered per call site.
-/// (Adopted on Home first; other screens can move onto it incrementally.)
-enum Typo {
-    static let wordmark     = Font.system(size: 17, weight: .bold)
-    static let heroTitle    = Font.system(size: 21, weight: .bold)
-    static let sectionTitle = Font.system(size: 15, weight: .semibold)
-    static let cardTitle    = Font.system(size: 15, weight: .semibold)
-    static let body         = Font.system(size: 13)
-    static let tagline      = Font.system(size: 12)
-    static let eyebrow      = Font.system(size: 11, weight: .bold)   // MODE / SORT labels
+/// A small shared type scale, so titles and labels sit on one ladder instead of
+/// ad-hoc `.system(size:)` values per call site.
+///
+/// These are on `PaletteTokens` rather than a `Typo` enum of static `Font`s
+/// because the face is part of the brand, and a static cannot read the
+/// environment — the same reason the colours moved. The default brand resolves
+/// every one of them to `.system`, unchanged.
+extension PaletteTokens {
+    var wordmark: Font { font(17, .bold) }
+    var heroTitle: Font { font(21, .bold) }
+    var sectionTitle: Font { font(15, .semibold) }
+    var cardTitle: Font { font(15, .semibold) }
+    var bodyText: Font { font(13) }
+    var tagline: Font { font(12) }
+    /// MODE / SORT labels. Condensed: the guide asks for it on short uppercase
+    /// labels, and these are the app's only ones.
+    var eyebrow: Font { condensed(11, .bold) }
 }
 
 /// Soft card elevation — restores the Windows `--shadow-sm` the flat port
