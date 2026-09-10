@@ -20,3 +20,6 @@ shotAI/Resources/Federation.plist
 
 # LFI design system — 9.6MB vendored reference (node_modules-scale dist/), not a build input
 design/lfi-design-system/
+
+# Coverage artifact dropped in the CWD by `swift test` / `swift run`.
+default.profraw
