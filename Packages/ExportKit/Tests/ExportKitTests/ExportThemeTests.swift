@@ -105,16 +105,25 @@ final class ExportThemeTests: XCTestCase {
                       "still divergent: \(ExportTheme.knownDivergences)")
     }
 
-    /// The step card is 10px everywhere — report, HTML and PDF.
+    /// The document radius SCALE, not a single number.
     ///
-    /// The HTML shipped 12 while the on-screen report and the native PDF both
-    /// used 10, so the same card was subtly rounder in one of the three places a
-    /// user sees it. Pinned here because it is one literal in a 2.6 KB string and
-    /// nothing else would notice it moving.
-    func testStepCardRadiusMatchesTheReportAndPdf() {
-        XCTAssertTrue(docCSS().contains("border-radius:10px;background:\(ExportTheme.shotAI.cardBg)}"),
-                      "the HTML step card should be 10px, matching the report and the PDF")
-        XCTAssertFalse(docCSS().contains("border-radius:12px"))
+    /// Card and overview are sibling document cards, so they share 10. The
+    /// screenshot is nested *inside* a card, so it takes a smaller 8 —
+    /// concentric radii read correctly and equal ones do not.
+    ///
+    /// Stating this as "10 everywhere" is what caused the Windows port to
+    /// flatten all three and open a cross-platform gap (Armadillon44/shotAI#77).
+    /// Asserted in both directions so neither drift can return.
+    func testDocumentRadiusScale() {
+        let css = docCSS()
+        let t = ExportTheme.shotAI
+        XCTAssertTrue(css.contains("border-radius:10px;background:\(t.cardBg)}"),
+                      "step card should be 10")
+        XCTAssertTrue(css.contains("border-radius:10px;background:\(t.introBg)}"),
+                      "overview should be 10, matching the step card")
+        XCTAssertTrue(css.contains("border:1px solid \(t.hair);border-radius:8px}"),
+                      "the screenshot is nested in a card and should stay 8")
+        XCTAssertFalse(css.contains("border-radius:12px"), "12 was the pre-0b card radius")
     }
 
     // MARK: helpers

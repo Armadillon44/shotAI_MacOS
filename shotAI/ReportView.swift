@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 /// redaction) over the raw screenshot. Rendering rules live in
 /// ShotModel.ReportPresentation, ported from Report.tsx.
 struct ReportView: View {
+    @Environment(\.palette) private var palette
     let opened: ProjectStore.OpenedProject
     /// Open the annotation editor for a shot step (Phase C).
     var onEdit: (ProjectStep) -> Void = { _ in }
@@ -97,14 +98,14 @@ struct ReportView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "camera.viewfinder")
                             .font(.system(size: 30))
-                            .foregroundStyle(Palette.accent)
+                            .foregroundStyle(palette.accent)
                             .frame(width: 78, height: 78)
-                            .background(Circle().fill(Palette.accentTint))
+                            .background(Circle().fill(palette.accentTint))
                             .accessibilityHidden(true)
                         Text("No steps yet").font(.system(size: 16, weight: .semibold))
                         Text("Record a process, or add a text block below to start building this guide.")
                             .font(.system(size: 13))
-                            .foregroundStyle(Palette.ink2)
+                            .foregroundStyle(palette.ink2)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 420)
                     }
@@ -172,7 +173,7 @@ struct ReportView: View {
                 if let m = tabMonitor { NSEvent.removeMonitor(m); tabMonitor = nil }
             }
         }
-        .background(Palette.surface)
+        .background(palette.surface)
         .onChange(of: geo.size.width, initial: true) { _, w in reportAvailableWidth = w }
         }
         // Size every step figure to fill the live card so a full-width screenshot
@@ -236,12 +237,12 @@ struct ReportView: View {
         if model.sopSettings.enabled {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
-                    Image(systemName: "sparkles").foregroundStyle(Palette.accent)
+                    Image(systemName: "sparkles").foregroundStyle(palette.accent)
                     Text("AI SOP").font(.system(size: 15, weight: .semibold))
                     Spacer()
                     if model.sopBusy {
                         if let p = model.sopProgress {
-                            Text(p).font(.system(size: 11)).foregroundStyle(Palette.ink2)
+                            Text(p).font(.system(size: 11)).foregroundStyle(palette.ink2)
                         }
                         ProgressView().controlSize(.small)
                         Button("Cancel") { model.cancelSop() }
@@ -279,13 +280,13 @@ struct ReportView: View {
                 // with the alert — so the panel cannot drift from the error text.
                 if let reason = model.sopBlockedReason {
                     Text(reason)
-                        .font(.system(size: 11)).foregroundStyle(Palette.ink3)
+                        .font(.system(size: 11)).foregroundStyle(palette.ink3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(14)
-            .background(Palette.surface)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.hair))
+            .background(palette.surface)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.hair))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .cardElevation()
         }
@@ -340,14 +341,14 @@ struct ReportView: View {
     /// One-tap undo shown right after a merge (until the next edit).
     private var undoMergeBanner: some View {
         HStack(spacing: 10) {
-            Image(systemName: "arrow.uturn.backward").foregroundStyle(Palette.ink2)
-            Text("Steps merged.").font(.system(size: 13)).foregroundStyle(Palette.ink2)
+            Image(systemName: "arrow.uturn.backward").foregroundStyle(palette.ink2)
+            Text("Steps merged.").font(.system(size: 13)).foregroundStyle(palette.ink2)
             Spacer(minLength: 8)
             Button("Undo merge") { Task { await model.undoLastMerge() } }
         }
         .padding(10)
-        .background(Palette.surface2)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.hair))
+        .background(palette.surface2)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.hair))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
@@ -382,7 +383,7 @@ struct ReportView: View {
                 Text("· \(numbers.count) numbered step\(numbers.count == 1 ? "" : "s")")
             }
             .font(.system(size: 13))
-            .foregroundStyle(Palette.ink2)
+            .foregroundStyle(palette.ink2)
         }
     }
 
@@ -432,6 +433,7 @@ private struct ImmediatePick: Identifiable {
 }
 
 private struct InsertZone: View {
+    @Environment(\.palette) private var palette
     let onInsert: (InsertChoice) -> Void
     @State private var hovering = false
 
@@ -458,7 +460,7 @@ private struct InsertZone: View {
             } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 19)) // ~20% larger than before
-                    .foregroundStyle(hovering ? Palette.accent : Palette.ink3)
+                    .foregroundStyle(hovering ? palette.accent : palette.ink3)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -476,13 +478,14 @@ private struct InsertZone: View {
 
     private var line: some View {
         Rectangle()
-            .fill(hovering ? Palette.accent.opacity(0.55) : Palette.hair)
+            .fill(hovering ? palette.accent.opacity(0.55) : palette.hair)
             .frame(height: 1)
     }
 }
 
 /// SOP overview preamble — a lead-in above the steps, editable in place.
 private struct IntroBox: View {
+    @Environment(\.palette) private var palette
     let intro: SopIntro
     var focus: FocusState<String?>.Binding
     let onRemove: () -> Void
@@ -493,7 +496,7 @@ private struct IntroBox: View {
             HStack {
                 Text("OVERVIEW")
                     .font(.system(size: 12, weight: .bold)).kerning(0.6)
-                    .foregroundStyle(Palette.ink3)
+                    .foregroundStyle(palette.ink3)
                 Spacer()
                 Button("Remove") { onRemove() }
                     .buttonStyle(.borderless)
@@ -508,10 +511,12 @@ private struct IntroBox: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Palette.surface2)
-        .overlay(alignment: .leading) { Rectangle().fill(Palette.accent).frame(width: 4) }
-        .overlay { RoundedRectangle(cornerRadius: 8).stroke(Palette.hair) }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background(palette.surface2)
+        .overlay(alignment: .leading) { Rectangle().fill(palette.accent).frame(width: 4) }
+        // 10 matches the step card: the overview is a sibling document card, not
+        // something nested inside one. Only the screenshot (8) sits inside a card.
+        .overlay { RoundedRectangle(cornerRadius: 10).stroke(palette.hair) }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -548,6 +553,7 @@ extension EnvironmentValues {
 }
 
 private struct StepRow: View {
+    @Environment(\.palette) private var palette
     let step: ProjectStep
     let number: Int?
     let projectDir: String
@@ -578,7 +584,7 @@ private struct StepRow: View {
         // A dragged step dropped on this row lands just before it; the accent
         // line shows where it will go.
         .overlay(alignment: .top) {
-            if dropTargeted { Rectangle().fill(Palette.accent).frame(height: 2) }
+            if dropTargeted { Rectangle().fill(palette.accent).frame(height: 2) }
         }
         .dropDestination(for: String.self) { ids, _ in
             guard let dragged = ids.first, dragged != step.id else { return false }
@@ -601,15 +607,15 @@ private struct StepRow: View {
             // badge column so the divider lines up with the other steps' content.
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Palette.ink3)
+                .foregroundStyle(palette.ink3)
                 .frame(width: 32)
                 .help("Drag to reorder")
                 .draggable(step.id) {
                     Text(dragPreview)
                         .font(.system(size: 13))
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Palette.accentTint)
-                        .foregroundStyle(Palette.accentInk)
+                        .background(palette.accentTint)
+                        .foregroundStyle(palette.accentInk)
                         .clipShape(Capsule())
                 }
                 .padding(.top, 16)
@@ -623,8 +629,8 @@ private struct StepRow: View {
     /// Every non-section step: a full-width card with the number/glyph rail in a
     /// left gutter and the ⋯ menu overlaid top-right.
     @ViewBuilder private func standardRow(_ calloutKind: CalloutKind?) -> some View {
-        let fill: Color = calloutKind.map { CalloutBox.palette($0).background } ?? Palette.surface2
-        let border: Color = calloutKind.map { CalloutBox.palette($0).border } ?? Palette.hair
+        let fill: Color = calloutKind.map { CalloutBox.colors($0, palette).background } ?? palette.surface2
+        let border: Color = calloutKind.map { CalloutBox.colors($0, palette).border } ?? palette.hair
         let borderWidth: CGFloat = calloutKind == nil ? 1 : 1.5
         HStack(alignment: .top, spacing: 14) {
             rail
@@ -695,7 +701,7 @@ private struct StepRow: View {
             Button("Delete step", role: .destructive) { onRequestDelete() }
         } label: {
             Image(systemName: "ellipsis")
-                .foregroundStyle(Palette.ink3)
+                .foregroundStyle(palette.ink3)
                 .frame(width: 24, height: 28)
                 .contentShape(Rectangle())
         }
@@ -714,14 +720,14 @@ private struct StepRow: View {
             badge // number/glyph on top, aligned with the step's first line
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Palette.ink3)
+                .foregroundStyle(palette.ink3)
                 .help("Drag to reorder")
                 .draggable(step.id) {
                     Text(dragPreview)
                         .font(.system(size: 13))
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Palette.accentTint)
-                        .foregroundStyle(Palette.accentInk)
+                        .background(palette.accentTint)
+                        .foregroundStyle(palette.accentInk)
                         .clipShape(Capsule())
                 }
         }
@@ -753,16 +759,16 @@ private struct StepRow: View {
             Text(ReportPresentation.calloutGlyph(callout))
                 .font(.system(size: 16))
                 .frame(width: 32, height: 32)
-                .background(CalloutBox.palette(callout).background)
+                .background(CalloutBox.colors(callout, palette).background)
                 .clipShape(Circle())
-                .overlay(Circle().stroke(CalloutBox.palette(callout).border))
+                .overlay(Circle().stroke(CalloutBox.colors(callout, palette).border))
         } else if let number {
             NumberBadge(number: number, stepId: step.id, focus: focus) { pos in
                 Task { await model.moveStep(id: step.id, toPosition: pos) }
             }
         } else {
             // Defensive: a non-callout step should always have a number.
-            Circle().fill(Palette.hair2).frame(width: 32, height: 32)
+            Circle().fill(palette.hair2).frame(width: 32, height: 32)
         }
     }
 
@@ -809,7 +815,7 @@ private struct StepRow: View {
         if let window = step.window, let line = windowLine(window) {
             Text(line)
                 .font(.system(size: 11))
-                .foregroundStyle(Palette.ink3)
+                .foregroundStyle(palette.ink3)
                 .lineLimit(1)
         }
         // Auto-suggest merging a right-click (which likely opened a menu) into
@@ -822,23 +828,24 @@ private struct StepRow: View {
     private var mergeSuggestBanner: some View {
         HStack(spacing: 10) {
             Image(systemName: "arrow.triangle.merge")
-                .foregroundStyle(Palette.accentInk)
+                .foregroundStyle(palette.accentInk)
             Text("This right-click likely opened a menu — merge it into the next step.")
                 .font(.system(size: 13))
-                .foregroundStyle(Palette.accentInk)
+                .foregroundStyle(palette.accentInk)
             Spacer(minLength: 8)
             Button("Merge ↓") { Task { await model.mergeIntoNext(id: step.id) } }
                 .buttonStyle(.borderedProminent)
         }
         .padding(10)
-        .background(Palette.accentTint)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.accent.opacity(0.4)))
+        .background(palette.accentTint)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.accent.opacity(0.4)))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
 /// A text step styled as a tinted note/caution/warning box, editable in place.
 private struct CalloutBox: View {
+    @Environment(\.palette) private var palette
     let step: ProjectStep
     let kind: CalloutKind
     var focus: FocusState<String?>.Binding
@@ -850,18 +857,20 @@ private struct CalloutBox: View {
         let text: Color
     }
 
-    static func palette(_ kind: CalloutKind) -> Colors {
+    /// Takes the palette rather than reading it: a `static func` has no
+    /// environment. Renamed off `palette` so it doesn't shadow the token set.
+    static func colors(_ kind: CalloutKind, _ palette: PaletteTokens) -> Colors {
         switch kind {
         case .note:
-            Colors(background: Palette.noteBg, border: Palette.noteBd, text: Palette.noteFg)
+            Colors(background: palette.noteBg, border: palette.noteBd, text: palette.noteFg)
         case .caution:
-            Colors(background: Palette.cautBg, border: Palette.cautBd, text: Palette.cautFg)
+            Colors(background: palette.cautBg, border: palette.cautBd, text: palette.cautFg)
         case .warning:
-            Colors(background: Palette.warnBg, border: Palette.warnBd, text: Palette.warnFg)
+            Colors(background: palette.warnBg, border: palette.warnBd, text: palette.warnFg)
         // A section is a phase divider, not a colored callout — neutral surface.
         // Its content is drawn by `SectionBox`, not `CalloutBox`.
         case .section:
-            Colors(background: Palette.surface2, border: Palette.hair, text: Palette.ink)
+            Colors(background: palette.surface2, border: palette.hair, text: palette.ink)
         }
     }
 
@@ -869,10 +878,10 @@ private struct CalloutBox: View {
         // The colored frame is now the enclosing step card (see StepRow) — this is
         // just the callout's content (heading + type picker + body), so a callout
         // is a full-width card with the ⋯ inside, consistent with other steps.
-        let palette = Self.palette(kind)
+        let c = CalloutBox.colors(kind, palette)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
-                InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .system(size: 14, weight: .bold), color: palette.text, id: "ch:\(step.id)", focus: focus) { new in
+                InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .system(size: 14, weight: .bold), color: c.text, id: "ch:\(step.id)", focus: focus) { new in
                     Task { await model.editStepText(stepId: step.id, heading: new) }
                 }
                 Spacer(minLength: 8)
@@ -883,7 +892,7 @@ private struct CalloutBox: View {
                         Button(k.rawValue.capitalized) { Task { await model.editStepText(stepId: step.id, callout: k) } }
                     }
                 } label: {
-                    Text(ReportPresentation.calloutGlyph(kind)).foregroundStyle(palette.text)
+                    Text(ReportPresentation.calloutGlyph(kind)).foregroundStyle(c.text)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
@@ -891,7 +900,7 @@ private struct CalloutBox: View {
             }
             .padding(.trailing, 28)  // clear the ⋯ overlay at the card's top-right
             .frame(minHeight: 28, alignment: .topLeading)  // keep the body below the ⋯
-            InlineEditable(text: step.body ?? "", placeholder: "Callout text…", color: palette.text, multiline: true, id: "cb:\(step.id)", focus: focus) { new in
+            InlineEditable(text: step.body ?? "", placeholder: "Callout text…", color: c.text, multiline: true, id: "cb:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, body: new) }
             }
         }
@@ -904,6 +913,7 @@ private struct CalloutBox: View {
 /// heading, then a muted body, editable in place. Borderless (no card) so it
 /// reads as a phase break and matches the HTML/PDF export (`CalloutKind.section`).
 private struct SectionBox: View {
+    @Environment(\.palette) private var palette
     let step: ProjectStep
     var focus: FocusState<String?>.Binding
     @Environment(AppModel.self) private var model
@@ -911,13 +921,13 @@ private struct SectionBox: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Rectangle()
-                .fill(Palette.hair)
+                .fill(palette.hair)
                 .frame(height: 2)   // divider rule ABOVE the heading (export parity)
-            InlineEditable(text: step.heading ?? "", placeholder: "Section heading", font: .system(size: 17, weight: .bold), color: Palette.ink, id: "ch:\(step.id)", focus: focus) { new in
+            InlineEditable(text: step.heading ?? "", placeholder: "Section heading", font: .system(size: 17, weight: .bold), color: palette.ink, id: "ch:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, heading: new) }
             }
             .padding(.trailing, 28)  // clear the ⋯ overlay at the top-right
-            InlineEditable(text: step.body ?? "", placeholder: "Section description (optional)…", color: Palette.ink2, multiline: true, id: "cb:\(step.id)", focus: focus) { new in
+            InlineEditable(text: step.body ?? "", placeholder: "Section description (optional)…", color: palette.ink2, multiline: true, id: "cb:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, body: new) }
             }
         }
@@ -988,10 +998,13 @@ private struct WindowAccessor: NSViewRepresentable {
 /// rather than to the next macOS control, so editing flows field-to-field like a
 /// form. The target enters edit mode via the focus watcher below.
 struct InlineEditable: View {
+    @Environment(\.palette) private var palette
     let text: String
     var placeholder: String
     var font: Font = .system(size: 14)
-    var color: Color = Palette.ink
+    /// nil = the palette's primary ink, resolved in `body`. A default argument
+    /// cannot read `@Environment`, so it cannot be `= palette.ink` here.
+    var color: Color?
     var multiline: Bool = false
     let id: String
     var focus: FocusState<String?>.Binding
@@ -1015,13 +1028,13 @@ struct InlineEditable: View {
         // is what lets Tab move focus into it (a click OR the key monitor).
         .textFieldStyle(.plain)
         .font(font)
-        .foregroundStyle(color)
+        .foregroundStyle(color ?? palette.ink)
         .focused(focus, equals: id)
         .padding(.horizontal, 5)
         .padding(.vertical, 2)
-        .background(active ? Palette.surface2 : .clear)
+        .background(active ? palette.surface2 : .clear)
         .overlay(RoundedRectangle(cornerRadius: 6)
-            .stroke(active ? Palette.accent.opacity(0.5) : .clear, lineWidth: 1))
+            .stroke(active ? palette.accent.opacity(0.5) : .clear, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 6))
         // Return commits; Shift+Return inserts a newline in multi-line fields.
         .onKeyPress(.return, phases: .down) { key in
@@ -1048,6 +1061,7 @@ struct InlineEditable: View {
 /// moves there and every step renumbers in turn. Uses the report's shared focus
 /// (like the inline text fields) so a click elsewhere commits it. Esc cancels.
 private struct NumberBadge: View {
+    @Environment(\.palette) private var palette
     let number: Int
     let stepId: String
     var focus: FocusState<String?>.Binding
@@ -1059,14 +1073,14 @@ private struct NumberBadge: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(Palette.accent)
+            Circle().fill(palette.accent)
             if editing {
                 TextField("", text: $draft)
                     .textFieldStyle(.plain)
                     .multilineTextAlignment(.center)
                     .frame(width: 26)
                     .font(.system(size: 15, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(Palette.onAccent)
+                    .foregroundStyle(palette.onAccent)
                     .focused(focus, equals: fieldID)
                     .onKeyPress(.return, phases: .down) { _ in focus.wrappedValue = nil; return .handled }
                     .onExitCommand { draft = String(number); focus.wrappedValue = nil }
@@ -1075,7 +1089,7 @@ private struct NumberBadge: View {
             } else {
                 Text(String(number))
                     .font(.system(size: 15, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(Palette.onAccent)
+                    .foregroundStyle(palette.onAccent)
                     .contentShape(Rectangle())
                     .onTapGesture { draft = String(number); editing = true }
             }
@@ -1094,6 +1108,7 @@ private struct NumberBadge: View {
 /// magnified + panned per the persisted reportZoom/reportPan*, with the CSS
 /// click-marker overlay when the ring isn't already baked into the pixels.
 private struct StepFigure: View {
+    @Environment(\.palette) private var palette
     let step: ProjectStep
     let projectDir: String
     let relPath: String
@@ -1182,7 +1197,7 @@ private struct StepFigure: View {
             .offset(x: shown.width, y: shown.height)
             .frame(width: v.boxWidth, height: v.boxHeight, alignment: .topLeading)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.hair))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.hair))
             .contentShape(Rectangle())
             .gesture(canPan ? panGesture(shown: shown, rangeX: rangeX, rangeY: rangeY) : nil)
 
@@ -1203,7 +1218,7 @@ private struct StepFigure: View {
             CtlButton(icon: "arrow.counterclockwise", help: "Reset zoom", disabled: zoom == 1) { applyZoom(1) }
         }
         .padding(4)
-        .zoomControlBackground()
+        .zoomControlBackground(hair: palette.hair)
     }
 
     /// Apply a zoom optimistically (instant feedback + rapid clicks compound off
@@ -1267,17 +1282,20 @@ private struct StepFigure: View {
 private extension View {
     /// The zoom-control pill background: Liquid Glass on macOS 26+, a material
     /// pill on 14–25. One place so both branches stay in sync.
-    @ViewBuilder func zoomControlBackground() -> some View {
+    /// Takes the hairline colour rather than reading it: a free function on
+    /// `View` has no environment, so it could never follow a brand change.
+    @ViewBuilder func zoomControlBackground(hair: Color) -> some View {
         if #available(macOS 26.0, *) {
             glassEffect(.regular, in: Capsule())
         } else {
             background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().stroke(Palette.hair))
+                .overlay(Capsule().stroke(hair))
         }
     }
 }
 
 private struct CtlButton: View {
+    @Environment(\.palette) private var palette
     let icon: String
     let help: String
     var disabled = false
@@ -1293,9 +1311,9 @@ private struct CtlButton: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
-        .foregroundStyle(disabled ? Color.secondary.opacity(0.4) : (hover ? Palette.accent : Color.primary))
+        .foregroundStyle(disabled ? Color.secondary.opacity(0.4) : (hover ? palette.accent : Color.primary))
         .background(
-            (hover && !disabled ? Palette.accent.opacity(0.16) : Color.clear),
+            (hover && !disabled ? palette.accent.opacity(0.16) : Color.clear),
             in: RoundedRectangle(cornerRadius: 6)
         )
         .onHover { hover = $0 }

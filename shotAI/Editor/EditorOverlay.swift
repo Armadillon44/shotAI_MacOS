@@ -71,8 +71,11 @@ struct EditorOverlay: View {
 
     /// Drawing accent (rose) — for the annotations + their selection chrome.
     private let accent = Color(hex: AnnotationStyle.accent)
-    /// App brand (violet) — for the editor chrome (active tool, tints).
-    private let brand = Palette.accent
+    /// App brand accent — for the editor chrome (active tool, tints). Read from
+    /// the environment, not stored: a `let` is captured once at init and would
+    /// keep the old brand after a change.
+    @Environment(\.palette) private var palette
+    private var brand: Color { palette.accent }
 
     var body: some View {
         VStack(spacing: 0) {

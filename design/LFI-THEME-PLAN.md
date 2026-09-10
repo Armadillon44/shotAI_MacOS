@@ -1,9 +1,20 @@
 # Implementation plan — the "LFI" theme
 
-**Status:** plan only. Nothing implemented.
-**Open questions:** none — all settled 2026-09-09, see §6.
+**Status (2026-09-10):** macOS phases **0**, **0b** and **1** are merged or committed.
+Windows phase 0 + 0b are done on its `design/lfi-theme`.
+**Open questions:** none — see §6 and §6b.
 **Design source:** [`design/lfi-theme-study.html`](lfi-theme-study.html) (published mock-up) and `design/lfi-design-system/`.
-**Companion issue (Windows):** to be filed on `Armadillon44/shotAI`.
+**Companion issue (Windows):** `Armadillon44/shotAI#77`.
+
+| Phase | macOS | Windows |
+|---|---|---|
+| 0 · tokenize, no visual change | ✅ #89 | ✅ |
+| 0b · document-card radius | ✅ #90 | ✅ |
+| 1 · brand axis + LFI palette | ✅ committed, PR pending | — |
+| 1b · `project.json` theme key | — | — |
+| 2 · geometry tokens | — | partial (`--radius-card`) |
+| 3 · typography | — | — |
+| 4 · themed exports | — | — |
 
 This document is written to be ported. Every count and file reference below was
 measured against the tree at `985515b`, and the Windows section is a survey of the
@@ -134,11 +145,15 @@ greenfield.
   There are **17 Capsules and 13 Circles** — search field, mode toggle, status pills,
   sign-in chip, update badge. Converting them is a substantial visual change, not a
   token flip. **Recommendation: keep them capsules.** The mock overstated this.
-- The on-screen report card is 10px and the exported HTML card is 12px — they already
-  disagree. *Settled: the **export moves to 10** to match the report, not the reverse.*
-  This is a real, if tiny, visual change to already-shipped output, so it cannot ride in
-  phase 0 (which is defined as no-visual-change). It gets its own commit with a test, on
-  both platforms. Default brand is then 10px everywhere; LFI is 8px everywhere.
+- Document-card radii. **Settled 2026-09-10, after the first attempt went wrong on
+  Windows — see §6b.** The default brand is **card 10 · overview 10 · screenshot 8**:
+  the overview and the step card are siblings so they match, and the screenshot is
+  *nested inside* a card so it takes a smaller radius. Concentric radii are what reads
+  correctly; equal ones do not.
+
+  The earlier wording here — "the default brand is 10px everywhere" — is what caused
+  the Windows mis-implementation. It meant the card. Do not restate a geometry decision
+  as a single number when the surface has nesting.
 
 ### Phase 3 · Typography
 - **154 font references across 16 files; 144 are call sites needing a decision.** 17
@@ -255,6 +270,69 @@ either side ships it. Tolerant decode means a macOS-written `theme` key round-tr
 through an older Windows build untouched via `extra`, so a staggered rollout is safe —
 Windows will render such a project in its own theme until it learns the key, which is
 the same way `displayScale` rolled out.
+
+### 6b. Two corrections from the Windows port *(2026-09-10)*
+
+Windows implemented phase 0b first and found two things wrong with this document.
+Both were checked against the macOS tree; they land differently.
+
+**1 — the 0b premise was wrong for Windows, right for macOS.** On Windows the `10px`
+belonged to the *screenshot wrap*, not the step card, so the instruction paired the
+export card against the app image; executing it literally would have broken an
+agreement and left the real gap in place. On macOS the step card genuinely is 10
+(`ReportView.swift:651`, whose own comment ties its padding to `.step__main`), so
+#90 was correct here. **The platforms really did differ — do not assume a measurement
+on one holds on the other.**
+
+Windows' fix then flattened all three radii to one number, which created a *new*
+cross-platform export divergence (macOS 10/8/8 against Windows 10/10/10). Resolved by
+the decision recorded in §4 above: both platforms move to **10 · 10 · 8**. Windows
+needs a follow-up returning the screenshot to 8, and its `CARD_RADIUS_PX ≡
+--radius-card` equality test needs a second token, because the answer is two numbers
+rather than one.
+
+**2 — the neutral divergence is INTERNAL, not just app-vs-export.** Each surface mixes
+two ramps *within a single document*. Confirmed on macOS in `ExportTheme.shotAI`:
+
+| | app ink ramp | Tailwind grey ramp |
+|---|---|---|
+| primary | `#191826` (section heading) | `#1f2937` (body text) |
+| secondary | `#5a5772` (section body) | `#374151` (overview body) |
+| hairline | `#e7e4f2` (card border) | `#e5e7eb` (screenshot border) |
+| control | `#cbc7db` (app `controlBd`) | `#cbd5e1` (blockquote rule) |
+
+So an exported document has body text in one ink and a section heading one line below
+in another, and a screenshot border in one hairline inside a card border in another.
+Invisible — the pairs are within a few percent — which is exactly why it survived.
+
+Phase 0 preserved this correctly, since that pass was defined as no-visual-change.
+
+**Settled 2026-09-10: collapse to ONE ramp, the app's inks.** The mixing was never a
+choice — the export CSS was written separately using Tailwind defaults and never
+reconciled — so preserving it preserves an accident, and it would mean authoring two
+neutral ramps for every future brand when the LFI guide defines one. Once collapsed,
+`sectionHeading`/`sectionBody`/`sectionRule` become duplicates of `text`/`bodyText`/
+`hair` and merge away, so the export vocabulary shrinks.
+
+**The collapse exposed a prerequisite.** Moving `meta` onto the app's `ink3` drops it
+from 4.83:1 to **3.17:1** — from passing AA to failing it, on the date line, per-step
+notes and the OVERVIEW eyebrow, in documents that get printed. That is not an argument
+against the decision; it is the decision surfacing a bug that was already there.
+`ink3` is too light on both brands and always has been (2.90:1 shotAI, 3.08:1 LFI on
+their own grounds); it escaped notice only because it was never asked to carry document
+text.
+
+Order, each its own commit with the measurement in the message:
+
+1. **Darken `ink3`** — shotAI `#918ea6` → `#6f6c88` (5.03 on white, 4.60 on ground);
+   LFI `#938978` → `#756c5c` (5.18 / 4.63). Dark mode already passes on both. A visible
+   change for every existing user, so it earns a release-note line.
+2. **Then collapse the ramps.**
+
+Windows has a third ramp in `export-pptx.ts` (`#14161f`/`#525a6e`/`#8b91a3`) and must
+first check whether that deck is dark — if it is, the ramp inverts and these
+white-background figures do not transfer. That deck also carries no brand accent at
+all, so for PowerPoint phase 4 is filling an absence rather than re-pointing a colour.
 
 ---
 

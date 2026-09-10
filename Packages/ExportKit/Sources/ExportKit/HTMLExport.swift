@@ -137,7 +137,7 @@ body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-s
 .doc__col{max-width:\(col)px;margin:0 auto}
 .doc__title{max-width:\(col)px;margin:0 auto 4px;font-size:1.9rem;line-height:1.25}
 .doc__meta{max-width:\(col)px;margin:0 auto 28px;color:\(t.meta);font-size:.85rem}
-.doc__intro{max-width:\(col)px;margin:0 auto 28px;padding:14px 18px;border:1px solid \(t.cardBorder);border-left:4px solid \(t.accent);border-radius:8px;background:\(t.introBg)}
+.doc__intro{max-width:\(col)px;margin:0 auto 28px;padding:14px 18px;border:1px solid \(t.cardBorder);border-left:4px solid \(t.accent);border-radius:10px;background:\(t.introBg)}
 .doc__intro-eyebrow{text-transform:uppercase;letter-spacing:.6px;font-size:.7rem;font-weight:700;color:\(t.meta);margin:0 0 6px}
 .doc__intro-h{margin:0 0 6px;font-size:1.15rem}
 .doc__intro-b{margin:0;color:\(t.bodyText);white-space:pre-wrap}

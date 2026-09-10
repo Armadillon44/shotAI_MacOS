@@ -89,10 +89,27 @@ coalesces overlapping checks so two triggers can't each spend a request from Git
 - **Update-check smoke test** (one live call to the real GitHub Releases API): `swift run --package-path Packages/UpdateKit UpdateSelfTest [installedVersion]` — prints `[update-test] PASS/FAIL`. Pass an older version (e.g. `1.1.0`) to exercise the update-available path.
 - **PDF smoke test** (drives the real CoreText/CG PDF renderer; 30s watchdog catches a hang regression): `swift run --package-path Packages/ExportKit PdfSelfTest` — prints `[pdf-test] PASS/FAIL`. NB: PDF is rendered natively (CoreText + CoreGraphics), **not** via WKWebView printing — `NSPrintOperation`+`WKWebView` spins forever in `-[WKPrintingView rectForPage:]` on the main thread and freezes the app.
 - Build app: `xcodebuild -project shotAI.xcodeproj -scheme shotAI -configuration Debug build`
+- **Build for the VM** (Parallels arm64 guest, reaching this repo over a shared folder):
+  `bash Scripts/dev-vm-build.sh` → `build/vm/shotAI.app`. ~1.5 s incremental.
+  **The ordinary Debug build cannot run on any other Mac** and fails as Finder's
+  "damaged or incomplete" rather than the usual Gatekeeper prompt, because validation
+  fails outright instead of merely distrusting the developer. Three independent causes:
+  the Apple Development identity pins its leaf certificate and there is no provisioning
+  profile; Xcode's debug-dylib layout makes the executable a ~58 KB stub loading
+  `shotAI.debug.dylib`; and Debug builds only the active arch. The script ad-hoc signs,
+  sets `ENABLE_DEBUG_DYLIB=NO`, builds both arches, and then *verifies* all three —
+  the guards were checked against a plain Debug build and all fire.
+  On the guest, copy it out of the share into `/Applications` before running.
 - The app's projects dir defaults to `~/shotAI Projects` (same as Windows).
 - TCC reset (only needed if grants get orphaned): `tccutil reset ScreenCapture|Accessibility|ListenEvent com.armadillon44.shotai`.
 
 ## Signing (dev)
+
+**Two recipes, for opposite reasons — do not unify them.** The host build keeps Apple
+Development signing so TCC grants survive rebuilds (below). The VM build
+(`Scripts/dev-vm-build.sh`) is ad-hoc precisely so there is no certificate to validate
+on a machine that does not hold the private key. Ad-hoc on the host would orphan the
+grants on every build; Development on the guest will not open at all.
 
 The app target is **manually signed** with the **Apple Development** cert, `DEVELOPMENT_TEAM = JX6BU857VX` (bundle id `com.armadillon44.shotai`), no provisioning profile (a locally-run non-sandboxed macOS app doesn't need one). This gives a **stable designated requirement** (bundle id + team/cert), so TCC grants (Screen Recording / Accessibility / Input Monitoring) **persist across rebuilds** — unlike ad-hoc signing (`"-"`), where every rebuild's new cdhash orphaned the grants and forced a re-grant + `tccutil reset`.
 

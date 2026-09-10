@@ -51,6 +51,7 @@ private struct PermissionsSettings: View {
 }
 
 private struct AISettings: View {
+    @Environment(\.palette) private var palette
     @Environment(AppModel.self) private var model
     @State private var keyInput = ""
     @State private var keyMessage: String?
@@ -134,7 +135,7 @@ private struct AISettings: View {
                     // and offer to clear the broken entry so a fresh key can be saved.
                     if model.apiKeyUnreadable {
                         Label("A previously saved key couldn't be read.", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption).foregroundStyle(Palette.draftInk)
+                            .font(.caption).foregroundStyle(palette.draftInk)
                         Button("Clear stored key", role: .destructive) {
                             keyMessage = model.clearApiKey() ?? "Stored key cleared."
                         }
@@ -181,6 +182,7 @@ private struct AISettings: View {
 /// The Account rows — signed out, signed in, signed in without access, or a
 /// broken configuration profile. Split out to keep `AISettings.body` legible.
 private struct AccountRows: View {
+    @Environment(\.palette) private var palette
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -193,7 +195,7 @@ private struct AccountRows: View {
         case .misconfigured(let fields):
             Label("shotAI's sign-in isn't configured correctly on this Mac.",
                   systemImage: "exclamationmark.triangle.fill")
-                .font(.callout).foregroundStyle(Palette.draftInk)
+                .font(.callout).foregroundStyle(palette.draftInk)
             Text("Ask IT to re-apply the shotAI configuration profile. Missing or invalid: \(fields.joined(separator: ", ")).")
                 .font(.caption).foregroundStyle(.secondary)
 
@@ -216,7 +218,7 @@ private struct AccountRows: View {
             if entitled == false {
                 Label("This account doesn't have access to shotAI's AI features yet.",
                       systemImage: "person.badge.clock")
-                    .font(.callout).foregroundStyle(Palette.draftInk)
+                    .font(.callout).foregroundStyle(palette.draftInk)
                 Text("Your sign-in worked. Ask IT to grant your account access, then use Check Again — signing out and back in won't change it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -230,7 +232,7 @@ private struct AccountRows: View {
         }
 
         if let e = model.auth.error {
-            Text(e).font(.caption).foregroundStyle(Palette.draftInk)
+            Text(e).font(.caption).foregroundStyle(palette.draftInk)
         }
     }
 }
@@ -241,13 +243,26 @@ private struct AppearanceSettings: View {
     var body: some View {
         @Bindable var model = model
         Form {
-            Section("Theme") {
-                Picker("Theme", selection: $model.preferences.theme) {
+            // Two axes, two controls. A brand has both a light and a dark set,
+            // so folding them into one picker would misrepresent them as
+            // mutually exclusive.
+            Section("Appearance") {
+                Picker("Appearance", selection: $model.preferences.theme) {
                     ForEach(ThemePref.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 Text(model.preferences.theme.blurb)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Brand") {
+                Picker("Brand", selection: $model.preferences.brand) {
+                    ForEach(BrandPref.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text(model.preferences.brand.blurb)
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -301,6 +316,7 @@ private struct CaptureSettings: View {
 }
 
 private struct GeneralSettings: View {
+    @Environment(\.palette) private var palette
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
     // Local mirror so the label updates immediately after Change… — reading
@@ -427,7 +443,7 @@ private struct GeneralSettings: View {
             HStack(spacing: 8) {
                 Text(model.updates.statusText)
                     .font(.callout)
-                    .foregroundStyle(model.updates.pending != nil ? Palette.accentInk : .secondary)
+                    .foregroundStyle(model.updates.pending != nil ? palette.accentInk : .secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if model.updates.checking { ProgressView().controlSize(.small) }
                 Spacer(minLength: 0)

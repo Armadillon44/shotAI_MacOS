@@ -13,16 +13,30 @@ enum Typo {
     static let eyebrow      = Font.system(size: 11, weight: .bold)   // MODE / SORT labels
 }
 
-extension View {
-    /// Soft card elevation — restores the Windows `--shadow-sm` the flat port
-    /// dropped. `hover` lifts it a step for rollover feedback. Apply after the
-    /// card's `clipShape` so the shadow follows the rounded silhouette.
-    func cardElevation(hover: Bool = false) -> some View {
-        shadow(
-            color: hover ? Palette.cardShadowHover : Palette.cardShadow,
+/// Soft card elevation — restores the Windows `--shadow-sm` the flat port
+/// dropped. `hover` lifts it a step for rollover feedback.
+///
+/// A `ViewModifier` rather than a plain `View` extension because the shadow is a
+/// brand token: a free function on `View` has no environment to read, so it
+/// could never follow a brand change.
+private struct CardElevation: ViewModifier {
+    @Environment(\.palette) private var palette
+    let hover: Bool
+
+    func body(content: Content) -> some View {
+        content.shadow(
+            color: hover ? palette.cardShadowHover : palette.cardShadow,
             radius: hover ? 13 : 8,
             x: 0,
             y: hover ? 5 : 3
         )
+    }
+}
+
+extension View {
+    /// Apply after the card's `clipShape` so the shadow follows the rounded
+    /// silhouette.
+    func cardElevation(hover: Bool = false) -> some View {
+        modifier(CardElevation(hover: hover))
     }
 }

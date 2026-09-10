@@ -10,6 +10,7 @@ import SwiftUI
 /// date-grouped, each with Open + an overflow menu (rename / reveal / delete).
 /// Replaces the old NavigationSplitView sidebar list.
 struct HomeView: View {
+    @Environment(\.palette) private var palette
     @Environment(AppModel.self) private var model
     let capture: CaptureCoordinator
     /// Open a project into the detail view.
@@ -99,7 +100,7 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .background(Palette.ground)
+        .background(palette.ground)
         // ⌘F focuses the project search field.
         .background {
             Button("") { searchFocused = true }
@@ -183,13 +184,13 @@ struct HomeView: View {
                 .frame(width: 34, height: 34)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
-                (Text("shot").foregroundColor(Palette.ink)
-                    + Text("AI").foregroundColor(Palette.accent))
+                (Text("shot").foregroundColor(palette.ink)
+                    + Text("AI").foregroundColor(palette.accent))
                     .font(Typo.wordmark)
                     .kerning(-0.3)
                 Text("Turn any process into a step-by-step guide")
                     .font(Typo.tagline)
-                    .foregroundStyle(Palette.ink3)
+                    .foregroundStyle(palette.ink3)
             }
             Spacer(minLength: 8)
             // Update notice (#62 Phase 1). Lives in the banner's trailing dead
@@ -212,9 +213,9 @@ struct HomeView: View {
         .padding(.vertical, 11)
         .frame(maxWidth: 760)
         .frame(maxWidth: .infinity)
-        .background(Palette.surface)
+        .background(palette.surface)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Palette.hair).frame(height: 1)
+            Rectangle().fill(palette.hair).frame(height: 1)
         }
     }
 
@@ -225,15 +226,15 @@ struct HomeView: View {
             Text("Start a project").font(Typo.heroTitle)
             Text("Record a process, mark it up, and let Claude turn it into a step-by-step guide you can export and share.")
                 .font(.callout)
-                .foregroundStyle(Palette.ink2)
+                .foregroundStyle(palette.ink2)
 
             HStack(spacing: 8) {
                 TextField("Name (optional — defaults to a timestamp)", text: $title)
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 10)
-                    .background(Palette.field)
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.controlBd))
+                    .background(palette.field)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(palette.controlBd))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .onSubmit { if canStart { startCapture() } }
                 Button { startCapture() } label: {
@@ -251,10 +252,10 @@ struct HomeView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.surface2)
+        .background(palette.surface2)
         // Elevated above the flat list so it reads as the primary "start here":
         // soft shadow + a low-opacity accent border instead of a plain hairline.
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.accent.opacity(0.40)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.accent.opacity(0.40)))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .cardElevation()
         .tourAnchor(.hero)
@@ -265,7 +266,7 @@ struct HomeView: View {
             Text("MODE")
                 .font(.system(size: 11, weight: .bold))
                 .kerning(0.6)
-                .foregroundStyle(Palette.ink3)
+                .foregroundStyle(palette.ink3)
             ForEach([CaptureMode.screen, .auto, .window, .area], id: \.self) { m in
                 Button { mode = m } label: { Text(label(for: m)) }
                     .buttonStyle(ChipStyle(on: mode == m, reduceMotion: reduceMotion))
@@ -273,7 +274,7 @@ struct HomeView: View {
             if mode == .auto {
                 Text("⚠ Auto is best-effort")
                     .font(.caption)
-                    .foregroundStyle(Palette.draftInk)
+                    .foregroundStyle(palette.draftInk)
                     .help("Auto guesses per click and may capture extra context. Pick Screen, Window, or Area for predictable results.")
             }
             Spacer()
@@ -321,7 +322,7 @@ struct HomeView: View {
                 if let a = selectedArea {
                     Text("\(Int(a.width)) × \(Int(a.height))")
                         .font(.callout.monospacedDigit())
-                        .foregroundStyle(Palette.ink2)
+                        .foregroundStyle(palette.ink2)
                 }
             }
         }
@@ -355,10 +356,10 @@ struct HomeView: View {
     private var listHead: some View {
         HStack(spacing: 10) {
             Text(tab == .archive ? "Archived" : "Projects").font(.system(size: 15, weight: .semibold))
-                + Text(countSuffix).foregroundColor(Palette.ink3)
+                + Text(countSuffix).foregroundColor(palette.ink3)
             searchField
             Spacer()
-            Text("Sort").font(.caption).foregroundStyle(Palette.ink3)
+            Text("Sort").font(.caption).foregroundStyle(palette.ink3)
             ForEach(SortKey.allCases, id: \.self) { key in
                 Button { sortKey = key } label: { Text(key.rawValue) }
                     .buttonStyle(ChipStyle(on: sortKey == key, reduceMotion: reduceMotion))
@@ -378,7 +379,7 @@ struct HomeView: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12))
-                .foregroundStyle(Palette.ink3)
+                .foregroundStyle(palette.ink3)
             TextField("Search", text: $searchQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
@@ -390,14 +391,14 @@ struct HomeView: View {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 12))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Palette.ink3)
+                .foregroundStyle(palette.ink3)
                 .help("Clear search")
             }
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
-        .background(Palette.surface)
-        .overlay(Capsule().stroke(searchFocused ? Palette.accent : Palette.controlBd))
+        .background(palette.surface)
+        .overlay(Capsule().stroke(searchFocused ? palette.accent : palette.controlBd))
         .clipShape(Capsule())
         .help("Search project names and step content (⌘F)")
     }
@@ -426,7 +427,7 @@ struct HomeView: View {
         let count = selection.count
         return HStack(spacing: 10) {
             Text("\(count) selected").font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Palette.ink)
+                .foregroundStyle(palette.ink)
                 .contentTransition(.numericText())
             Button("Select all") { selectAllVisible() }
                 .buttonStyle(.link)
@@ -458,8 +459,8 @@ struct HomeView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Palette.surface2)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.hair))
+        .background(palette.surface2)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.hair))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .cardElevation()
         .transition(.move(edge: .top).combined(with: .opacity))
@@ -476,14 +477,14 @@ struct HomeView: View {
                 .frame(width: 150)
             Text("Exporting \(p.current) of \(p.total)…")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Palette.ink)
+                .foregroundStyle(palette.ink)
                 .contentTransition(.numericText())
             Spacer()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Palette.surface2)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.hair))
+        .background(palette.surface2)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.hair))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .cardElevation()
         .transition(.move(edge: .top).combined(with: .opacity))
@@ -584,7 +585,7 @@ struct HomeView: View {
                         Text(group.label.uppercased())
                             .font(Typo.eyebrow)
                             .kerning(0.6)
-                            .foregroundStyle(Palette.ink3)
+                            .foregroundStyle(palette.ink3)
                     }
                     ForEach(group.items, id: \.path) { card($0) }
                 }
@@ -614,7 +615,7 @@ struct HomeView: View {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     // Muted at rest so the title wins the glance; full accent when checked.
                     .font(.system(size: isSelected ? 18 : 16))
-                    .foregroundStyle(isSelected ? Palette.accent : Palette.ink3.opacity(0.55))
+                    .foregroundStyle(isSelected ? palette.accent : palette.ink3.opacity(0.55))
                     .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.bounce, value: isSelected)
                     .contentShape(Rectangle())
@@ -636,11 +637,11 @@ struct HomeView: View {
                     }
                 }
                 if isBusy {
-                    Text("Working…").font(.caption).foregroundStyle(Palette.ink3)
+                    Text("Working…").font(.caption).foregroundStyle(palette.ink3)
                 } else {
                     Text("\(p.stepCount) step\(p.stepCount == 1 ? "" : "s")\(Self.metaDate(p.updatedAt).map { " · \(p.archived ? "archived" : "modified") \($0)" } ?? "")")
                         .font(.caption)
-                        .foregroundStyle(Palette.ink3)
+                        .foregroundStyle(palette.ink3)
                 }
             }
             Spacer(minLength: 8)
@@ -665,9 +666,9 @@ struct HomeView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(isSelected ? Palette.accentTint : Palette.surface)
+        .background(isSelected ? palette.accentTint : palette.surface)
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(
-            isSelected ? Palette.accent : (isHover ? Palette.accent.opacity(0.45) : Palette.hair)))
+            isSelected ? palette.accent : (isHover ? palette.accent.opacity(0.45) : palette.hair)))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .cardElevation(hover: isHover && !isSelected)
         .offset(y: isHover && !isSelected ? -1 : 0)
@@ -728,7 +729,7 @@ struct HomeView: View {
             .interpolation(.high)
             .frame(width: 50, height: 50)
             .padding(14)
-            .background(Circle().fill(Palette.accentTint))
+            .background(Circle().fill(palette.accentTint))
             .accessibilityHidden(true)
     }
 
@@ -736,9 +737,9 @@ struct HomeView: View {
     private func iconHalo(_ system: String) -> some View {
         Image(systemName: system)
             .font(.system(size: 29))
-            .foregroundStyle(Palette.accent)
+            .foregroundStyle(palette.accent)
             .frame(width: 78, height: 78)
-            .background(Circle().fill(Palette.accentTint))
+            .background(Circle().fill(palette.accentTint))
             .accessibilityHidden(true)
     }
 
@@ -748,7 +749,7 @@ struct HomeView: View {
             Text("No projects yet").font(Typo.sectionTitle)
             Text("Create one above — press Capture to record a process, or Empty project to build one from images and text.")
                 .font(.callout)
-                .foregroundStyle(Palette.ink2)
+                .foregroundStyle(palette.ink2)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
         }
@@ -763,7 +764,7 @@ struct HomeView: View {
             Text("No archived projects").font(Typo.sectionTitle)
             Text("Archiving compresses a project's screenshots in place to save disk. Use a project's ⋯ menu to Archive it — it restores automatically when you open it.")
                 .font(.callout)
-                .foregroundStyle(Palette.ink2)
+                .foregroundStyle(palette.ink2)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
         }
@@ -936,20 +937,35 @@ struct HomeView: View {
 private struct ChipStyle: ButtonStyle {
     let on: Bool
     var reduceMotion = false
+
+    // A ButtonStyle is not a View, so `@Environment` is never populated on it.
+    // The chrome moves into a nested View, which does get the environment and so
+    // repaints when the brand changes.
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12, weight: on ? .semibold : .regular))
-            .padding(.horizontal, 11)
-            .padding(.vertical, 4)
-            .foregroundStyle(on ? Palette.accentInk : Palette.ink2)
-            .background(on ? Palette.accentTint : Palette.surface)
-            .overlay(Capsule().stroke(on ? Palette.accent : Palette.controlBd))
-            .clipShape(Capsule())
-            .opacity(configuration.isPressed ? 0.7 : 1)
-            // Cross-fade the selected tint and give a springy press instead of snapping.
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: on)
-            .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.55), value: configuration.isPressed)
+        Chip(configuration: configuration, on: on, reduceMotion: reduceMotion)
+    }
+
+    private struct Chip: View {
+        @Environment(\.palette) private var palette
+        let configuration: Configuration
+        let on: Bool
+        let reduceMotion: Bool
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 12, weight: on ? .semibold : .regular))
+                .padding(.horizontal, 11)
+                .padding(.vertical, 4)
+                .foregroundStyle(on ? palette.accentInk : palette.ink2)
+                .background(on ? palette.accentTint : palette.surface)
+                .overlay(Capsule().stroke(on ? palette.accent : palette.controlBd))
+                .clipShape(Capsule())
+                .opacity(configuration.isPressed ? 0.7 : 1)
+                // Cross-fade the selected tint and give a springy press instead of snapping.
+                .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: on)
+                .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.55), value: configuration.isPressed)
+        }
     }
 }
 
@@ -958,6 +974,7 @@ private struct ChipStyle: ButtonStyle {
 /// identity-swap scale-pop: that also fired on every search/sort/tab re-insertion,
 /// which read as noise while typing in the search field.)
 private struct StatusBadge: View {
+    @Environment(\.palette) private var palette
     let hasSop: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -965,8 +982,8 @@ private struct StatusBadge: View {
             .font(.system(size: 11, weight: .semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .foregroundStyle(hasSop ? Palette.okInk : Palette.draftInk)
-            .background(hasSop ? Palette.okTint : Palette.draftTint)
+            .foregroundStyle(hasSop ? palette.okInk : palette.draftInk)
+            .background(hasSop ? palette.okTint : palette.draftTint)
             .clipShape(Capsule())
             .contentTransition(.opacity)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: hasSop)
@@ -981,6 +998,7 @@ private struct StatusBadge: View {
 /// no modal and no dock badge, matching `UpdateBadge`. The point is that someone
 /// discovers this BEFORE recording a process, rather than at the end of one.
 private struct AiSetupHint: View {
+    @Environment(\.palette) private var palette
     @Environment(AppModel.self) private var model
     @State private var hovering = false
 
@@ -1030,10 +1048,10 @@ private struct AiSetupHint: View {
                 .font(.system(size: 11, weight: .semibold))
             Text(label).font(.system(size: 11.5, weight: .semibold))
         }
-        .foregroundStyle(Palette.accentInk)
+        .foregroundStyle(palette.accentInk)
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(Palette.accentTint, in: Capsule())
-        .overlay(Capsule().stroke(Palette.accent.opacity(hovering ? 0.55 : 0.28)))
+        .background(palette.accentTint, in: Capsule())
+        .overlay(Capsule().stroke(palette.accent.opacity(hovering ? 0.55 : 0.28)))
     }
 }

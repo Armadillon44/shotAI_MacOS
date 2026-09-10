@@ -8,6 +8,7 @@ import UpdateKit
 /// sound, and it never appears over a report or during a recording. Clicking it
 /// opens the release page in the browser — shotAI downloads nothing itself.
 struct UpdateBadge: View {
+    @Environment(\.palette) private var palette
     @Environment(AppModel.self) private var model
     let release: ReleaseInfo
 
@@ -25,11 +26,11 @@ struct UpdateBadge: View {
                     Text("Update to \(release.version.description)")
                         .font(.system(size: 11.5, weight: .semibold))
                 }
-                .foregroundStyle(Palette.accentInk)
+                .foregroundStyle(palette.accentInk)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
-                .background(Palette.accentTint, in: Capsule())
-                .overlay(Capsule().stroke(Palette.accent.opacity(hovering ? 0.55 : 0.28)))
+                .background(palette.accentTint, in: Capsule())
+                .overlay(Capsule().stroke(palette.accent.opacity(hovering ? 0.55 : 0.28)))
             }
             .buttonStyle(.plain)
             .onHover { hovering = $0 }
@@ -40,7 +41,7 @@ struct UpdateBadge: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 8.5, weight: .bold))
-                    .foregroundStyle(Palette.ink3)
+                    .foregroundStyle(palette.ink3)
                     .padding(4)
                     .contentShape(Rectangle())
             }

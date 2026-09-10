@@ -42,8 +42,10 @@ struct ShotAIApp: App {
                 // Low floor so the Home can sit narrow; ContentView drives the
                 // actual width per surface (narrow Home ⇄ wide project detail).
                 .frame(minWidth: 680, minHeight: 560)
-                // Appearance ▸ Theme override (nil = follow the system).
-                .preferredColorScheme(model.preferences.theme.colorScheme)
+                // Appearance is applied app-wide via NSApp.appearance
+                // (AppModel.applyAppearance) so it reaches Settings too; brand is
+                // the other axis and rides the environment.
+                .environment(\.palette, PaletteTokens.of(model.preferences.brand))
         }
         .defaultSize(width: WindowLayout.home, height: 760)
         .commands {
@@ -112,7 +114,7 @@ struct ShotAIApp: App {
         Settings {
             SettingsView()
                 .environment(model)
-                .preferredColorScheme(model.preferences.theme.colorScheme)
+                .environment(\.palette, PaletteTokens.of(model.preferences.brand))
         }
     }
 

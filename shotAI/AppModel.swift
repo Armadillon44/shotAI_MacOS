@@ -48,6 +48,7 @@ final class AppModel {
     func startup() async {
         if !didStartupSweep {
             didStartupSweep = true
+            applyAppearance()   // before the first window is drawn
             _ = await store.autoArchiveStale(ageDays: settings.archiveAgeDays())
         }
         // autoRefresh (not refresh) so this launch list coalesces with HomeView's
@@ -525,6 +526,22 @@ final class AppModel {
         if let data = try? JSONEncoder().encode(preferences) {
             UserDefaults.standard.set(data, forKey: Self.preferencesKey)
         }
+        applyAppearance()
+    }
+
+    /// Force the chosen appearance on every window the app owns.
+    ///
+    /// `.preferredColorScheme` is applied per SCENE, and it does not reach an
+    /// already-open Settings window: switching Light/Dark left Settings in the
+    /// previous appearance until it was closed and reopened, while the main
+    /// window followed correctly. `NSApp.appearance` is application-wide, so it
+    /// covers Settings, the main window and any panel from one place — which is
+    /// also why the per-scene modifier was removed rather than kept alongside
+    /// it. Two mechanisms for one setting is how they drift.
+    ///
+    /// nil restores "follow the system", including live OS light/dark switches.
+    func applyAppearance() {
+        NSApplication.shared.appearance = preferences.theme.nsAppearance
     }
 
     // MARK: - First-run tour
