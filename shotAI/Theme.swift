@@ -33,6 +33,7 @@ struct PaletteTokens: Sendable {
     let radii: BrandRadii
     /// The brand's typeface family, or nil for the system face.
     let fontFamily: String?
+    let fontPostScriptName: String?
     // Brand accent + supporting shades.
     let accent, accentPress, accentTint, accentInk, onAccent: Color
     // Ink ramp (text).
@@ -64,6 +65,7 @@ extension PaletteTokens {
         self.init(
             radii: b.radii,
             fontFamily: b.fontFamily,
+            fontPostScriptName: b.fontPostScriptName,
             accent: dyn(b.accent), accentPress: dyn(b.accentPress),
             accentTint: dyn(b.accentTint), accentInk: dyn(b.accentInk),
             onAccent: dyn(b.onAccent),

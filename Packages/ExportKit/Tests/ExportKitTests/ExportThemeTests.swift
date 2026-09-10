@@ -205,7 +205,7 @@ final class ExportThemeTests: XCTestCase {
     /// The brand face is NAMED in the CSS, never embedded.
     ///
     /// Embedding is not merely inadvisable, it is arithmetically impossible: the
-    /// face is ~1.37MB as base64 against a measured 0.8-1.5MB Freshservice paste
+    /// face is ~0.84MB as base64 against a measured 0.8-1.5MB Freshservice paste
     /// budget, so it would consume the whole budget and the images would
     /// silently drop. A recipient who has the face sees it; everyone else gets
     /// the same fallback the document always had.
@@ -222,6 +222,28 @@ final class ExportThemeTests: XCTestCase {
             XCTAssertFalse(css.contains("@font-face"))
             XCTAssertFalse(css.contains("base64"))
         }
+    }
+
+    /// The PDF, unlike the HTML, can actually deliver the face.
+    ///
+    /// A PDF embeds the glyphs it draws with, so an LFI document reads correctly
+    /// on a machine that has never heard of Archivo. Verified by rendering one
+    /// and finding "Archivo" in the file; asserted here as the contract that
+    /// makes it possible, since the embedding itself depends on the app having
+    /// registered the face and a package test cannot do that honestly.
+    func testPdfCarriesTheBrandFaceAndHtmlOnlyNamesIt() {
+        XCTAssertEqual(ExportTheme.lfi.fontPostScriptName, "Archivo-SemiBold",
+                       "the PDF anchors on the PostScript name, not the family")
+        XCTAssertNil(ExportTheme.shotAI.fontPostScriptName, "default draws with the system font")
+
+        // The HTML can only name it — hence a fallback of similar GROTESQUES
+        // rather than the OS UI faces, so a reader without Archivo still gets
+        // something from the same family of shapes.
+        let lfi = ExportTheme.lfi.fontStack
+        XCTAssertTrue(lfi.contains("Helvetica"), lfi)
+        XCTAssertFalse(lfi.contains("-apple-system"), "an OS UI face is not a fallback for a grotesque")
+        XCTAssertTrue(ExportTheme.shotAI.fontStack.contains("-apple-system"),
+                      "the default brand keeps the platform stack it always had")
     }
 
     // MARK: helpers

@@ -61,10 +61,19 @@ public struct BrandPalette: Sendable, Equatable {
     ///
     /// A family NAME, not a file: the app resolves it to a bundled face, and the
     /// exports name it first in their CSS stack. Exports deliberately do not
-    /// embed it — as base64 it is ~1.37MB against a measured 0.8-1.5MB
+    /// embed it — as base64 it is ~0.84MB against a measured 0.8-1.5MB
     /// Freshservice paste budget, so embedding would consume the whole budget
     /// and the images would silently drop.
     public let fontFamily: String?
+    /// The PostScript name of the bundled face, for building a concrete font.
+    ///
+    /// Not derivable from `fontFamily`: Archivo's default instance is `wght` 600,
+    /// so its PostScript name is "Archivo-SemiBold" while its typographic family
+    /// is "Archivo". The renderers anchor on this and set the axes explicitly.
+    public let fontPostScriptName: String?
+    /// Faces to try after the brand's own, for a document opened somewhere the
+    /// brand face is not installed. Chosen to resemble it, not to match the OS.
+    public let fontFallbacks: [String]
 
     /// A token's light and dark values. Appearance is resolved by the consumer —
     /// the app through `NSColor`'s dynamic provider, exports by taking `.light`
@@ -130,6 +139,8 @@ public struct BrandPalette: Sendable, Equatable {
     public init(
         radii: BrandRadii,
         fontFamily: String?,
+        fontPostScriptName: String?,
+        fontFallbacks: [String],
         accent: Pair,
         accentPress: Pair,
         accentTint: Pair,
@@ -168,6 +179,8 @@ public struct BrandPalette: Sendable, Equatable {
     ) {
         self.radii = radii
         self.fontFamily = fontFamily
+        self.fontPostScriptName = fontPostScriptName
+        self.fontFallbacks = fontFallbacks
         self.accent = accent
         self.accentPress = accentPress
         self.accentTint = accentTint
@@ -216,6 +229,9 @@ public extension BrandPalette {
     static let shotAI = BrandPalette(
         radii: BrandRadii(panel: 12, card: 10, figure: 8, control: 6, chip: nil),
         fontFamily: nil,
+        fontPostScriptName: nil,
+        // The platform UI faces, as every document has always used.
+        fontFallbacks: ["-apple-system", "\"Segoe UI\"", "Roboto", "Helvetica", "Arial", "sans-serif"],
         accent: Pair(0x6344F1, 0x9A8BF7),
         accentPress: Pair(0x5233D4, 0xB0A4FA),
         accentTint: Pair(0xEFEAFE, 0x241F3A),
@@ -257,6 +273,11 @@ public extension BrandPalette {
     static let lfi = BrandPalette(
         radii: BrandRadii(panel: 8, card: 8, figure: 6, control: 5, chip: 8),
         fontFamily: "Archivo",
+        fontPostScriptName: "Archivo-SemiBold",
+        // Grotesques of similar proportion rather than the OS UI faces: a reader
+        // without Archivo should get something from the same family of shapes,
+        // not Segoe or SF. Liberation Sans is Arial-metric-compatible on Linux.
+        fontFallbacks: ["\"Helvetica Neue\"", "Helvetica", "Arial", "\"Liberation Sans\"", "sans-serif"],
         accent: Pair(0xB46B3E, 0xD58B5C),
         accentPress: Pair(0x9A5A33, 0xE3A579),
         accentTint: Pair(0xF6EDE5, 0x3A2E25),

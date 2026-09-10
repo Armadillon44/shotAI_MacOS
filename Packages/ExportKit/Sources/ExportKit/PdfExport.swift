@@ -25,9 +25,9 @@ func renderPdf(
     guard pdf.start() else { throw ExportError.writeFailed("Could not create the PDF document.") }
 
     pdf.beginPage()
-    pdf.draw(Ink.attr(title, size: 22, weight: .bold, color: ink.title), width: pdf.contentW)
+    pdf.draw(ink.attr(title, size: 22, weight: .bold, color: ink.title), width: pdf.contentW)
     pdf.advance(4)
-    pdf.draw(Ink.attr(createdLine, size: 10, color: ink.meta), width: pdf.contentW)
+    pdf.draw(ink.attr(createdLine, size: 10, color: ink.meta), width: pdf.contentW)
     pdf.advance(18)
 
     if let intro, !(intro.heading.isEmpty && intro.body.isEmpty) {
@@ -143,14 +143,44 @@ struct Ink {
                        blue: CGFloat(v & 0xff) / 255, alpha: 1)
     }
 
-    static func font(_ size: CGFloat, _ weight: NSFont.Weight, italic: Bool) -> NSFont {
-        let base = NSFont.systemFont(ofSize: size, weight: weight)
+    /// The brand's face, or the system font.
+    ///
+    /// **This is the one export where the brand face actually reaches the
+    /// reader.** A PDF embeds the glyphs it draws with, so the document looks
+    /// right on a machine that has never heard of Archivo — unlike HTML, which
+    /// can only NAME a face and hope.
+    ///
+    /// Registration happens in the app (`BrandFont`), process-wide, so by the
+    /// time an export runs the face is available here. If it is not, this falls
+    /// back to the system font rather than failing the export.
+    func font(_ size: CGFloat, _ weight: NSFont.Weight, italic: Bool) -> NSFont {
+        let base = brandFont(size: size, weight: weight)
+            ?? NSFont.systemFont(ofSize: size, weight: weight)
         guard italic else { return base }
         let desc = base.fontDescriptor.withSymbolicTraits(.italic)
         return NSFont(descriptor: desc, size: size) ?? base
     }
 
-    static func attr(
+    /// Map AppKit's -1...1 weight onto the variable font's 100...900 `wght` axis.
+    private func brandFont(size: CGFloat, weight: NSFont.Weight) -> NSFont? {
+        guard let ps = t.fontPostScriptName else { return nil }
+        let wght: Double = switch weight {
+        case .bold: 700
+        case .semibold: 600
+        case .medium: 500
+        default: 400
+        }
+        let desc = NSFontDescriptor(fontAttributes: [
+            .name: ps,
+            NSFontDescriptor.AttributeName(kCTFontVariationAttribute as String): [
+                NSNumber(value: 0x7767_6874): NSNumber(value: wght),   // 'wght'
+                NSNumber(value: 0x7764_7468): NSNumber(value: 100.0),  // 'wdth'
+            ],
+        ])
+        return NSFont(descriptor: desc, size: size)
+    }
+
+    func attr(
         _ s: String, size: CGFloat, weight: NSFont.Weight = .regular,
         color: NSColor, italic: Bool = false
     ) -> NSAttributedString {
@@ -352,10 +382,10 @@ private final class PdfCanvas {
                 ctx.strokeEllipse(in: inset)
             }
         }
-        let a = Ink.attr(text, size: 12, weight: .semibold, color: textColor)
+        let a = ink.attr(text, size: 12, weight: .semibold, color: textColor)
         let line = CTLineCreateWithAttributedString(a)
         let bw = CTLineGetTypographicBounds(line, nil, nil, nil)
-        let f = Ink.font(12, .semibold, italic: false)
+        let f = ink.font(12, .semibold, italic: false)
         ctx.textPosition = CGPoint(x: rect.midX - CGFloat(bw) / 2, y: rect.midY - (f.ascender + f.descender) / 2)
         CTLineDraw(line, ctx)
     }
@@ -369,7 +399,7 @@ private final class PdfCanvas {
         let innerX = mainX + innerPad
         let innerW = cardW - innerPad * 2
 
-        let capAttr = caption.isEmpty ? nil : Ink.attr(caption, size: 13, weight: .semibold, color: ink.title)
+        let capAttr = caption.isEmpty ? nil : ink.attr(caption, size: 13, weight: .semibold, color: ink.title)
         let capH = capAttr.map { Self.measure($0, width: innerW) } ?? 0
         let headerH = max(badgeD, capH)
 
@@ -383,9 +413,9 @@ private final class PdfCanvas {
             return (iw, ih)
         }
         let (imgW, imgH) = imageDims(innerW)
-        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: ink.body)
+        let bodyAttr = body.isEmpty ? nil : ink.attr(body, size: 11, color: ink.body)
         let bodyH = bodyAttr.map { Self.measure($0, width: innerW) } ?? 0
-        let noteAttr = note.isEmpty ? nil : Ink.attr(note, size: 10, color: ink.note, italic: true)
+        let noteAttr = note.isEmpty ? nil : ink.attr(note, size: 10, color: ink.note, italic: true)
         let noteH = noteAttr.map { Self.measure($0, width: innerW) } ?? 0
 
         let blockH = headerH + (imgH > 0 ? 10 + imgH : 0) + (bodyH > 0 ? 8 + bodyH : 0) + (noteH > 0 ? 6 + noteH : 0)
@@ -448,8 +478,8 @@ private final class PdfCanvas {
         let innerX = mainX + innerPad
         let innerW = cardW - innerPad * 2
 
-        let headAttr = heading.isEmpty ? nil : Ink.attr(heading, size: 13, weight: .bold, color: c.text)
-        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: c.text)
+        let headAttr = heading.isEmpty ? nil : ink.attr(heading, size: 13, weight: .bold, color: c.text)
+        let bodyAttr = body.isEmpty ? nil : ink.attr(body, size: 11, color: c.text)
         let hH = headAttr.map { Self.measure($0, width: innerW) } ?? 0
         let bH = bodyAttr.map { Self.measure($0, width: innerW) } ?? 0
         let gap: CGFloat = (hH > 0 && bH > 0) ? 4 : 0
@@ -495,8 +525,8 @@ private final class PdfCanvas {
         let innerPad: CGFloat = 12                 // match drawStep/drawCallout text inset
         let textX = mainX + innerPad
         let textW = mainW - innerPad * 2
-        let headAttr = heading.isEmpty ? nil : Ink.attr(heading, size: 15, weight: .bold, color: ink.sectionHeading)
-        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: ink.sectionBody)
+        let headAttr = heading.isEmpty ? nil : ink.attr(heading, size: 15, weight: .bold, color: ink.sectionHeading)
+        let bodyAttr = body.isEmpty ? nil : ink.attr(body, size: 11, color: ink.sectionBody)
         let hH = headAttr.map { Self.measure($0, width: textW) } ?? 0
         let bH = bodyAttr.map { Self.measure($0, width: textW) } ?? 0
         let ruleGap: CGFloat = 10     // rule → heading
@@ -532,11 +562,11 @@ private final class PdfCanvas {
         let radius = ink.cardRadius
         let innerX = margin + borderW + padX
         let innerW = contentW - borderW - padX * 2
-        let eyebrow = Ink.attr("OVERVIEW", size: 9, weight: .bold, color: ink.eyebrow)
+        let eyebrow = ink.attr("OVERVIEW", size: 9, weight: .bold, color: ink.eyebrow)
         let eH = Self.measure(eyebrow, width: innerW)
-        let headAttr = heading.isEmpty ? nil : Ink.attr(heading, size: 15, weight: .semibold, color: ink.title)
+        let headAttr = heading.isEmpty ? nil : ink.attr(heading, size: 15, weight: .semibold, color: ink.title)
         let hH = headAttr.map { Self.measure($0, width: innerW) } ?? 0
-        let bodyAttr = body.isEmpty ? nil : Ink.attr(body, size: 11, color: ink.body)
+        let bodyAttr = body.isEmpty ? nil : ink.attr(body, size: 11, color: ink.body)
         let bH = bodyAttr.map { Self.measure($0, width: innerW) } ?? 0
         let g1: CGFloat = 4                                // eyebrow → next block (always present)
         let g2: CGFloat = (hH > 0 && bH > 0) ? 6 : 0       // heading → body, only when both exist
