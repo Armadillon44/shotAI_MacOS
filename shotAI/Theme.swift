@@ -1,4 +1,5 @@
 import AppKit
+import ShotModel
 import SwiftUI
 
 /// shotAI's design tokens, as a **brand** you can swap at runtime.
@@ -49,113 +50,32 @@ struct PaletteTokens: Sendable {
 }
 
 extension PaletteTokens {
-    /// shotAI's own identity — violet, ported verbatim from the Windows app's
-    /// CSS custom properties (`project.css` `:root` + `[data-theme='dark']`).
-    /// These are the values every existing user sees; changing one is never
-    /// incidental.
-    static let shotAI = PaletteTokens(
-        accent: dyn(0x6344F1, 0x9A8BF7),
-        accentPress: dyn(0x5233D4, 0xB0A4FA),
-        accentTint: dyn(0xEFEAFE, 0x241F3A),
-        accentInk: dyn(0x4A34C9, 0xC8BDFB),
-        onAccent: dyn(0xFFFFFF, 0x171528),
-        // The dark `ink3` is lifted from the Windows value so secondary labels
-        // don't vanish against the near-black `ground`. The LIGHT one is darkened
-        // from the Windows `#918ea6` for the same reason in the other direction:
-        // at 2.90:1 on `ground` it never met AA, and it is about to carry
-        // document text in exports. Now 4.60 / 5.03 / 4.80 on ground / surface /
-        // surface2.
-        ink: dyn(0x191826, 0xECE9F7),
-        ink2: dyn(0x5A5772, 0xA8A4C0),
-        ink3: dyn(0x6F6C88, 0x8E8AA8),
-        hair: dyn(0xE7E4F2, 0x302C42),
-        hair2: dyn(0xEFEDF7, 0x282539),
-        controlBd: dyn(0xCBC7DB, 0x3C3852),
-        surface: dyn(0xFFFFFF, 0x1B1926),
-        surface2: dyn(0xFAF9FF, 0x211F2E),
-        ground: dyn(0xF5F4FB, 0x121019),
-        field: dyn(0xFFFFFF, 0x2E2B40),
-        cardShadow: shadow(0x241B4D, light: 0.10, dark: 0.55),
-        cardShadowHover: shadow(0x241B4D, light: 0.18, dark: 0.70),
-        ok: dyn(0x0E9F6E, 0x34D399),
-        okTint: dyn(0xE7F7EF, 0x12271E),
-        okInk: dyn(0x07724F, 0x6EE7B7),
-        draft: dyn(0xC77D16, 0xE0A355),
-        draftTint: dyn(0xFBF1E0, 0x2A2113),
-        draftInk: dyn(0x8A5610, 0xF0C98A),
-        danger: dyn(0xDC2626, 0xF87171),
-        dangerTint: dyn(0xFEF2F2, 0x2A1414),
-        dangerInk: dyn(0xB91C1C, 0xFCA5A5),
-        noteBg: dyn(0xECFDF5, 0x10281F),
-        noteBd: dyn(0x6EE7B7, 0x2F6F52),
-        noteFg: dyn(0x065F46, 0x8EE7BF),
-        cautBg: dyn(0xFFFBEB, 0x2A2113),
-        cautBd: dyn(0xFCD34D, 0x7A5C1E),
-        cautFg: dyn(0x92400E, 0xF0C98A),
-        warnBg: dyn(0xFEF2F2, 0x2A1414),
-        warnBd: dyn(0xFCA5A5, 0x7A3A3A),
-        warnFg: dyn(0x991B1B, 0xF6B0B0)
-    )
+    /// Build the SwiftUI representation of a brand.
+    ///
+    /// The values live in `ShotModel.BrandPalette` so the exports read the same
+    /// definition; this only turns them into `Color`s. Adding a token means
+    /// adding it there, and both consumers get it.
+    init(_ b: BrandPalette) {
+        self.init(
+            accent: dyn(b.accent), accentPress: dyn(b.accentPress),
+            accentTint: dyn(b.accentTint), accentInk: dyn(b.accentInk),
+            onAccent: dyn(b.onAccent),
+            ink: dyn(b.ink), ink2: dyn(b.ink2), ink3: dyn(b.ink3),
+            hair: dyn(b.hair), hair2: dyn(b.hair2), controlBd: dyn(b.controlBd),
+            surface: dyn(b.surface), surface2: dyn(b.surface2),
+            ground: dyn(b.ground), field: dyn(b.field),
+            cardShadow: shadow(b.cardShadow), cardShadowHover: shadow(b.cardShadowHover),
+            ok: dyn(b.ok), okTint: dyn(b.okTint), okInk: dyn(b.okInk),
+            draft: dyn(b.draft), draftTint: dyn(b.draftTint), draftInk: dyn(b.draftInk),
+            danger: dyn(b.danger), dangerTint: dyn(b.dangerTint), dangerInk: dyn(b.dangerInk),
+            noteBg: dyn(b.noteBg), noteBd: dyn(b.noteBd), noteFg: dyn(b.noteFg),
+            cautBg: dyn(b.cautBg), cautBd: dyn(b.cautBd), cautFg: dyn(b.cautFg),
+            warnBg: dyn(b.warnBg), warnBd: dyn(b.warnBd), warnFg: dyn(b.warnFg)
+        )
+    }
 
-    /// LaCrosse Footwear corporate — charcoal and warm neutrals carrying the
-    /// surface, rust as a focused pop. See `design/lfi-theme-study.html` for the
-    /// mock-up these values were settled against.
-    ///
-    /// The four exact brand colours are Charcoal `0x47443E`, Cream `0xEEE8DB`,
-    /// Taupe `0x938978` and Rust `0xB46B3E`; everything else is derived, because
-    /// the guide defines a brand rather than an interface. The dark set is
-    /// likewise derived — the guide specifies one palette, not two modes.
-    ///
-    /// Two derivations are worth knowing about:
-    ///
-    /// **Success is forest, not the guide's chart olive.** LFI defines no green.
-    /// The olive (`0x7D846D`) was tried first and read as ambiguous for
-    /// "success"; forest also measures better, 6.83:1 on its own tint against
-    /// the olive's 5.56:1.
-    ///
-    /// **`ink3` is brand taupe, darkened.** Pure taupe `0x938978` measured 3.08:1
-    /// on `ground` — below AA for normal text — and the dark counterpart
-    /// `0xA79C8B` was 4.33:1 on `surface`, which is precisely where secondary
-    /// labels sit on a card. Both are lifted to clear AA on every background the
-    /// token actually lands on, keeping the taupe cast. This was fixed on both
-    /// brands at once; shotAI's was worse.
-    static let lfi = PaletteTokens(
-        accent: dyn(0xB46B3E, 0xD58B5C),
-        accentPress: dyn(0x9A5A33, 0xE3A579),
-        accentTint: dyn(0xF6EDE5, 0x3A2E25),
-        accentInk: dyn(0x8F5430, 0xE3A579),
-        onAccent: dyn(0xFFFFFF, 0x211F1C),
-        ink: dyn(0x47443E, 0xF8F4EC),
-        ink2: dyn(0x6F695F, 0xCFC7B8),
-        ink3: dyn(0x756C5C, 0xB5AA99),
-        hair: dyn(0xD8D2C6, 0x4A463F),
-        hair2: dyn(0xE7E2D7, 0x3F3C36),
-        controlBd: dyn(0xC9C1B3, 0x686258),
-        surface: dyn(0xFFFFFF, 0x3A3833),
-        surface2: dyn(0xFAF8F3, 0x43403A),
-        ground: dyn(0xF5F2EB, 0x2F2D29),
-        field: dyn(0xFFFFFF, 0x4A4740),
-        cardShadow: shadow(0x47443E, light: 0.10, dark: 0.55),
-        cardShadowHover: shadow(0x47443E, light: 0.18, dark: 0.70),
-        ok: dyn(0x3E7D5A, 0x6FB089),
-        okTint: dyn(0xE9F1EB, 0x23302A),
-        okInk: dyn(0x2B5B40, 0x9BCEB1),
-        draft: dyn(0xC79A72, 0xD5AE89),
-        draftTint: dyn(0xF7EFE6, 0x332A21),
-        draftInk: dyn(0x8A5F35, 0xE0C09E),
-        danger: dyn(0x9D3F32, 0xC96253),
-        dangerTint: dyn(0xF7EAE7, 0x33211E),
-        dangerInk: dyn(0x7F3227, 0xE0897B),
-        noteBg: dyn(0xE9F1EB, 0x23302A),
-        noteBd: dyn(0x3E7D5A, 0x6FB089),
-        noteFg: dyn(0x2B5B40, 0x9BCEB1),
-        cautBg: dyn(0xF7EFE6, 0x332A21),
-        cautBd: dyn(0xC79A72, 0xD5AE89),
-        cautFg: dyn(0x8A5F35, 0xE0C09E),
-        warnBg: dyn(0xF7EAE7, 0x33211E),
-        warnBd: dyn(0xC97F72, 0xC96253),
-        warnFg: dyn(0x7F3227, 0xE0897B)
-    )
+    static let shotAI = PaletteTokens(.shotAI)
+    static let lfi = PaletteTokens(.lfi)
 
     static func of(_ brand: BrandPref) -> PaletteTokens {
         switch brand {
@@ -188,19 +108,19 @@ extension EnvironmentValues {
 
 /// A colour that resolves to `light` under Aqua and `dark` under Dark Aqua,
 /// re-evaluated whenever the effective appearance changes.
-private func dyn(_ light: UInt32, _ dark: UInt32) -> Color {
+private func dyn(_ p: BrandPalette.Pair) -> Color {
     Color(nsColor: NSColor(name: nil) { appearance in
         let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return NSColor(rgb: isDark ? dark : light)
+        return NSColor(rgb: isDark ? p.dark : p.light)
     })
 }
 
 /// An appearance-aware translucent colour (for shadows) — the same `rgb` with a
 /// per-mode alpha.
-private func shadow(_ rgb: UInt32, light: Double, dark: Double) -> Color {
+private func shadow(_ a: BrandPalette.Alpha) -> Color {
     Color(nsColor: NSColor(name: nil) { appearance in
         let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return NSColor(rgb: rgb).withAlphaComponent(isDark ? dark : light)
+        return NSColor(rgb: a.rgb).withAlphaComponent(isDark ? a.dark : a.light)
     })
 }
 

@@ -1,30 +1,10 @@
 import AppKit
+import ShotModel
 import CaptureKit
 import SwiftUI
 
 /// The app's color-theme preference (Appearance tab). `system` follows the OS.
 /// Mirrors the Windows `ThemePref`.
-/// Which brand palette the UI wears. Orthogonal to `ThemePref`: a brand has both
-/// a light and a dark set, so the two are separate controls rather than one
-/// six-case picker that would misrepresent them as mutually exclusive.
-enum BrandPref: String, Codable, CaseIterable, Sendable {
-    case shotAI, lfi
-
-    var label: String {
-        switch self {
-        case .shotAI: "shotAI"
-        case .lfi: "LFI"
-        }
-    }
-
-    var blurb: String {
-        switch self {
-        case .shotAI: "shotAI's own violet identity."
-        case .lfi: "LaCrosse Footwear corporate — charcoal and rust."
-        }
-    }
-}
-
 enum ThemePref: String, Codable, CaseIterable, Sendable {
     case system, light, dark
 
@@ -124,5 +104,22 @@ struct AppPreferences: Codable, Equatable, Sendable {
         captureNoHide = (try? c.decodeIfPresent(Bool.self, forKey: .captureNoHide)) ?? d.captureNoHide
         hasSeenTour = (try? c.decodeIfPresent(Bool.self, forKey: .hasSeenTour)) ?? d.hasSeenTour
         checkForUpdates = (try? c.decodeIfPresent(Bool.self, forKey: .checkForUpdates)) ?? d.checkForUpdates
+    }
+}
+
+/// Display strings for the brand picker. The enum itself is in ShotModel.
+extension BrandPref {
+    var label: String {
+        switch self {
+        case .shotAI: "shotAI"
+        case .lfi: "LFI"
+        }
+    }
+
+    var blurb: String {
+        switch self {
+        case .shotAI: "shotAI's own violet identity."
+        case .lfi: "LaCrosse Footwear corporate — charcoal and rust."
+        }
     }
 }
