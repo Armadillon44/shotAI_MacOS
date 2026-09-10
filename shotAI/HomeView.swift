@@ -186,10 +186,10 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 1) {
                 (Text("shot").foregroundColor(palette.ink)
                     + Text("AI").foregroundColor(palette.accent))
-                    .font(Typo.wordmark)
+                    .font(palette.wordmark)
                     .kerning(-0.3)
                 Text("Turn any process into a step-by-step guide")
-                    .font(Typo.tagline)
+                    .font(palette.tagline)
                     .foregroundStyle(palette.ink3)
             }
             Spacer(minLength: 8)
@@ -223,7 +223,7 @@ struct HomeView: View {
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Start a project").font(Typo.heroTitle)
+            Text("Start a project").font(palette.heroTitle)
             Text("Record a process, mark it up, and let Claude turn it into a step-by-step guide you can export and share.")
                 .font(.callout)
                 .foregroundStyle(palette.ink2)
@@ -264,7 +264,7 @@ struct HomeView: View {
     private var modeRow: some View {
         HStack(spacing: 8) {
             Text("MODE")
-                .font(.system(size: 11, weight: .bold))
+                .font(palette.font(11, .bold))
                 .kerning(0.6)
                 .foregroundStyle(palette.ink3)
             ForEach([CaptureMode.screen, .auto, .window, .area], id: \.self) { m in
@@ -355,7 +355,7 @@ struct HomeView: View {
 
     private var listHead: some View {
         HStack(spacing: 10) {
-            Text(tab == .archive ? "Archived" : "Projects").font(.system(size: 15, weight: .semibold))
+            Text(tab == .archive ? "Archived" : "Projects").font(palette.font(15, .semibold))
                 + Text(countSuffix).foregroundColor(palette.ink3)
             searchField
             Spacer()
@@ -378,17 +378,17 @@ struct HomeView: View {
     private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 12))
+                .font(palette.font(12))
                 .foregroundStyle(palette.ink3)
             TextField("Search", text: $searchQuery)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(palette.font(12))
                 .focused($searchFocused)
                 .frame(width: 130)
                 .onExitCommand { searchQuery = ""; searchFocused = false }
             if !searchQuery.isEmpty {
                 Button { searchQuery = ""; searchFocused = true } label: {
-                    Image(systemName: "xmark.circle.fill").font(.system(size: 12))
+                    Image(systemName: "xmark.circle.fill").font(palette.font(12))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(palette.ink3)
@@ -426,7 +426,7 @@ struct HomeView: View {
     private var bulkBar: some View {
         let count = selection.count
         return HStack(spacing: 10) {
-            Text("\(count) selected").font(.system(size: 13, weight: .semibold))
+            Text("\(count) selected").font(palette.font(13, .semibold))
                 .foregroundStyle(palette.ink)
                 .contentTransition(.numericText())
             Button("Select all") { selectAllVisible() }
@@ -476,7 +476,7 @@ struct HomeView: View {
                 .progressViewStyle(.linear)
                 .frame(width: 150)
             Text("Exporting \(p.current) of \(p.total)…")
-                .font(.system(size: 13, weight: .semibold))
+                .font(palette.font(13, .semibold))
                 .foregroundStyle(palette.ink)
                 .contentTransition(.numericText())
             Spacer()
@@ -583,7 +583,7 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if !group.label.isEmpty {
                         Text(group.label.uppercased())
-                            .font(Typo.eyebrow)
+                            .font(palette.eyebrow)
                             .kerning(0.6)
                             .foregroundStyle(palette.ink3)
                     }
@@ -614,7 +614,7 @@ struct HomeView: View {
             Button { toggle(p) } label: {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     // Muted at rest so the title wins the glance; full accent when checked.
-                    .font(.system(size: isSelected ? 18 : 16))
+                    .font(palette.font(isSelected ? 18 : 16))
                     .foregroundStyle(isSelected ? palette.accent : palette.ink3.opacity(0.55))
                     .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.bounce, value: isSelected)
@@ -632,7 +632,7 @@ struct HomeView: View {
                         .onExitCommand { renamingPath = nil }
                 } else {
                     HStack(spacing: 8) {
-                        Text(p.title).font(Typo.cardTitle).lineLimit(1)
+                        Text(p.title).font(palette.cardTitle).lineLimit(1)
                         StatusBadge(hasSop: p.hasSop)
                     }
                 }
@@ -736,7 +736,7 @@ struct HomeView: View {
     /// An SF Symbol in the same accent halo — for state-specific empties.
     private func iconHalo(_ system: String) -> some View {
         Image(systemName: system)
-            .font(.system(size: 29))
+            .font(palette.font(29))
             .foregroundStyle(palette.accent)
             .frame(width: 78, height: 78)
             .background(Circle().fill(palette.accentTint))
@@ -746,7 +746,7 @@ struct HomeView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             logoHalo
-            Text("No projects yet").font(Typo.sectionTitle)
+            Text("No projects yet").font(palette.sectionTitle)
             Text("Create one above — press Capture to record a process, or Empty project to build one from images and text.")
                 .font(.callout)
                 .foregroundStyle(palette.ink2)
@@ -761,7 +761,7 @@ struct HomeView: View {
     private var archiveEmptyState: some View {
         VStack(spacing: 12) {
             iconHalo("archivebox")
-            Text("No archived projects").font(Typo.sectionTitle)
+            Text("No archived projects").font(palette.sectionTitle)
             Text("Archiving compresses a project's screenshots in place to save disk. Use a project's ⋯ menu to Archive it — it restores automatically when you open it.")
                 .font(.callout)
                 .foregroundStyle(palette.ink2)
@@ -777,7 +777,7 @@ struct HomeView: View {
         VStack(spacing: 12) {
             iconHalo("magnifyingglass")
             Text("No projects match “\(searchQuery.trimmingCharacters(in: .whitespacesAndNewlines))”")
-                .font(Typo.sectionTitle)
+                .font(palette.sectionTitle)
                 .multilineTextAlignment(.center)
             Button("Clear search") { searchQuery = "" }
                 .buttonStyle(.bordered)
@@ -953,7 +953,7 @@ private struct ChipStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .font(.system(size: 12, weight: on ? .semibold : .regular))
+                .font(palette.font(12, on ? .semibold : .regular))
                 .padding(.horizontal, 11)
                 .padding(.vertical, 4)
                 .foregroundStyle(on ? palette.accentInk : palette.ink2)
@@ -979,7 +979,7 @@ private struct StatusBadge: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Text(hasSop ? "SOP ready" : "Draft")
-            .font(.system(size: 11, weight: .semibold))
+            .font(palette.font(11, .semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .foregroundStyle(hasSop ? palette.okInk : palette.draftInk)
@@ -1045,8 +1045,8 @@ private struct AiSetupHint: View {
     private var capsuleLabel: some View {
         HStack(spacing: 5) {
             Image(systemName: canSignInHere ? "person.crop.circle" : "sparkles")
-                .font(.system(size: 11, weight: .semibold))
-            Text(label).font(.system(size: 11.5, weight: .semibold))
+                .font(palette.font(11, .semibold))
+            Text(label).font(palette.font(11.5, .semibold))
         }
         .foregroundStyle(palette.accentInk)
         .padding(.horizontal, 9)

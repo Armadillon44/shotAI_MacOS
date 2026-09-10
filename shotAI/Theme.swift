@@ -31,6 +31,8 @@ struct PaletteTokens: Sendable {
     /// Corner radii, by role. Part of the brand: the LFI guide treats corner
     /// rounding as identity, not decoration.
     let radii: BrandRadii
+    /// The brand's typeface family, or nil for the system face.
+    let fontFamily: String?
     // Brand accent + supporting shades.
     let accent, accentPress, accentTint, accentInk, onAccent: Color
     // Ink ramp (text).
@@ -61,6 +63,7 @@ extension PaletteTokens {
     init(_ b: BrandPalette) {
         self.init(
             radii: b.radii,
+            fontFamily: b.fontFamily,
             accent: dyn(b.accent), accentPress: dyn(b.accentPress),
             accentTint: dyn(b.accentTint), accentInk: dyn(b.accentInk),
             onAccent: dyn(b.onAccent),

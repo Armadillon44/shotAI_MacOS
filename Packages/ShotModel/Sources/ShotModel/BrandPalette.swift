@@ -57,6 +57,14 @@ public struct BrandRadii: Sendable, Equatable {
 
 public struct BrandPalette: Sendable, Equatable {
     public let radii: BrandRadii
+    /// The brand's typeface family, or nil for the platform's system face.
+    ///
+    /// A family NAME, not a file: the app resolves it to a bundled face, and the
+    /// exports name it first in their CSS stack. Exports deliberately do not
+    /// embed it — as base64 it is ~1.37MB against a measured 0.8-1.5MB
+    /// Freshservice paste budget, so embedding would consume the whole budget
+    /// and the images would silently drop.
+    public let fontFamily: String?
 
     /// A token's light and dark values. Appearance is resolved by the consumer —
     /// the app through `NSColor`'s dynamic provider, exports by taking `.light`
@@ -121,6 +129,7 @@ public struct BrandPalette: Sendable, Equatable {
 
     public init(
         radii: BrandRadii,
+        fontFamily: String?,
         accent: Pair,
         accentPress: Pair,
         accentTint: Pair,
@@ -158,6 +167,7 @@ public struct BrandPalette: Sendable, Equatable {
         warnFg: Pair
     ) {
         self.radii = radii
+        self.fontFamily = fontFamily
         self.accent = accent
         self.accentPress = accentPress
         self.accentTint = accentTint
@@ -205,6 +215,7 @@ public extension BrandPalette {
     /// shotAI's own identity — violet. Ported from the Windows app's CSS custom properties; these are the values every existing user sees.
     static let shotAI = BrandPalette(
         radii: BrandRadii(panel: 12, card: 10, figure: 8, control: 6, chip: nil),
+        fontFamily: nil,
         accent: Pair(0x6344F1, 0x9A8BF7),
         accentPress: Pair(0x5233D4, 0xB0A4FA),
         accentTint: Pair(0xEFEAFE, 0x241F3A),
@@ -245,6 +256,7 @@ public extension BrandPalette {
     /// LaCrosse Footwear corporate — charcoal and warm neutrals carrying the surface, rust as a focused pop. See design/lfi-theme-study.html.
     static let lfi = BrandPalette(
         radii: BrandRadii(panel: 8, card: 8, figure: 6, control: 5, chip: 8),
+        fontFamily: "Archivo",
         accent: Pair(0xB46B3E, 0xD58B5C),
         accentPress: Pair(0x9A5A33, 0xE3A579),
         accentTint: Pair(0xF6EDE5, 0x3A2E25),

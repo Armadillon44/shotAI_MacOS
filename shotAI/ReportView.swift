@@ -97,14 +97,14 @@ struct ReportView: View {
                 if steps.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "camera.viewfinder")
-                            .font(.system(size: 30))
+                            .font(palette.font(30))
                             .foregroundStyle(palette.accent)
                             .frame(width: 78, height: 78)
                             .background(Circle().fill(palette.accentTint))
                             .accessibilityHidden(true)
-                        Text("No steps yet").font(.system(size: 16, weight: .semibold))
+                        Text("No steps yet").font(palette.font(16, .semibold))
                         Text("Record a process, or add a text block below to start building this guide.")
-                            .font(.system(size: 13))
+                            .font(palette.font(13))
                             .foregroundStyle(palette.ink2)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 420)
@@ -238,11 +238,11 @@ struct ReportView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
                     Image(systemName: "sparkles").foregroundStyle(palette.accent)
-                    Text("AI SOP").font(.system(size: 15, weight: .semibold))
+                    Text("AI SOP").font(palette.font(15, .semibold))
                     Spacer()
                     if model.sopBusy {
                         if let p = model.sopProgress {
-                            Text(p).font(.system(size: 11)).foregroundStyle(palette.ink2)
+                            Text(p).font(palette.font(11)).foregroundStyle(palette.ink2)
                         }
                         ProgressView().controlSize(.small)
                         Button("Cancel") { model.cancelSop() }
@@ -280,7 +280,7 @@ struct ReportView: View {
                 // with the alert — so the panel cannot drift from the error text.
                 if let reason = model.sopBlockedReason {
                     Text(reason)
-                        .font(.system(size: 11)).foregroundStyle(palette.ink3)
+                        .font(palette.font(11)).foregroundStyle(palette.ink3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -342,7 +342,7 @@ struct ReportView: View {
     private var undoMergeBanner: some View {
         HStack(spacing: 10) {
             Image(systemName: "arrow.uturn.backward").foregroundStyle(palette.ink2)
-            Text("Steps merged.").font(.system(size: 13)).foregroundStyle(palette.ink2)
+            Text("Steps merged.").font(palette.font(13)).foregroundStyle(palette.ink2)
             Spacer(minLength: 8)
             Button("Undo merge") { Task { await model.undoLastMerge() } }
         }
@@ -361,7 +361,7 @@ struct ReportView: View {
             InlineEditable(
                 text: opened.manifest.title,
                 placeholder: "Untitled guide",
-                font: .system(size: 23, weight: .bold),
+                font: palette.font(23, .bold),
                 id: "title",
                 focus: $focus
             ) { new in
@@ -382,7 +382,7 @@ struct ReportView: View {
                 }
                 Text("· \(numbers.count) numbered step\(numbers.count == 1 ? "" : "s")")
             }
-            .font(.system(size: 13))
+            .font(palette.font(13))
             .foregroundStyle(palette.ink2)
         }
     }
@@ -459,7 +459,7 @@ private struct InsertZone: View {
                 Button("Warning") { onInsert(.callout(.warning)) }
             } label: {
                 Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 19)) // ~20% larger than before
+                    .font(palette.font(19)) // ~20% larger than before
                     .foregroundStyle(hovering ? palette.accent : palette.ink3)
             }
             .menuStyle(.borderlessButton)
@@ -495,14 +495,14 @@ private struct IntroBox: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("OVERVIEW")
-                    .font(.system(size: 12, weight: .bold)).kerning(0.6)
+                    .font(palette.font(12, .bold)).kerning(0.6)
                     .foregroundStyle(palette.ink3)
                 Spacer()
                 Button("Remove") { onRemove() }
                     .buttonStyle(.borderless)
-                    .font(.system(size: 11))
+                    .font(palette.font(11))
             }
-            InlineEditable(text: intro.heading, placeholder: "Overview heading…", font: .system(size: 16, weight: .bold), id: "intro:h", focus: focus) { new in
+            InlineEditable(text: intro.heading, placeholder: "Overview heading…", font: palette.font(16, .bold), id: "intro:h", focus: focus) { new in
                 Task { await model.setIntro(heading: new, body: intro.body) }
             }
             InlineEditable(text: intro.body, placeholder: "Describe the overall goal of this guide…", multiline: true, id: "intro:b", focus: focus) { new in
@@ -606,13 +606,13 @@ private struct StepRow: View {
             // Rail: a drag grip only (a section carries no number), sized to the
             // badge column so the divider lines up with the other steps' content.
             Image(systemName: "line.3.horizontal")
-                .font(.system(size: 13, weight: .semibold))
+                .font(palette.font(13, .semibold))
                 .foregroundStyle(palette.ink3)
                 .frame(width: 32)
                 .help("Drag to reorder")
                 .draggable(step.id) {
                     Text(dragPreview)
-                        .font(.system(size: 13))
+                        .font(palette.font(13))
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(palette.accentTint)
                         .foregroundStyle(palette.accentInk)
@@ -719,12 +719,12 @@ private struct StepRow: View {
         VStack(spacing: 6) {
             badge // number/glyph on top, aligned with the step's first line
             Image(systemName: "line.3.horizontal")
-                .font(.system(size: 13, weight: .semibold))
+                .font(palette.font(13, .semibold))
                 .foregroundStyle(palette.ink3)
                 .help("Drag to reorder")
                 .draggable(step.id) {
                     Text(dragPreview)
-                        .font(.system(size: 13))
+                        .font(palette.font(13))
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(palette.accentTint)
                         .foregroundStyle(palette.accentInk)
@@ -757,7 +757,7 @@ private struct StepRow: View {
         // never runs for a section (the rail is only built for non-section rows).
         if let callout = step.callout, ReportPresentation.isCalloutStep(step) {
             Text(ReportPresentation.calloutGlyph(callout))
-                .font(.system(size: 16))
+                .font(palette.font(16))
                 .frame(width: 32, height: 32)
                 .background(CalloutBox.colors(callout, palette).background)
                 .clipShape(palette.badgeShape)
@@ -774,7 +774,7 @@ private struct StepRow: View {
 
     private var textBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
-            InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .system(size: 16, weight: .bold), id: "th:\(step.id)", focus: focus) { new in
+            InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: palette.font(16, .bold), id: "th:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, heading: new) }
             }
             .padding(.trailing, 28)  // clear the ⋯ overlay at the card's top-right
@@ -786,7 +786,7 @@ private struct StepRow: View {
 
     @ViewBuilder private var shotBlock: some View {
         HStack(alignment: .top, spacing: 8) {
-            InlineEditable(text: step.caption, placeholder: "Add a caption…", font: .system(size: 14, weight: .bold), id: "cap:\(step.id)", focus: focus) { new in
+            InlineEditable(text: step.caption, placeholder: "Add a caption…", font: palette.font(14, .bold), id: "cap:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, caption: new) }
             }
             Button("Edit", systemImage: "pencil") { onEdit(step) }
@@ -814,7 +814,7 @@ private struct StepRow: View {
         // still round-trips in the manifest; it's just no longer displayed.
         if let window = step.window, let line = windowLine(window) {
             Text(line)
-                .font(.system(size: 11))
+                .font(palette.font(11))
                 .foregroundStyle(palette.ink3)
                 .lineLimit(1)
         }
@@ -830,7 +830,7 @@ private struct StepRow: View {
             Image(systemName: "arrow.triangle.merge")
                 .foregroundStyle(palette.accentInk)
             Text("This right-click likely opened a menu — merge it into the next step.")
-                .font(.system(size: 13))
+                .font(palette.font(13))
                 .foregroundStyle(palette.accentInk)
             Spacer(minLength: 8)
             Button("Merge ↓") { Task { await model.mergeIntoNext(id: step.id) } }
@@ -881,7 +881,7 @@ private struct CalloutBox: View {
         let c = CalloutBox.colors(kind, palette)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
-                InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: .system(size: 14, weight: .bold), color: c.text, id: "ch:\(step.id)", focus: focus) { new in
+                InlineEditable(text: step.heading ?? "", placeholder: "Heading (optional)", font: palette.font(14, .bold), color: c.text, id: "ch:\(step.id)", focus: focus) { new in
                     Task { await model.editStepText(stepId: step.id, heading: new) }
                 }
                 Spacer(minLength: 8)
@@ -923,7 +923,7 @@ private struct SectionBox: View {
             Rectangle()
                 .fill(palette.hair)
                 .frame(height: 2)   // divider rule ABOVE the heading (export parity)
-            InlineEditable(text: step.heading ?? "", placeholder: "Section heading", font: .system(size: 17, weight: .bold), color: palette.ink, id: "ch:\(step.id)", focus: focus) { new in
+            InlineEditable(text: step.heading ?? "", placeholder: "Section heading", font: palette.font(17, .bold), color: palette.ink, id: "ch:\(step.id)", focus: focus) { new in
                 Task { await model.editStepText(stepId: step.id, heading: new) }
             }
             .padding(.trailing, 28)  // clear the ⋯ overlay at the top-right
@@ -1001,7 +1001,9 @@ struct InlineEditable: View {
     @Environment(\.palette) private var palette
     let text: String
     var placeholder: String
-    var font: Font = .system(size: 14)
+    /// nil = the palette's body face, resolved in `body`. Same reason as
+    /// `color` below: a default argument cannot read `@Environment`.
+    var font: Font?
     /// nil = the palette's primary ink, resolved in `body`. A default argument
     /// cannot read `@Environment`, so it cannot be `= palette.ink` here.
     var color: Color?
@@ -1027,7 +1029,7 @@ struct InlineEditable: View {
         // (never a Button) so it always claims `id` in the shared FocusState — which
         // is what lets Tab move focus into it (a click OR the key monitor).
         .textFieldStyle(.plain)
-        .font(font)
+        .font(font ?? palette.font(14))
         .foregroundStyle(color ?? palette.ink)
         .focused(focus, equals: id)
         .padding(.horizontal, 5)
@@ -1079,7 +1081,7 @@ private struct NumberBadge: View {
                     .textFieldStyle(.plain)
                     .multilineTextAlignment(.center)
                     .frame(width: 26)
-                    .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                    .font(palette.font(15, .semibold).monospacedDigit())
                     .foregroundStyle(palette.onAccent)
                     .focused(focus, equals: fieldID)
                     .onKeyPress(.return, phases: .down) { _ in focus.wrappedValue = nil; return .handled }
@@ -1088,7 +1090,7 @@ private struct NumberBadge: View {
                     .onAppear { draft = String(number); DispatchQueue.main.async { focus.wrappedValue = fieldID } }
             } else {
                 Text(String(number))
-                    .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                    .font(palette.font(15, .semibold).monospacedDigit())
                     .foregroundStyle(palette.onAccent)
                     .contentShape(Rectangle())
                     .onTapGesture { draft = String(number); editing = true }
@@ -1305,7 +1307,7 @@ private struct CtlButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
+                .font(palette.font(14, .medium))
                 .frame(width: 30, height: 28)
                 .contentShape(Rectangle())
         }

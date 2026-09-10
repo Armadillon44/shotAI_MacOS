@@ -48,7 +48,7 @@ struct DocScaleControl: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "rectangle.compress.vertical")
-                .font(.system(size: 11))
+                .font(palette.font(11))
                 .foregroundStyle(palette.ink3)
                 .accessibilityHidden(true)
 
@@ -94,7 +94,7 @@ struct DocScaleControl: View {
                          onCommit: commitDraft, onAbandon: abandon)
                 .frame(width: 26, height: 16)
             Text("%")
-                .font(.system(size: 11, weight: .medium))
+                .font(palette.font(11, .medium))
                 .foregroundStyle(palette.ink3)
         }
         .padding(.horizontal, 5)

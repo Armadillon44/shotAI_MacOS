@@ -22,9 +22,9 @@ struct UpdateBadge: View {
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(palette.font(11, .semibold))
                     Text("Update to \(release.version.description)")
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(palette.font(11.5, .semibold))
                 }
                 .foregroundStyle(palette.accentInk)
                 .padding(.horizontal, 9)
@@ -40,7 +40,7 @@ struct UpdateBadge: View {
                 model.updates.badgeDismissed = true
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8.5, weight: .bold))
+                    .font(palette.font(8.5, .bold))
                     .foregroundStyle(palette.ink3)
                     .padding(4)
                     .contentShape(Rectangle())

@@ -85,6 +85,14 @@ public struct ExportTheme: Sendable, Equatable {
     public let cardRadius: Int
     /// The screenshot, nested inside a card, so smaller than `cardRadius`.
     public let figureRadius: Int
+    /// The CSS `font-family` stack, brand face first.
+    ///
+    /// NAMED, never embedded. As base64 the face is ~1.37MB against a measured
+    /// 0.8-1.5MB Freshservice paste budget, so embedding would consume the whole
+    /// budget and the images would silently drop. A recipient who has the face
+    /// sees it; everyone else gets the same fallback as before.
+    public let fontStack: String
+
     /// The step-number badge and the callout glyph badge. `nil` means fully
     /// round — a circle, since the badge is square — which is not expressible
     /// as a pixel value and is the default brand's look.
@@ -99,7 +107,7 @@ public struct ExportTheme: Sendable, Equatable {
         text: String, bodyText: String, meta: String, pageBg: String,
         accent: String, onAccent: String,
         cardBg: String, cardBorder: String, hair: String, introBg: String, quoteRule: String,
-        cardRadius: Int, figureRadius: Int, chipRadius: Int?,
+        cardRadius: Int, figureRadius: Int, chipRadius: Int?, fontStack: String,
         note: Callout, caution: Callout, warning: Callout
     ) {
         self.text = text
@@ -116,6 +124,7 @@ public struct ExportTheme: Sendable, Equatable {
         self.cardRadius = cardRadius
         self.figureRadius = figureRadius
         self.chipRadius = chipRadius
+        self.fontStack = fontStack
         self.note = note
         self.caution = caution
         self.warning = warning
@@ -149,6 +158,8 @@ public extension ExportTheme {
             cardRadius: Int(b.radii.card),
             figureRadius: Int(b.radii.figure),
             chipRadius: b.radii.chip.map(Int.init),
+            fontStack: [b.fontFamily.map { "\"\($0)\"" }, Self.systemStack]
+                .compactMap { $0 }.joined(separator: ","),
             note: Callout(bg: BrandPalette.hex(b.noteBg.light),
                           border: BrandPalette.hex(b.noteBd.light),
                           text: BrandPalette.hex(b.noteFg.light)),
@@ -160,6 +171,9 @@ public extension ExportTheme {
                              text: BrandPalette.hex(b.warnFg.light))
         )
     }
+
+    /// The fallback every document has always used.
+    static let systemStack = "-apple-system,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif"
 
     static let shotAI = ExportTheme(.shotAI)
     static let lfi = ExportTheme(.lfi)

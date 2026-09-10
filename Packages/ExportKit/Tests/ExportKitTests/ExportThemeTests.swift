@@ -202,6 +202,28 @@ final class ExportThemeTests: XCTestCase {
         XCTAssertEqual(calloutGlyphExport(.section), ReportPresentation.calloutGlyph(.section))
     }
 
+    /// The brand face is NAMED in the CSS, never embedded.
+    ///
+    /// Embedding is not merely inadvisable, it is arithmetically impossible: the
+    /// face is ~1.37MB as base64 against a measured 0.8-1.5MB Freshservice paste
+    /// budget, so it would consume the whole budget and the images would
+    /// silently drop. A recipient who has the face sees it; everyone else gets
+    /// the same fallback the document always had.
+    func testFontIsNamedNotEmbedded() {
+        XCTAssertTrue(ExportTheme.lfi.fontStack.hasPrefix("\"Archivo\","),
+                      "the brand face comes first: \(ExportTheme.lfi.fontStack)")
+        XCTAssertEqual(ExportTheme.shotAI.fontStack, ExportTheme.systemStack,
+                       "the default brand names no custom face")
+        for t in [ExportTheme.shotAI, .lfi] {
+            XCTAssertTrue(t.fontStack.hasSuffix("sans-serif"), "a real fallback survives")
+        }
+        // No @font-face, and nothing base64-encoded, in either brand's CSS.
+        for css in [docCSS(theme: .lfi), plainCSS(theme: .lfi)] {
+            XCTAssertFalse(css.contains("@font-face"))
+            XCTAssertFalse(css.contains("base64"))
+        }
+    }
+
     // MARK: helpers
 
     private func hex(_ c: NSColor) -> String {
