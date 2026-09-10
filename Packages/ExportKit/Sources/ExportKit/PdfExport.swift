@@ -108,6 +108,8 @@ struct Ink {
 
     /// Document-card radius, so the PDF matches the report and the HTML.
     var cardRadius: CGFloat { CGFloat(t.cardRadius) }
+    /// nil = draw the badge as a circle, matching the app's default brand.
+    var chipRadius: CGFloat? { t.chipRadius.map(CGFloat.init) }
 
     // Section dividers. Aliases now, not separate values: the ramp collapse made
     // them identical to the general tokens, so naming them here keeps
@@ -331,9 +333,24 @@ private final class PdfCanvas {
     /// colored ring + dark glyph, matching the report; numbered badges are solid.
     private func drawBadge(_ text: String, fill: NSColor, textColor: NSColor, ring: NSColor?, topY: CGFloat, ctx: CGContext) {
         let rect = CGRect(x: margin, y: topY - badgeD, width: badgeD, height: badgeD)
-        ctx.setFillColor(fill.cgColor); ctx.fillEllipse(in: rect)
+        // Circle on the default brand, rounded rect where the brand gives the
+        // badge a radius — the same distinction the app draws.
+        if let r = ink.chipRadius {
+            ctx.setFillColor(fill.cgColor)
+            ctx.addPath(CGPath(roundedRect: rect, cornerWidth: r, cornerHeight: r, transform: nil))
+            ctx.fillPath()
+        } else {
+            ctx.setFillColor(fill.cgColor); ctx.fillEllipse(in: rect)
+        }
         if let ring {
-            ctx.setStrokeColor(ring.cgColor); ctx.setLineWidth(1); ctx.strokeEllipse(in: rect.insetBy(dx: 0.5, dy: 0.5))
+            ctx.setStrokeColor(ring.cgColor); ctx.setLineWidth(1)
+            let inset = rect.insetBy(dx: 0.5, dy: 0.5)
+            if let r = ink.chipRadius {
+                ctx.addPath(CGPath(roundedRect: inset, cornerWidth: r, cornerHeight: r, transform: nil))
+                ctx.strokePath()
+            } else {
+                ctx.strokeEllipse(in: inset)
+            }
         }
         let a = Ink.attr(text, size: 12, weight: .semibold, color: textColor)
         let line = CTLineCreateWithAttributedString(a)

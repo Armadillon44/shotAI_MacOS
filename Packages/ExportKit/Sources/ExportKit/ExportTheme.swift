@@ -85,6 +85,10 @@ public struct ExportTheme: Sendable, Equatable {
     public let cardRadius: Int
     /// The screenshot, nested inside a card, so smaller than `cardRadius`.
     public let figureRadius: Int
+    /// The step-number badge and the callout glyph badge. `nil` means fully
+    /// round — a circle, since the badge is square — which is not expressible
+    /// as a pixel value and is the default brand's look.
+    public let chipRadius: Int?
 
     // Callouts.
     public let note: Callout
@@ -95,7 +99,7 @@ public struct ExportTheme: Sendable, Equatable {
         text: String, bodyText: String, meta: String, pageBg: String,
         accent: String, onAccent: String,
         cardBg: String, cardBorder: String, hair: String, introBg: String, quoteRule: String,
-        cardRadius: Int, figureRadius: Int,
+        cardRadius: Int, figureRadius: Int, chipRadius: Int?,
         note: Callout, caution: Callout, warning: Callout
     ) {
         self.text = text
@@ -111,6 +115,7 @@ public struct ExportTheme: Sendable, Equatable {
         self.quoteRule = quoteRule
         self.cardRadius = cardRadius
         self.figureRadius = figureRadius
+        self.chipRadius = chipRadius
         self.note = note
         self.caution = caution
         self.warning = warning
@@ -143,6 +148,7 @@ public extension ExportTheme {
             quoteRule: BrandPalette.hex(b.controlBd.light),
             cardRadius: Int(b.radii.card),
             figureRadius: Int(b.radii.figure),
+            chipRadius: b.radii.chip.map(Int.init),
             note: Callout(bg: BrandPalette.hex(b.noteBg.light),
                           border: BrandPalette.hex(b.noteBd.light),
                           text: BrandPalette.hex(b.noteFg.light)),
