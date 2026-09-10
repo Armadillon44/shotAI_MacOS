@@ -180,8 +180,35 @@ greenfield.
   requirement.** Caveat: anything drawn before registration falls back to the system face.
 - Non-issues, contrary to expectation: Dynamic Type (macOS SwiftUI ignores it),
   `monospacedDigit` (works on custom fonts), SF Symbols (carry weight correctly).
-- Real cost: 144 call sites **plus a reflow pass on every fixed-width frame**, because
-  Archivo's advance widths differ from SF.
+- **Reflow risk measured, not assumed: it is small.** Archivo at width 100 advances
+  159.1pt for a 21-character string against the system font's 158.8pt. The earlier
+  warning about "a reflow pass on every fixed-width frame" overstated it. Condensed
+  62 is genuinely 33% narrower, so both axes work.
+
+### The font in exports *(settled 2026-09-10)*
+
+**PDF embeds the face; HTML names it and falls back.**
+
+A PDF embeds the glyphs it draws with, so an LFI PDF reads correctly on a machine
+that has never heard of Archivo — no install, no network. That is the one export
+where the brand typeface actually reaches the reader, and `PdfExport` draws with it.
+
+HTML cannot. Three options were weighed:
+
+| | verdict |
+|---|---|
+| `@font-face` + base64 of the full face | 0.84MB base64 against a measured 0.8–1.5MB Freshservice paste budget. Would consume most of it and the images would silently drop. |
+| Latin **subset** + embed | Would very likely fit (~100–200KB). Needs `fonttools` as a build dependency. **Considered and declined** — the fallbacks look fine and are maximally compatible. |
+| Google Fonts `<link>` | Breaks offline, almost certainly stripped by Froala on paste, and pings Google from every reader. Rejected. |
+
+**Chosen: name the face, then fall back to grotesques of similar proportion** —
+Helvetica Neue, Helvetica, Arial, Liberation Sans — rather than the platform UI
+faces. A reader without Archivo gets something from the same family of shapes
+instead of Segoe or SF. Never breaks, works offline, no build dependency.
+
+⚠️ A figure that appeared in earlier notes was wrong: Archivo base64 is **0.84MB**,
+not 1.37MB. That was **Acumin's** size. Embedding is borderline, not impossible —
+the decision stands, the arithmetic behind it did not.
 - 4 call sites must not change — Helvetica parity with the flattened annotation renderer
   (`EditorModel:273`, `EditorOverlay:347/542/548`, source of truth `Flatten.swift:299-300`).
 
