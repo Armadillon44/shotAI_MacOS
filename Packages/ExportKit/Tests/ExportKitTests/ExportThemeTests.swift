@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+import ShotModel
 @testable import ExportKit
 
 /// Pins the export colour vocabulary.
@@ -173,6 +174,18 @@ final class ExportThemeTests: XCTestCase {
         XCTAssertTrue(docCSS(theme: .lfi).contains("border-radius:8px"))
         XCTAssertFalse(docCSS(theme: .lfi).contains("border-radius:10px"),
                        "an LFI document should carry no default-brand radius")
+    }
+
+    /// The export's glyph table is a second copy of the app's. They must agree,
+    /// or the same callout carries one mark on screen and another in the file.
+    ///
+    /// This is the same duplication that let the colour ramps drift, caught here
+    /// by assertion rather than by someone noticing months later.
+    func testExportGlyphsMatchTheApp() {
+        XCTAssertEqual(calloutGlyphExport(.note), ReportPresentation.calloutGlyph(.note))
+        XCTAssertEqual(calloutGlyphExport(.caution), ReportPresentation.calloutGlyph(.caution))
+        XCTAssertEqual(calloutGlyphExport(.warning), ReportPresentation.calloutGlyph(.warning))
+        XCTAssertEqual(calloutGlyphExport(.section), ReportPresentation.calloutGlyph(.section))
     }
 
     // MARK: helpers

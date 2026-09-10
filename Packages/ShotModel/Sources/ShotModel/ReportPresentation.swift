@@ -35,7 +35,7 @@ public enum ReportPresentation {
         switch kind {
         case .note: "ℹ"
         case .caution: "⚠"
-        case .warning: "⛔"
+        case .warning: "━"
         case .section: ""
         }
     }

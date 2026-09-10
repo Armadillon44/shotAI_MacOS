@@ -34,14 +34,24 @@ public struct BrandRadii: Sendable, Equatable {
     public let card: Double
     /// Nested media: the screenshot inside a step card, and drop targets.
     public let figure: Double
-    /// Small controls: the search field, inline editors, the zoom pill.
+    /// Small controls: inline editors, the zoom pill.
     public let control: Double
+    /// Chips and badges — the tab, mode and sort chips, the status pill, the
+    /// step number, the search field.
+    ///
+    /// `nil` means fully rounded: a capsule, and a circle where the element is
+    /// square. That is the default brand's look and it is not expressible as a
+    /// number, because a capsule's radius depends on the element's height.
+    /// LFI gives it a real value, which is what the study drew.
+    public let chip: Double?
 
-    public init(panel: Double, card: Double, figure: Double, control: Double) {
+    public init(panel: Double, card: Double, figure: Double, control: Double,
+                chip: Double?) {
         self.panel = panel
         self.card = card
         self.figure = figure
         self.control = control
+        self.chip = chip
     }
 }
 
@@ -194,7 +204,7 @@ public struct BrandPalette: Sendable, Equatable {
 public extension BrandPalette {
     /// shotAI's own identity — violet. Ported from the Windows app's CSS custom properties; these are the values every existing user sees.
     static let shotAI = BrandPalette(
-        radii: BrandRadii(panel: 12, card: 10, figure: 8, control: 6),
+        radii: BrandRadii(panel: 12, card: 10, figure: 8, control: 6, chip: nil),
         accent: Pair(0x6344F1, 0x9A8BF7),
         accentPress: Pair(0x5233D4, 0xB0A4FA),
         accentTint: Pair(0xEFEAFE, 0x241F3A),
@@ -234,7 +244,7 @@ public extension BrandPalette {
 
     /// LaCrosse Footwear corporate — charcoal and warm neutrals carrying the surface, rust as a focused pop. See design/lfi-theme-study.html.
     static let lfi = BrandPalette(
-        radii: BrandRadii(panel: 8, card: 8, figure: 6, control: 5),
+        radii: BrandRadii(panel: 8, card: 8, figure: 6, control: 5, chip: 8),
         accent: Pair(0xB46B3E, 0xD58B5C),
         accentPress: Pair(0x9A5A33, 0xE3A579),
         accentTint: Pair(0xF6EDE5, 0x3A2E25),

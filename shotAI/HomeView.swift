@@ -398,8 +398,8 @@ struct HomeView: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
         .background(palette.surface)
-        .overlay(Capsule().stroke(searchFocused ? palette.accent : palette.controlBd))
-        .clipShape(Capsule())
+        .overlay(palette.chipShape.stroke(searchFocused ? palette.accent : palette.controlBd))
+        .clipShape(palette.chipShape)
         .help("Search project names and step content (⌘F)")
     }
 
@@ -958,8 +958,8 @@ private struct ChipStyle: ButtonStyle {
                 .padding(.vertical, 4)
                 .foregroundStyle(on ? palette.accentInk : palette.ink2)
                 .background(on ? palette.accentTint : palette.surface)
-                .overlay(Capsule().stroke(on ? palette.accent : palette.controlBd))
-                .clipShape(Capsule())
+                .overlay(palette.chipShape.stroke(on ? palette.accent : palette.controlBd))
+                .clipShape(palette.chipShape)
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 // Cross-fade the selected tint and give a springy press instead of snapping.
                 .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
@@ -984,7 +984,7 @@ private struct StatusBadge: View {
             .padding(.vertical, 2)
             .foregroundStyle(hasSop ? palette.okInk : palette.draftInk)
             .background(hasSop ? palette.okTint : palette.draftTint)
-            .clipShape(Capsule())
+            .clipShape(palette.chipShape)
             .contentTransition(.opacity)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: hasSop)
             .help(hasSop ? "Claude has written this guide" : "No SOP generated yet")
@@ -1051,7 +1051,7 @@ private struct AiSetupHint: View {
         .foregroundStyle(palette.accentInk)
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(palette.accentTint, in: Capsule())
-        .overlay(Capsule().stroke(palette.accent.opacity(hovering ? 0.55 : 0.28)))
+        .background(palette.accentTint, in: palette.chipShape)
+        .overlay(palette.chipShape.stroke(palette.accent.opacity(hovering ? 0.55 : 0.28)))
     }
 }

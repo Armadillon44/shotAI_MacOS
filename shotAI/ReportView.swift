@@ -760,15 +760,15 @@ private struct StepRow: View {
                 .font(.system(size: 16))
                 .frame(width: 32, height: 32)
                 .background(CalloutBox.colors(callout, palette).background)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(CalloutBox.colors(callout, palette).border))
+                .clipShape(palette.badgeShape)
+                .overlay(palette.badgeShape.stroke(CalloutBox.colors(callout, palette).border))
         } else if let number {
             NumberBadge(number: number, stepId: step.id, focus: focus) { pos in
                 Task { await model.moveStep(id: step.id, toPosition: pos) }
             }
         } else {
             // Defensive: a non-callout step should always have a number.
-            Circle().fill(palette.hair2).frame(width: 32, height: 32)
+            palette.badgeShape.fill(palette.hair2).frame(width: 32, height: 32)
         }
     }
 
@@ -1073,7 +1073,7 @@ private struct NumberBadge: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(palette.accent)
+            palette.badgeShape.fill(palette.accent)
             if editing {
                 TextField("", text: $draft)
                     .textFieldStyle(.plain)

@@ -12,4 +12,23 @@ extension PaletteTokens {
     var card: CGFloat { CGFloat(radii.card) }
     var figure: CGFloat { CGFloat(radii.figure) }
     var control: CGFloat { CGFloat(radii.control) }
+
+    /// The shape for chips and badges — tabs, mode and sort chips, the status
+    /// pill, the step number, the search field.
+    ///
+    /// A `Shape` rather than a radius, because the default brand's answer is
+    /// "capsule", which is not a number: a capsule's corner depends on the
+    /// element's height, and a square element wants a circle. LFI has a real
+    /// radius, so it gets a rounded rectangle.
+    var chipShape: AnyShape {
+        guard let r = radii.chip else { return AnyShape(Capsule()) }
+        return AnyShape(RoundedRectangle(cornerRadius: CGFloat(r)))
+    }
+
+    /// The square variant — the step-number badge and the callout glyph, which
+    /// are circles on the default brand rather than capsules.
+    var badgeShape: AnyShape {
+        guard let r = radii.chip else { return AnyShape(Circle()) }
+        return AnyShape(RoundedRectangle(cornerRadius: CGFloat(r)))
+    }
 }
