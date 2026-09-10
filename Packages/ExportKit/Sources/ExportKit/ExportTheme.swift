@@ -13,6 +13,27 @@ import Foundation
 /// document must render the same regardless of the appearance the app happens to
 /// be in. An export is not a screenshot of the UI.
 ///
+/// **One neutral ramp, and it is the app's.** The export stylesheets were once
+/// written against Tailwind's greys while the app used its own violet-tinted
+/// inks, and the two ended up mixed *within a single document*: body text in
+/// `#1f2937` with a section heading one line below in `#191826`, a screenshot
+/// border in `#e5e7eb` inside a card border in `#e7e4f2`. Invisible — each pair
+/// sits within a few percent — which is exactly why it survived. The Tailwind
+/// values are gone; every token below is annotated with the `Palette` token it
+/// mirrors.
+///
+/// Three tokens disappeared in that collapse rather than being kept as
+/// duplicates: `sectionHeading`, `sectionBody` and `sectionRule` became
+/// identical to `text`, `bodyText` and `hair`. A section heading *is* primary
+/// text; keeping a second name for the same role is how they drift apart again.
+///
+/// ⚠️ **The mirroring is a convention, not a mechanism.** ExportKit cannot see
+/// `Palette` — it is a separate package with no app dependency, deliberately, so
+/// an export renders the same whatever appearance the app is in. Nothing fails
+/// if someone changes `Palette.ink` and not `text` here. Making it structural
+/// means lifting the shared light values into ShotModel, which both sides
+/// already depend on; that is worth doing if this ever drifts again.
+///
 /// **Values are 6-digit hex strings, always.** `Ink.color(_:)` scans with
 /// `scanHexInt64`, so a 3-digit `#fff` would parse as `0x000fff` — blue, silently.
 /// The CSS previously spelled two colours `#fff`; they are `#ffffff` here, which
@@ -58,11 +79,6 @@ public struct ExportTheme: Sendable, Equatable {
     /// The blockquote rule in the Word-facing export.
     public let quoteRule: String
 
-    // Section dividers.
-    public let sectionHeading: String
-    public let sectionBody: String
-    public let sectionRule: String
-
     // Callouts.
     public let note: Callout
     public let caution: Callout
@@ -72,7 +88,6 @@ public struct ExportTheme: Sendable, Equatable {
         text: String, bodyText: String, meta: String, pageBg: String,
         accent: String, onAccent: String,
         cardBg: String, cardBorder: String, hair: String, introBg: String, quoteRule: String,
-        sectionHeading: String, sectionBody: String, sectionRule: String,
         note: Callout, caution: Callout, warning: Callout
     ) {
         self.text = text
@@ -86,9 +101,6 @@ public struct ExportTheme: Sendable, Equatable {
         self.hair = hair
         self.introBg = introBg
         self.quoteRule = quoteRule
-        self.sectionHeading = sectionHeading
-        self.sectionBody = sectionBody
-        self.sectionRule = sectionRule
         self.note = note
         self.caution = caution
         self.warning = warning
@@ -100,20 +112,17 @@ public extension ExportTheme {
     /// renderers already shipped. Changing anything here changes every existing
     /// user's next export, so `ExportThemeTests` pins all of them.
     static let shotAI = ExportTheme(
-        text: "#1f2937",
-        bodyText: "#374151",
-        meta: "#6b7280",
+        text: "#191826",        // Palette.ink
+        bodyText: "#5a5772",    // Palette.ink2
+        meta: "#6f6c88",        // Palette.ink3
         pageBg: "#ffffff",
-        accent: "#6344f1",
+        accent: "#6344f1",      // Palette.accent
         onAccent: "#ffffff",
-        cardBg: "#faf9ff",
-        cardBorder: "#e7e4f2",
-        hair: "#e5e7eb",
-        introBg: "#efeafe",
-        quoteRule: "#cbd5e1",
-        sectionHeading: "#191826",
-        sectionBody: "#5a5772",
-        sectionRule: "#e7e4f2",
+        cardBg: "#faf9ff",      // Palette.surface2
+        cardBorder: "#e7e4f2",  // Palette.hair
+        hair: "#e7e4f2",        // Palette.hair
+        introBg: "#efeafe",     // Palette.accentTint
+        quoteRule: "#cbc7db",   // Palette.controlBd
         note: Callout(bg: "#ecfdf5", border: "#6ee7b7", text: "#065f46"),
         caution: Callout(bg: "#fffbeb", border: "#fcd34d", text: "#92400e"),
         warning: Callout(bg: "#fef2f2", border: "#fca5a5", text: "#991b1b")
