@@ -81,3 +81,71 @@ import Testing
         return (max(x, y) + 0.05) / (min(x, y) + 0.05)
     }
 }
+
+/// The radius scale.
+@Suite struct BrandRadiiContract {
+    /// The default brand must be exactly what shipped before radii were
+    /// tokenized — introducing a token set is not licence to restyle the app.
+    @Test func defaultBrandIsUnchanged() {
+        let r = BrandPalette.shotAI.radii
+        #expect(r.panel == 12)
+        #expect(r.card == 10)
+        #expect(r.figure == 8)
+        #expect(r.control == 6)
+    }
+
+    /// LFI's card radius is the one value the study settled explicitly.
+    @Test func lfiCardIsEight() {
+        #expect(BrandPalette.lfi.radii.card == 8)
+    }
+
+    /// Siblings match, and a nested element takes a smaller radius than its
+    /// container. Asserted as a RELATIONSHIP, on every brand, because the
+    /// Windows port flattened all three when "10px everywhere" was read as one
+    /// number (Armadillon44/shotAI#77).
+    @Test(arguments: [BrandPalette.shotAI, BrandPalette.lfi])
+    func nestedElementsAreRounderInward(b: BrandPalette) {
+        #expect(b.radii.figure < b.radii.card, "the screenshot sits inside a card")
+        #expect(b.radii.control < b.radii.card, "a control is smaller than a card")
+        #expect(b.radii.card <= b.radii.panel, "a card sits inside a panel")
+    }
+}
+
+/// Chips and badges.
+@Suite struct BrandChipShape {
+    /// The default brand's chips are capsules, and that is not a number — a
+    /// capsule's corner depends on the element's height, and a square element
+    /// wants a circle. `nil` says so; a sentinel like 999 would not.
+    @Test func defaultBrandChipsAreFullyRounded() {
+        #expect(BrandPalette.shotAI.radii.chip == nil)
+    }
+
+    /// LFI gives them a real radius — the value the study drew.
+    @Test func lfiChipsMatchItsCards() {
+        #expect(BrandPalette.lfi.radii.chip == 8)
+        #expect(BrandPalette.lfi.radii.chip == BrandPalette.lfi.radii.card,
+                "a chip and a card read as the same family in the study")
+    }
+}
+
+/// The callout glyphs are a cross-platform contract: the same project must show
+/// the same mark on both apps and in every export.
+@Suite struct CalloutGlyphContract {
+    @Test func warningIsATypographicBarNotAnEmojiOrb() {
+        let g = ReportPresentation.calloutGlyph(.warning)
+        #expect(g == "━", "U+2501 BOX DRAWINGS HEAVY HORIZONTAL")
+        // ⛔ U+26D4 renders as a red emoji orb in most fonts, which is what this
+        // replaced. Nothing here should carry emoji presentation.
+        #expect(g != "⛔")
+        for s in g.unicodeScalars {
+            #expect(!s.properties.isEmojiPresentation, "\(s) defaults to emoji presentation")
+        }
+    }
+
+    @Test func everyKindHasAGlyphExceptSection() {
+        #expect(!ReportPresentation.calloutGlyph(.note).isEmpty)
+        #expect(!ReportPresentation.calloutGlyph(.caution).isEmpty)
+        #expect(!ReportPresentation.calloutGlyph(.warning).isEmpty)
+        #expect(ReportPresentation.calloutGlyph(.section).isEmpty, "a divider carries no glyph")
+    }
+}

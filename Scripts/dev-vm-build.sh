@@ -46,6 +46,16 @@ BUILT="$DD/Build/Products/Debug/shotAI.app"
 
 mkdir -p "$OUT"; rm -rf "$OUT/shotAI.app"; cp -R "$BUILT" "$OUT/shotAI.app"
 APP="$OUT/shotAI.app"
+SHA=$(git rev-parse --short HEAD)
+
+# Stamp the commit into the bundle version, so a running copy can say which
+# build it is. Finder ▸ Get Info shows "1.3.0 (<sha>)", and About does too.
+# Without this a stale install is indistinguishable from a change that did not
+# work — which cost a full round of "the radii look the same" when the answer
+# was that the build predated them.
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $SHA" "$APP/Contents/Info.plist"
+# Editing Info.plist invalidates the signature, so re-sign AFTER stamping.
+codesign --force --sign - --timestamp=none "$APP" 2>/dev/null
 
 # Fail loudly rather than hand over something that dies on the guest.
 echo "▸ Portability checks"
@@ -87,32 +97,40 @@ DEPS=$(otool -L "$APP/Contents/MacOS/shotAI" | grep "^	" | grep -vcE "/usr/lib|/
 }
 
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
-SHA=$(git rev-parse --short HEAD)
 
-# Ship a DMG, not the bare .app.
+# Ship a ZIP.
 #
-# The bundle is not the problem — a Debug build and the Release build that ran
-# fine on the guest are structurally identical: same file inventory, same
-# Info.plist keys, same platform and SDK. What differs is how it gets there. A
-# .app read over a Parallels share fails signature validation and Finder reports
-# "damaged or incomplete"; the same app inside a DMG works, because the guest
-# mounts a real filesystem and copies from that.
+# Neither a bundle nor a disk image survives the Parallels share. A .app read
+# over prl_fs fails signature validation ("damaged or incomplete"); a DMG cannot
+# even be mounted from it ("No such file or directory") — the mount helper
+# cannot reach the backing file. The share is fine for ONE ordinary file, and
+# nothing else.
 #
-# A single file also survives the share intact, which a bundle of ~1,000 files
-# demonstrably does not.
-echo "▸ Package DMG"
-DMG="$OUT/shotAI-dev-$SHA.dmg"
-STAGE="$OUT/stage"; rm -rf "$STAGE"; mkdir -p "$STAGE"
-cp -R "$APP" "$STAGE/"; ln -s /Applications "$STAGE/Applications"
-rm -f "$OUT"/shotAI-dev-*.dmg
-hdiutil create -volname "shotAI dev $SHA" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
-rm -rf "$STAGE"
+# So the artifact has to be copied to the guest's local disk before it is opened,
+# whatever the format. Given that, a zip is the shortest path: copy, double
+# click, the app appears. No mount, no eject, no drag.
+#
+# `ditto -c -k --sequesterRsrc --keepParent` is the Apple-documented way to
+# archive a signed bundle; plain `zip` drops metadata and the signature stops
+# verifying.
+echo "▸ Package"
+ZIP="$OUT/shotAI-dev-$SHA.zip"
+rm -f "$OUT"/shotAI-dev-*.zip "$OUT"/shotAI-dev-*.dmg
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 
 echo "  arch:      $(lipo -archs "$APP/Contents/MacOS/shotAI")"
 echo "  signature: ad-hoc, verifies, no debug entitlement"
-echo "  version:   $VERSION ($SHA)"
-echo "  → $DMG"
+echo "  version:   $VERSION ($SHA)  ← shown in Finder ▸ Get Info"
+echo "  → $ZIP"
 echo
-echo "On the guest: open the DMG and drag shotAI to Applications, then"
-echo "right-click ▸ Open the first time. Do NOT launch the .app straight from"
-echo "the share — that is what produces \"damaged or incomplete\"."
+cat <<'NOTE'
+
+ON THE GUEST — the copy is not optional:
+
+  1. Drag the .zip from the share to the guest's Desktop.
+  2. Double-click it THERE. Expanding it on the share produces a broken app.
+  3. Move shotAI.app to /Applications, then right-click ▸ Open once.
+
+Nothing runs or mounts directly off a Parallels share: a bundle fails signature
+validation, and a disk image will not mount at all.
+NOTE

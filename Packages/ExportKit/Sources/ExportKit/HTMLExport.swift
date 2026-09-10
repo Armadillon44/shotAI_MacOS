@@ -128,6 +128,8 @@ private func imagePixelDimensions(_ data: Data) -> (w: Int, h: Int)? {
 /// Layout tables are also ruled out: the destination forces `table{width:100%}`.
 func docCSS(scale: Double = 1.0, theme t: ExportTheme = .shotAI) -> String {
     let col = DocScale.htmlColumn(scale)
+    // A circle is not a pixel value, so the default brand keeps `50%`.
+    let badge = t.chipRadius.map { "\($0)px" } ?? "50%"
     return """
 *{box-sizing:border-box}
 html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -136,21 +138,21 @@ body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-s
 .doc__col{max-width:\(col)px;margin:0 auto}
 .doc__title{max-width:\(col)px;margin:0 auto 4px;font-size:1.9rem;line-height:1.25}
 .doc__meta{max-width:\(col)px;margin:0 auto 28px;color:\(t.meta);font-size:.85rem}
-.doc__intro{max-width:\(col)px;margin:0 auto 28px;padding:14px 18px;border:1px solid \(t.cardBorder);border-left:4px solid \(t.accent);border-radius:10px;background:\(t.introBg)}
+.doc__intro{max-width:\(col)px;margin:0 auto 28px;padding:14px 18px;border:1px solid \(t.cardBorder);border-left:4px solid \(t.accent);border-radius:\(t.cardRadius)px;background:\(t.introBg)}
 .doc__intro-eyebrow{text-transform:uppercase;letter-spacing:.6px;font-size:.7rem;font-weight:700;color:\(t.meta);margin:0 0 6px}
 .doc__intro-h{margin:0 0 6px;font-size:1.15rem}
 .doc__intro-b{margin:0;color:\(t.bodyText);white-space:pre-wrap}
 .step{display:flex;gap:16px;max-width:\(col)px;margin:0 auto 18px;align-items:flex-start;page-break-inside:avoid;break-inside:avoid}
-.step__num{flex:0 0 auto;width:30px;height:30px;margin-top:14px;border-radius:50%;background:\(t.accent);color:\(t.onAccent);font-weight:600;display:flex;align-items:center;justify-content:center;font-size:.95rem}
+.step__num{flex:0 0 auto;width:30px;height:30px;margin-top:14px;border-radius:\(badge);background:\(t.accent);color:\(t.onAccent);font-weight:600;display:flex;align-items:center;justify-content:center;font-size:.95rem}
 .step__num--note{background:\(t.note.bg);color:\(t.note.text);border:1px solid \(t.note.border)}
 .step__num--caution{background:\(t.caution.bg);color:\(t.caution.text);border:1px solid \(t.caution.border)}
 .step__num--warning{background:\(t.warning.bg);color:\(t.warning.text);border:1px solid \(t.warning.border)}
-.step__main{flex:1 1 auto;min-width:0;padding:14px 16px;border:1px solid \(t.cardBorder);border-radius:10px;background:\(t.cardBg)}
+.step__main{flex:1 1 auto;min-width:0;padding:14px 16px;border:1px solid \(t.cardBorder);border-radius:\(t.cardRadius)px;background:\(t.cardBg)}
 .step__main--note{background:\(t.note.bg);border-color:\(t.note.border);color:\(t.note.text)}
 .step__main--caution{background:\(t.caution.bg);border-color:\(t.caution.border);color:\(t.caution.text)}
 .step__main--warning{background:\(t.warning.bg);border-color:\(t.warning.border);color:\(t.warning.text)}
 .step__title{font-size:1.15rem;margin:0 0 10px}
-.step__img{display:block;max-width:100%;height:auto;margin-inline:auto;border:1px solid \(t.hair);border-radius:8px}
+.step__img{display:block;max-width:100%;height:auto;margin-inline:auto;border:1px solid \(t.hair);border-radius:\(t.figureRadius)px}
 .step__instr{margin:10px 0 0;white-space:pre-wrap;font-size:1.02rem}
 .step--textonly .step__instr{margin-top:0}
 .step__note{margin:8px 0 0;color:\(t.meta);font-size:.92rem;white-space:pre-wrap}
@@ -169,7 +171,7 @@ func calloutGlyphExport(_ kind: CalloutKindExport) -> String {
     switch kind {
     case .note: "ℹ"
     case .caution: "⚠"
-    case .warning: "⛔"
+    case .warning: "━"
     case .section: ""
     }
 }

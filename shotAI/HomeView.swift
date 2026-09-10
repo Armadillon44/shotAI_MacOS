@@ -234,8 +234,8 @@ struct HomeView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 10)
                     .background(palette.field)
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(palette.controlBd))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: palette.control).stroke(palette.controlBd))
+                    .clipShape(RoundedRectangle(cornerRadius: palette.control))
                     .onSubmit { if canStart { startCapture() } }
                 Button { startCapture() } label: {
                     Label("Capture", systemImage: "record.circle")
@@ -255,8 +255,8 @@ struct HomeView: View {
         .background(palette.surface2)
         // Elevated above the flat list so it reads as the primary "start here":
         // soft shadow + a low-opacity accent border instead of a plain hairline.
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.accent.opacity(0.40)))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: palette.panel).stroke(palette.accent.opacity(0.40)))
+        .clipShape(RoundedRectangle(cornerRadius: palette.panel))
         .cardElevation()
         .tourAnchor(.hero)
     }
@@ -398,8 +398,8 @@ struct HomeView: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
         .background(palette.surface)
-        .overlay(Capsule().stroke(searchFocused ? palette.accent : palette.controlBd))
-        .clipShape(Capsule())
+        .overlay(palette.chipShape.stroke(searchFocused ? palette.accent : palette.controlBd))
+        .clipShape(palette.chipShape)
         .help("Search project names and step content (⌘F)")
     }
 
@@ -460,8 +460,8 @@ struct HomeView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(palette.surface2)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.hair))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: palette.panel).stroke(palette.hair))
+        .clipShape(RoundedRectangle(cornerRadius: palette.panel))
         .cardElevation()
         .transition(.move(edge: .top).combined(with: .opacity))
     }
@@ -484,8 +484,8 @@ struct HomeView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(palette.surface2)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.hair))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: palette.panel).stroke(palette.hair))
+        .clipShape(RoundedRectangle(cornerRadius: palette.panel))
         .cardElevation()
         .transition(.move(edge: .top).combined(with: .opacity))
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: p.current)
@@ -667,9 +667,9 @@ struct HomeView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(isSelected ? palette.accentTint : palette.surface)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(
+        .overlay(RoundedRectangle(cornerRadius: palette.panel).stroke(
             isSelected ? palette.accent : (isHover ? palette.accent.opacity(0.45) : palette.hair)))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: palette.panel))
         .cardElevation(hover: isHover && !isSelected)
         .offset(y: isHover && !isSelected ? -1 : 0)
         .onHover { over in hoveredPath = over ? p.path : (hoveredPath == p.path ? nil : hoveredPath) }
@@ -958,8 +958,8 @@ private struct ChipStyle: ButtonStyle {
                 .padding(.vertical, 4)
                 .foregroundStyle(on ? palette.accentInk : palette.ink2)
                 .background(on ? palette.accentTint : palette.surface)
-                .overlay(Capsule().stroke(on ? palette.accent : palette.controlBd))
-                .clipShape(Capsule())
+                .overlay(palette.chipShape.stroke(on ? palette.accent : palette.controlBd))
+                .clipShape(palette.chipShape)
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 // Cross-fade the selected tint and give a springy press instead of snapping.
                 .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
@@ -984,7 +984,7 @@ private struct StatusBadge: View {
             .padding(.vertical, 2)
             .foregroundStyle(hasSop ? palette.okInk : palette.draftInk)
             .background(hasSop ? palette.okTint : palette.draftTint)
-            .clipShape(Capsule())
+            .clipShape(palette.chipShape)
             .contentTransition(.opacity)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: hasSop)
             .help(hasSop ? "Claude has written this guide" : "No SOP generated yet")
@@ -1051,7 +1051,7 @@ private struct AiSetupHint: View {
         .foregroundStyle(palette.accentInk)
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(palette.accentTint, in: Capsule())
-        .overlay(Capsule().stroke(palette.accent.opacity(hovering ? 0.55 : 0.28)))
+        .background(palette.accentTint, in: palette.chipShape)
+        .overlay(palette.chipShape.stroke(palette.accent.opacity(hovering ? 0.55 : 0.28)))
     }
 }

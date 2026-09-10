@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+import ShotModel
 @testable import ExportKit
 
 /// Pins the export colour vocabulary.
@@ -149,8 +150,56 @@ final class ExportThemeTests: XCTestCase {
         XCTAssertTrue(docCSS(theme: lfi).contains("#b46b3e"))
         XCTAssertFalse(docCSS(theme: lfi).contains("#6344f1"), "no violet in an LFI document")
         XCTAssertEqual(hex(Ink(lfi).badge), lfi.accent, "the PDF follows too")
+        // The PDF draws the badge itself, so the shape has to reach it as well
+        // as the colour — the CSS assertion above cannot cover this path.
+        XCTAssertEqual(Ink(lfi).chipRadius, 8)
+        XCTAssertNil(Ink(ExportTheme.shotAI).chipRadius, "default stays a circle")
         // Always the LIGHT values: a dark-background SOP is unreadable printed.
         XCTAssertEqual(lfi.pageBg, "#ffffff")
+    }
+
+    /// Geometry follows the brand, and keeps the concentric relationship.
+    ///
+    /// The screenshot is nested inside a card, so it must stay SMALLER than the
+    /// card on every brand — not merely different. Asserting the relationship
+    /// rather than two numbers is what stops a future brand flattening them,
+    /// which is exactly what the Windows port did when "10px everywhere" was
+    /// read literally (Armadillon44/shotAI#77).
+    func testRadiiFollowTheBrandAndStayConcentric() {
+        for theme in [ExportTheme.shotAI, .lfi] {
+            XCTAssertGreaterThan(theme.cardRadius, theme.figureRadius,
+                                 "a nested figure must be rounder-inward than its card")
+        }
+        XCTAssertEqual(ExportTheme.shotAI.cardRadius, 10)
+        XCTAssertEqual(ExportTheme.shotAI.figureRadius, 8)
+        XCTAssertEqual(ExportTheme.lfi.cardRadius, 8)
+        XCTAssertEqual(ExportTheme.lfi.figureRadius, 6)
+
+        XCTAssertTrue(docCSS(theme: .lfi).contains("border-radius:8px"))
+
+        // The step badge: a circle on the default brand, a real radius on LFI.
+        // A document whose cards are square-ish and whose numbers are still
+        // round is the specific mismatch this catches.
+        XCTAssertNil(ExportTheme.shotAI.chipRadius)
+        XCTAssertEqual(ExportTheme.lfi.chipRadius, 8)
+        XCTAssertTrue(docCSS(theme: .shotAI).contains("border-radius:50%"),
+                      "the default brand's badge stays a circle")
+        XCTAssertFalse(docCSS(theme: .lfi).contains("border-radius:50%"),
+                       "an LFI document should carry no circular badge")
+        XCTAssertFalse(docCSS(theme: .lfi).contains("border-radius:10px"),
+                       "an LFI document should carry no default-brand radius")
+    }
+
+    /// The export's glyph table is a second copy of the app's. They must agree,
+    /// or the same callout carries one mark on screen and another in the file.
+    ///
+    /// This is the same duplication that let the colour ramps drift, caught here
+    /// by assertion rather than by someone noticing months later.
+    func testExportGlyphsMatchTheApp() {
+        XCTAssertEqual(calloutGlyphExport(.note), ReportPresentation.calloutGlyph(.note))
+        XCTAssertEqual(calloutGlyphExport(.caution), ReportPresentation.calloutGlyph(.caution))
+        XCTAssertEqual(calloutGlyphExport(.warning), ReportPresentation.calloutGlyph(.warning))
+        XCTAssertEqual(calloutGlyphExport(.section), ReportPresentation.calloutGlyph(.section))
     }
 
     // MARK: helpers

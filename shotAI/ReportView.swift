@@ -286,8 +286,8 @@ struct ReportView: View {
             }
             .padding(14)
             .background(palette.surface)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.hair))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: palette.panel).stroke(palette.hair))
+            .clipShape(RoundedRectangle(cornerRadius: palette.panel))
             .cardElevation()
         }
     }
@@ -348,8 +348,8 @@ struct ReportView: View {
         }
         .padding(10)
         .background(palette.surface2)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.hair))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: palette.figure).stroke(palette.hair))
+        .clipShape(RoundedRectangle(cornerRadius: palette.figure))
     }
 
     private var header: some View {
@@ -515,8 +515,8 @@ private struct IntroBox: View {
         .overlay(alignment: .leading) { Rectangle().fill(palette.accent).frame(width: 4) }
         // 10 matches the step card: the overview is a sibling document card, not
         // something nested inside one. Only the screenshot (8) sits inside a card.
-        .overlay { RoundedRectangle(cornerRadius: 10).stroke(palette.hair) }
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay { RoundedRectangle(cornerRadius: palette.card).stroke(palette.hair) }
+        .clipShape(RoundedRectangle(cornerRadius: palette.card))
     }
 }
 
@@ -650,16 +650,16 @@ private struct StepRow: View {
             .padding(.vertical, 14)
             .padding(.horizontal, 16)
             .background {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: palette.card)
                     .fill(fill)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(border, lineWidth: borderWidth))
+                    .overlay(RoundedRectangle(cornerRadius: palette.card).stroke(border, lineWidth: borderWidth))
             }
             // Clip to the card. In steady state the figure is sized to the column
             // (reportFigureFitWidth env) and sits ~20pt inside the border, so
             // nothing (image or zoom controls) is cropped; the clip only bites the
             // brief overflow while the window is being dragged narrower, before the
             // measured column catches up — which otherwise spilled past the border.
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: palette.card))
             // ⋯ overlaid on top of the clip so it's never clipped, in the card's
             // top-right corner (aligned with the content inset).
             .overlay(alignment: .topTrailing) { stepMenu.padding(14) }
@@ -760,15 +760,15 @@ private struct StepRow: View {
                 .font(.system(size: 16))
                 .frame(width: 32, height: 32)
                 .background(CalloutBox.colors(callout, palette).background)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(CalloutBox.colors(callout, palette).border))
+                .clipShape(palette.badgeShape)
+                .overlay(palette.badgeShape.stroke(CalloutBox.colors(callout, palette).border))
         } else if let number {
             NumberBadge(number: number, stepId: step.id, focus: focus) { pos in
                 Task { await model.moveStep(id: step.id, toPosition: pos) }
             }
         } else {
             // Defensive: a non-callout step should always have a number.
-            Circle().fill(palette.hair2).frame(width: 32, height: 32)
+            palette.badgeShape.fill(palette.hair2).frame(width: 32, height: 32)
         }
     }
 
@@ -838,8 +838,8 @@ private struct StepRow: View {
         }
         .padding(10)
         .background(palette.accentTint)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.accent.opacity(0.4)))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: palette.figure).stroke(palette.accent.opacity(0.4)))
+        .clipShape(RoundedRectangle(cornerRadius: palette.figure))
     }
 }
 
@@ -1033,9 +1033,9 @@ struct InlineEditable: View {
         .padding(.horizontal, 5)
         .padding(.vertical, 2)
         .background(active ? palette.surface2 : .clear)
-        .overlay(RoundedRectangle(cornerRadius: 6)
+        .overlay(RoundedRectangle(cornerRadius: palette.control)
             .stroke(active ? palette.accent.opacity(0.5) : .clear, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: palette.control))
         // Return commits; Shift+Return inserts a newline in multi-line fields.
         .onKeyPress(.return, phases: .down) { key in
             if multiline && key.modifiers.contains(.shift) { return .ignored }
@@ -1073,7 +1073,7 @@ private struct NumberBadge: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(palette.accent)
+            palette.badgeShape.fill(palette.accent)
             if editing {
                 TextField("", text: $draft)
                     .textFieldStyle(.plain)
@@ -1155,7 +1155,7 @@ private struct StepFigure: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 120)
                     .background(Color.primary.opacity(0.05))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: palette.figure))
             } else {
                 ProgressView()
                     .frame(height: 120)
@@ -1196,8 +1196,8 @@ private struct StepFigure: View {
             .frame(width: v.imageWidth, height: v.imageHeight, alignment: .topLeading)
             .offset(x: shown.width, y: shown.height)
             .frame(width: v.boxWidth, height: v.boxHeight, alignment: .topLeading)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.hair))
+            .clipShape(RoundedRectangle(cornerRadius: palette.figure))
+            .overlay(RoundedRectangle(cornerRadius: palette.figure).stroke(palette.hair))
             .contentShape(Rectangle())
             .gesture(canPan ? panGesture(shown: shown, rangeX: rangeX, rangeY: rangeY) : nil)
 
@@ -1314,7 +1314,7 @@ private struct CtlButton: View {
         .foregroundStyle(disabled ? Color.secondary.opacity(0.4) : (hover ? palette.accent : Color.primary))
         .background(
             (hover && !disabled ? palette.accent.opacity(0.16) : Color.clear),
-            in: RoundedRectangle(cornerRadius: 6)
+            in: RoundedRectangle(cornerRadius: palette.control)
         )
         .onHover { hover = $0 }
         .help(help)

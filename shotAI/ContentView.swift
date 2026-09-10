@@ -239,7 +239,7 @@ struct ContentView: View {
                         updateReset: capture.updateResetPermissions
                     )
                         .background(.background)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .clipShape(RoundedRectangle(cornerRadius: palette.panel))
                         .shadow(radius: 30)
                 }
                 .transition(.opacity)
