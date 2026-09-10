@@ -12,20 +12,17 @@ final class ExportThemeTests: XCTestCase {
 
     /// Every value, spelled out. A diff here is the review.
     func testShotAIValuesArePinned() {
-        XCTAssertEqual(t.text, "#1f2937")
-        XCTAssertEqual(t.bodyText, "#374151")
-        XCTAssertEqual(t.meta, "#6b7280")
+        XCTAssertEqual(t.text, "#191826")        // Palette.ink
+        XCTAssertEqual(t.bodyText, "#5a5772")    // Palette.ink2
+        XCTAssertEqual(t.meta, "#6f6c88")        // Palette.ink3
         XCTAssertEqual(t.pageBg, "#ffffff")
         XCTAssertEqual(t.accent, "#6344f1")
         XCTAssertEqual(t.onAccent, "#ffffff")
         XCTAssertEqual(t.cardBg, "#faf9ff")
         XCTAssertEqual(t.cardBorder, "#e7e4f2")
-        XCTAssertEqual(t.hair, "#e5e7eb")
+        XCTAssertEqual(t.hair, "#e7e4f2")        // Palette.hair
         XCTAssertEqual(t.introBg, "#efeafe")
-        XCTAssertEqual(t.quoteRule, "#cbd5e1")
-        XCTAssertEqual(t.sectionHeading, "#191826")
-        XCTAssertEqual(t.sectionBody, "#5a5772")
-        XCTAssertEqual(t.sectionRule, "#e7e4f2")
+        XCTAssertEqual(t.quoteRule, "#cbc7db")   // Palette.controlBd
         XCTAssertEqual(t.note, .init(bg: "#ecfdf5", border: "#6ee7b7", text: "#065f46"))
         XCTAssertEqual(t.caution, .init(bg: "#fffbeb", border: "#fcd34d", text: "#92400e"))
         XCTAssertEqual(t.warning, .init(bg: "#fef2f2", border: "#fca5a5", text: "#991b1b"))
@@ -98,9 +95,10 @@ final class ExportThemeTests: XCTestCase {
             XCTAssertEqual(hex(c.text), expected.text, "\(kind) text")
         }
 
-        XCTAssertEqual(hex(Ink.sectionHeading), t.sectionHeading)
-        XCTAssertEqual(hex(Ink.sectionBody), t.sectionBody)
-        XCTAssertEqual(hex(Ink.sectionRule), t.sectionRule)
+        // Section styling is the general ramp now, in both renderers.
+        XCTAssertEqual(hex(Ink.sectionHeading), t.text)
+        XCTAssertEqual(hex(Ink.sectionBody), t.bodyText)
+        XCTAssertEqual(hex(Ink.sectionRule), t.hair)
         XCTAssertTrue(ExportTheme.knownDivergences.isEmpty,
                       "still divergent: \(ExportTheme.knownDivergences)")
     }
@@ -126,6 +124,19 @@ final class ExportThemeTests: XCTestCase {
         XCTAssertFalse(css.contains("border-radius:12px"), "12 was the pre-0b card radius")
     }
 
+    /// One neutral ramp, not two.
+    ///
+    /// The Tailwind greys the export stylesheets used to carry are gone. This
+    /// asserts none of them can come back — it is the specific regression the
+    /// collapse exists to prevent, and it would have caught the original drift.
+    func testNoTailwindGreysRemain() {
+        let css = docCSS() + plainCSS()
+        for grey in ["#1f2937", "#374151", "#6b7280", "#e5e7eb", "#cbd5e1"] {
+            XCTAssertFalse(css.contains(grey),
+                           "\(grey) is a Tailwind grey; the export ramp is the app's inks")
+        }
+    }
+
     // MARK: helpers
 
     private func hex(_ c: NSColor) -> String {
@@ -140,8 +151,7 @@ final class ExportThemeTests: XCTestCase {
         [("text", t.text), ("bodyText", t.bodyText), ("meta", t.meta), ("pageBg", t.pageBg),
          ("accent", t.accent), ("onAccent", t.onAccent), ("cardBg", t.cardBg),
          ("cardBorder", t.cardBorder), ("hair", t.hair), ("introBg", t.introBg),
-         ("quoteRule", t.quoteRule), ("sectionHeading", t.sectionHeading),
-         ("sectionBody", t.sectionBody), ("sectionRule", t.sectionRule),
+         ("quoteRule", t.quoteRule),
          ("note.bg", t.note.bg), ("note.border", t.note.border), ("note.text", t.note.text),
          ("caution.bg", t.caution.bg), ("caution.border", t.caution.border),
          ("caution.text", t.caution.text),

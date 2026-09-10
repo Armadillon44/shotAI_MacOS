@@ -103,13 +103,12 @@ enum Ink {
     static let introBg = color(t.introBg)
     static let eyebrow = color(t.meta)        // "OVERVIEW" label
 
-    // Section dividers. These now use the theme's dedicated values, matching the
-    // CSS. They previously reused title/meta/hair, which rendered every section
-    // heading in the PDF cooler and lower-contrast than the same heading in the
-    // HTML export of the same project.
-    static let sectionHeading = color(t.sectionHeading)
-    static let sectionBody = color(t.sectionBody)
-    static let sectionRule = color(t.sectionRule)
+    // Section dividers. Aliases now, not separate values: the ramp collapse made
+    // them identical to the general tokens, so naming them here keeps
+    // `drawSection` readable without inviting a second set of values to drift in.
+    static let sectionHeading = title
+    static let sectionBody = body
+    static let sectionRule = hair
 
     struct Callout { let bg, border, text: NSColor }
     private static func callout(_ c: ExportTheme.Callout) -> Callout {

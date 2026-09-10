@@ -59,11 +59,15 @@ extension PaletteTokens {
         accentTint: dyn(0xEFEAFE, 0x241F3A),
         accentInk: dyn(0x4A34C9, 0xC8BDFB),
         onAccent: dyn(0xFFFFFF, 0x171528),
-        // The dark `ink3` is lifted slightly from the Windows value so secondary
-        // labels don't vanish against the near-black `ground`.
+        // The dark `ink3` is lifted from the Windows value so secondary labels
+        // don't vanish against the near-black `ground`. The LIGHT one is darkened
+        // from the Windows `#918ea6` for the same reason in the other direction:
+        // at 2.90:1 on `ground` it never met AA, and it is about to carry
+        // document text in exports. Now 4.60 / 5.03 / 4.80 on ground / surface /
+        // surface2.
         ink: dyn(0x191826, 0xECE9F7),
         ink2: dyn(0x5A5772, 0xA8A4C0),
-        ink3: dyn(0x918EA6, 0x8E8AA8),
+        ink3: dyn(0x6F6C88, 0x8E8AA8),
         hair: dyn(0xE7E4F2, 0x302C42),
         hair2: dyn(0xEFEDF7, 0x282539),
         controlBd: dyn(0xCBC7DB, 0x3C3852),
@@ -109,12 +113,12 @@ extension PaletteTokens {
     /// "success"; forest also measures better, 6.83:1 on its own tint against
     /// the olive's 5.56:1.
     ///
-    /// **`ink3` is brand taupe, unadjusted, at 3.08:1 on `ground`** — below AA
-    /// for normal text. Deliberately left: the *existing* shotAI theme is 2.90:1
-    /// at the same token, so this is marginally better than what ships today
-    /// rather than a regression this brand introduces. The tertiary ink is too
-    /// low contrast on both brands and deserves its own fix, not a silent one
-    /// buried in a plumbing change.
+    /// **`ink3` is brand taupe, darkened.** Pure taupe `0x938978` measured 3.08:1
+    /// on `ground` — below AA for normal text — and the dark counterpart
+    /// `0xA79C8B` was 4.33:1 on `surface`, which is precisely where secondary
+    /// labels sit on a card. Both are lifted to clear AA on every background the
+    /// token actually lands on, keeping the taupe cast. This was fixed on both
+    /// brands at once; shotAI's was worse.
     static let lfi = PaletteTokens(
         accent: dyn(0xB46B3E, 0xD58B5C),
         accentPress: dyn(0x9A5A33, 0xE3A579),
@@ -123,7 +127,7 @@ extension PaletteTokens {
         onAccent: dyn(0xFFFFFF, 0x211F1C),
         ink: dyn(0x47443E, 0xF8F4EC),
         ink2: dyn(0x6F695F, 0xCFC7B8),
-        ink3: dyn(0x938978, 0xA79C8B),
+        ink3: dyn(0x756C5C, 0xB5AA99),
         hair: dyn(0xD8D2C6, 0x4A463F),
         hair2: dyn(0xE7E2D7, 0x3F3C36),
         controlBd: dyn(0xC9C1B3, 0x686258),

@@ -158,9 +158,9 @@ body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-s
 .callout__h{display:block;font-weight:700;margin-bottom:.25rem}
 .callout__b{white-space:pre-wrap}
 .section{max-width:\(col)px;margin:28px auto 4px;padding-left:46px}
-.section__inner{padding:14px 16px 0;border-top:2px solid \(t.sectionRule)}
-.section__h{font-size:1.2rem;font-weight:700;margin:0 0 4px;color:\(t.sectionHeading)}
-.section__b{margin:0;color:\(t.sectionBody);white-space:pre-wrap}
+.section__inner{padding:14px 16px 0;border-top:2px solid \(t.hair)}
+.section__h{font-size:1.2rem;font-weight:700;margin:0 0 4px;color:\(t.text)}
+.section__b{margin:0;color:\(t.bodyText);white-space:pre-wrap}
 @media print{.doc{padding:0 6px}.doc__col,.doc__title,.doc__meta,.doc__intro,.step,.section{max-width:none}.section{break-inside:avoid}}
 """
 }
