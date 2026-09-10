@@ -9,12 +9,18 @@ Windows phase 0 + 0b are done on its `design/lfi-theme`.
 | Phase | macOS | Windows |
 |---|---|---|
 | 0 · tokenize, no visual change | ✅ #89 | ✅ |
-| 0b · document-card radius | ✅ #90 | ✅ |
-| 1 · brand axis + LFI palette | ✅ committed, PR pending | — |
-| 1b · `project.json` theme key | — | — |
-| 2 · geometry tokens | — | partial (`--radius-card`) |
-| 3 · typography | — | — |
-| 4 · themed exports | — | — |
+| 0b · document-card radius | ✅ #90 | ⚠️ screenshot still 10, should be 8 |
+| 1 · brand axis + LFI palette | ✅ #91 | — |
+| — · `ink3` meets AA; ramps collapse | ✅ #92 | — |
+| — · one brand definition in ShotModel | ✅ #93 | — |
+| 4 · themed exports | ✅ #93 | — |
+| 2 · geometry, chips, badges, glyph | ✅ #95 | partial (`--radius-card`) |
+| 1b · `project.json` theme key | blocked on Windows | — |
+| 3 · typography (Archivo) | — | — |
+
+**macOS is colour- and geometry-complete.** LFI renders end to end in the app,
+the report, HTML and PDF. Only typography (phase 3) and the per-project `theme`
+key (1b, which needs the Windows schema change) remain.
 
 This document is written to be ported. Every count and file reference below was
 measured against the tree at `985515b`, and the Windows section is a survey of the
