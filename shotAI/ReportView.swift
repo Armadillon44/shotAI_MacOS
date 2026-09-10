@@ -513,8 +513,10 @@ private struct IntroBox: View {
         .padding(14)
         .background(palette.surface2)
         .overlay(alignment: .leading) { Rectangle().fill(palette.accent).frame(width: 4) }
-        .overlay { RoundedRectangle(cornerRadius: 8).stroke(palette.hair) }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        // 10 matches the step card: the overview is a sibling document card, not
+        // something nested inside one. Only the screenshot (8) sits inside a card.
+        .overlay { RoundedRectangle(cornerRadius: 10).stroke(palette.hair) }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 

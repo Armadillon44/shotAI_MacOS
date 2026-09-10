@@ -503,7 +503,8 @@ private final class PdfCanvas {
     /// overview that can't fit a page. Adds its own trailing gap.
     func drawIntro(heading: String, body: String) {
         guard let ctx else { return }
-        let borderW: CGFloat = 4, padX: CGFloat = 14, padY: CGFloat = 12, radius: CGFloat = 8
+        // radius 10 matches the step card and the HTML `.doc__intro`.
+        let borderW: CGFloat = 4, padX: CGFloat = 14, padY: CGFloat = 12, radius: CGFloat = 10
         let innerX = margin + borderW + padX
         let innerW = contentW - borderW - padX * 2
         let eyebrow = Ink.attr("OVERVIEW", size: 9, weight: .bold, color: Ink.eyebrow)
