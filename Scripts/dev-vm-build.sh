@@ -87,11 +87,32 @@ DEPS=$(otool -L "$APP/Contents/MacOS/shotAI" | grep "^	" | grep -vcE "/usr/lib|/
 }
 
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
+SHA=$(git rev-parse --short HEAD)
+
+# Ship a DMG, not the bare .app.
+#
+# The bundle is not the problem — a Debug build and the Release build that ran
+# fine on the guest are structurally identical: same file inventory, same
+# Info.plist keys, same platform and SDK. What differs is how it gets there. A
+# .app read over a Parallels share fails signature validation and Finder reports
+# "damaged or incomplete"; the same app inside a DMG works, because the guest
+# mounts a real filesystem and copies from that.
+#
+# A single file also survives the share intact, which a bundle of ~1,000 files
+# demonstrably does not.
+echo "▸ Package DMG"
+DMG="$OUT/shotAI-dev-$SHA.dmg"
+STAGE="$OUT/stage"; rm -rf "$STAGE"; mkdir -p "$STAGE"
+cp -R "$APP" "$STAGE/"; ln -s /Applications "$STAGE/Applications"
+rm -f "$OUT"/shotAI-dev-*.dmg
+hdiutil create -volname "shotAI dev $SHA" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+rm -rf "$STAGE"
+
 echo "  arch:      $(lipo -archs "$APP/Contents/MacOS/shotAI")"
 echo "  signature: ad-hoc, verifies, no debug entitlement"
-echo "  version:   $VERSION ($(git rev-parse --short HEAD))"
-echo "  → $APP"
+echo "  version:   $VERSION ($SHA)"
+echo "  → $DMG"
 echo
-echo "On the guest: copy it out of the shared folder into /Applications first."
-echo "Running an app in place from a Parallels share is where odd TCC and"
-echo "quarantine behaviour comes from, and a copy costs nothing."
+echo "On the guest: open the DMG and drag shotAI to Applications, then"
+echo "right-click ▸ Open the first time. Do NOT launch the .app straight from"
+echo "the share — that is what produces \"damaged or incomplete\"."
