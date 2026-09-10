@@ -36,6 +36,7 @@ xcodebuild -project shotAI.xcodeproj -scheme shotAI -configuration Debug \
   -derivedDataPath "$DD" \
   ENABLE_DEBUG_DYLIB=NO \
   ONLY_ACTIVE_ARCH=NO \
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
   CODE_SIGN_IDENTITY="-" CODE_SIGN_STYLE=Manual \
   DEVELOPMENT_TEAM="" PROVISIONING_PROFILE_SPECIFIER="" \
   build >/dev/null
@@ -68,6 +69,16 @@ codesign --verify --deep --strict "$APP" 2>/dev/null \
 # Dependency lines are indented; a UNIVERSAL binary prints one unindented
 # "…(architecture x):" header PER ARCH, so `tail -n +2` is not enough — it
 # strips one header and counts the other as a dependency.
+# Xcode injects com.apple.security.get-task-allow into Debug builds so a
+# debugger can attach. On the machine that built and signed it that is fine; on
+# another Mac an ad-hoc binary asking to be debuggable is exactly what the system
+# refuses. It is the one thing that differed between this build and the Release
+# DMG that DID run on the guest, so it is now asserted rather than assumed.
+ENTS=$(codesign -d --entitlements - --xml "$APP" 2>/dev/null || true)
+case "$ENTS" in *get-task-allow*)
+  echo "✗ get-task-allow is present — CODE_SIGN_INJECT_BASE_ENTITLEMENTS is not taking effect" >&2
+  exit 1 ;; esac
+
 DEPS=$(otool -L "$APP/Contents/MacOS/shotAI" | grep "^	" | grep -vcE "/usr/lib|/System" || true)
 [ "$DEPS" = "0" ] || {
   echo "✗ $DEPS non-system dylib dependencies:" >&2
@@ -77,7 +88,7 @@ DEPS=$(otool -L "$APP/Contents/MacOS/shotAI" | grep "^	" | grep -vcE "/usr/lib|/
 
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
 echo "  arch:      $(lipo -archs "$APP/Contents/MacOS/shotAI")"
-echo "  signature: ad-hoc, verifies"
+echo "  signature: ad-hoc, verifies, no debug entitlement"
 echo "  version:   $VERSION ($(git rev-parse --short HEAD))"
 echo "  → $APP"
 echo
