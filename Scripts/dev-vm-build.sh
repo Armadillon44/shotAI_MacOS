@@ -46,6 +46,16 @@ BUILT="$DD/Build/Products/Debug/shotAI.app"
 
 mkdir -p "$OUT"; rm -rf "$OUT/shotAI.app"; cp -R "$BUILT" "$OUT/shotAI.app"
 APP="$OUT/shotAI.app"
+SHA=$(git rev-parse --short HEAD)
+
+# Stamp the commit into the bundle version, so a running copy can say which
+# build it is. Finder ▸ Get Info shows "1.3.0 (<sha>)", and About does too.
+# Without this a stale install is indistinguishable from a change that did not
+# work — which cost a full round of "the radii look the same" when the answer
+# was that the build predated them.
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $SHA" "$APP/Contents/Info.plist"
+# Editing Info.plist invalidates the signature, so re-sign AFTER stamping.
+codesign --force --sign - --timestamp=none "$APP" 2>/dev/null
 
 # Fail loudly rather than hand over something that dies on the guest.
 echo "▸ Portability checks"
@@ -87,7 +97,6 @@ DEPS=$(otool -L "$APP/Contents/MacOS/shotAI" | grep "^	" | grep -vcE "/usr/lib|/
 }
 
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
-SHA=$(git rev-parse --short HEAD)
 
 # Ship a DMG, not the bare .app.
 #
@@ -110,7 +119,7 @@ rm -rf "$STAGE"
 
 echo "  arch:      $(lipo -archs "$APP/Contents/MacOS/shotAI")"
 echo "  signature: ad-hoc, verifies, no debug entitlement"
-echo "  version:   $VERSION ($SHA)"
+echo "  version:   $VERSION ($SHA)  ← shown in Finder ▸ Get Info"
 echo "  → $DMG"
 echo
 echo "On the guest: open the DMG and drag shotAI to Applications, then"
