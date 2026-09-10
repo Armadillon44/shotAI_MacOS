@@ -305,10 +305,34 @@ So an exported document has body text in one ink and a section heading one line 
 in another, and a screenshot border in one hairline inside a card border in another.
 Invisible — the pairs are within a few percent — which is exactly why it survived.
 
-Phase 0 preserved this correctly, since that pass was defined as no-visual-change. But
-it is a **phase 4 blocker**: LFI cannot be authored until someone decides *which ramp
-it replaces*. Windows has a third ramp in `export-pptx.ts`; macOS has two, having no
-PowerPoint export.
+Phase 0 preserved this correctly, since that pass was defined as no-visual-change.
+
+**Settled 2026-09-10: collapse to ONE ramp, the app's inks.** The mixing was never a
+choice — the export CSS was written separately using Tailwind defaults and never
+reconciled — so preserving it preserves an accident, and it would mean authoring two
+neutral ramps for every future brand when the LFI guide defines one. Once collapsed,
+`sectionHeading`/`sectionBody`/`sectionRule` become duplicates of `text`/`bodyText`/
+`hair` and merge away, so the export vocabulary shrinks.
+
+**The collapse exposed a prerequisite.** Moving `meta` onto the app's `ink3` drops it
+from 4.83:1 to **3.17:1** — from passing AA to failing it, on the date line, per-step
+notes and the OVERVIEW eyebrow, in documents that get printed. That is not an argument
+against the decision; it is the decision surfacing a bug that was already there.
+`ink3` is too light on both brands and always has been (2.90:1 shotAI, 3.08:1 LFI on
+their own grounds); it escaped notice only because it was never asked to carry document
+text.
+
+Order, each its own commit with the measurement in the message:
+
+1. **Darken `ink3`** — shotAI `#918ea6` → `#6f6c88` (5.03 on white, 4.60 on ground);
+   LFI `#938978` → `#756c5c` (5.18 / 4.63). Dark mode already passes on both. A visible
+   change for every existing user, so it earns a release-note line.
+2. **Then collapse the ramps.**
+
+Windows has a third ramp in `export-pptx.ts` (`#14161f`/`#525a6e`/`#8b91a3`) and must
+first check whether that deck is dark — if it is, the ramp inverts and these
+white-background figures do not transfer. That deck also carries no brand accent at
+all, so for PowerPoint phase 4 is filling an absence rather than re-pointing a colour.
 
 ---
 
