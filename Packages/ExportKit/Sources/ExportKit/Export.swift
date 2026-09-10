@@ -30,7 +30,11 @@ public func exportProject(
     format: ExportFormat,
     byline: String? = nil,
     generatedAt: Date = Date(),
-    to destination: ExportDestination = .projectFolder
+    to destination: ExportDestination = .projectFolder,
+    /// The brand the document renders in. Always the brand's LIGHT values — the
+    /// export axis is *which brand*, never *which appearance*, because a
+    /// dark-background SOP is unreadable printed.
+    theme: ExportTheme = .shotAI
 ) async throws -> ExportResult {
     let items = try collectSteps(dir: dir, manifest: manifest)
     let createdLine = buildCreatedLine(generatedAt: generatedAt, byline: byline)
@@ -71,12 +75,12 @@ public func exportProject(
         outputPath = try buildMarkdown(outDir: outDir, manifest: manifest, items: items, stem: stem, createdLine: createdLine)
 
     case .htmlPlain:
-        let html = try buildPlainHtmlDoc(manifest: manifest, items: items)
+        let html = try buildPlainHtmlDoc(manifest: manifest, items: items, theme: theme)
         outputPath = (outDir as NSString).appendingPathComponent("\(stem).html")
         try writeText(html, to: outputPath)
 
     case .html:
-        let html = try buildHtmlDoc(manifest: manifest, items: items, createdLine: createdLine)
+        let html = try buildHtmlDoc(manifest: manifest, items: items, createdLine: createdLine, theme: theme)
         outputPath = (outDir as NSString).appendingPathComponent("\(stem).html")
         try writeText(html, to: outputPath)
 
@@ -84,7 +88,7 @@ public func exportProject(
         outputPath = (outDir as NSString).appendingPathComponent("\(stem).pdf")
         // Native CoreText/CG renderer — NOT WKWebView printing, which hangs the
         // main thread in WebKit's print pagination (see PdfExport.swift).
-        try renderPdf(title: manifest.title, createdLine: createdLine,
+        try renderPdf(theme: theme, title: manifest.title, createdLine: createdLine,
                       intro: manifest.intro, items: items, outputPath: outputPath,
                       scale: DocScale.of(manifest))
     }

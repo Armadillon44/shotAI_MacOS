@@ -74,31 +74,32 @@ final class ExportThemeTests: XCTestCase {
     /// a future difference has to be written down there to pass, which makes
     /// "the two renderers disagree" a deliberate act rather than a slow drift.
     func testPdfMatchesTheCSS() {
-        XCTAssertEqual(hex(Ink.title), t.text)
-        XCTAssertEqual(hex(Ink.body), t.bodyText)
-        XCTAssertEqual(hex(Ink.meta), t.meta)
-        XCTAssertEqual(hex(Ink.note), t.meta)
-        XCTAssertEqual(hex(Ink.eyebrow), t.meta)
-        XCTAssertEqual(hex(Ink.badge), t.accent)
-        XCTAssertEqual(hex(Ink.onBadge), t.onAccent)
-        XCTAssertEqual(hex(Ink.hair), t.hair)
-        XCTAssertEqual(hex(Ink.cardBg), t.cardBg)
-        XCTAssertEqual(hex(Ink.cardBorder), t.cardBorder)
-        XCTAssertEqual(hex(Ink.introBg), t.introBg)
+        let ink = Ink(t)
+        XCTAssertEqual(hex(ink.title), t.text)
+        XCTAssertEqual(hex(ink.body), t.bodyText)
+        XCTAssertEqual(hex(ink.meta), t.meta)
+        XCTAssertEqual(hex(ink.note), t.meta)
+        XCTAssertEqual(hex(ink.eyebrow), t.meta)
+        XCTAssertEqual(hex(ink.badge), t.accent)
+        XCTAssertEqual(hex(ink.onBadge), t.onAccent)
+        XCTAssertEqual(hex(ink.hair), t.hair)
+        XCTAssertEqual(hex(ink.cardBg), t.cardBg)
+        XCTAssertEqual(hex(ink.cardBorder), t.cardBorder)
+        XCTAssertEqual(hex(ink.introBg), t.introBg)
 
         for (kind, expected) in [(CalloutKindExport.note, t.note),
                                  (.caution, t.caution),
                                  (.warning, t.warning)] {
-            let c = Ink.callout(kind)
+            let c = ink.callout(kind)
             XCTAssertEqual(hex(c.bg), expected.bg, "\(kind) bg")
             XCTAssertEqual(hex(c.border), expected.border, "\(kind) border")
             XCTAssertEqual(hex(c.text), expected.text, "\(kind) text")
         }
 
         // Section styling is the general ramp now, in both renderers.
-        XCTAssertEqual(hex(Ink.sectionHeading), t.text)
-        XCTAssertEqual(hex(Ink.sectionBody), t.bodyText)
-        XCTAssertEqual(hex(Ink.sectionRule), t.hair)
+        XCTAssertEqual(hex(ink.sectionHeading), t.text)
+        XCTAssertEqual(hex(ink.sectionBody), t.bodyText)
+        XCTAssertEqual(hex(ink.sectionRule), t.hair)
         XCTAssertTrue(ExportTheme.knownDivergences.isEmpty,
                       "still divergent: \(ExportTheme.knownDivergences)")
     }
@@ -135,6 +136,21 @@ final class ExportThemeTests: XCTestCase {
             XCTAssertFalse(css.contains(grey),
                            "\(grey) is a Tailwind grey; the export ramp is the app's inks")
         }
+    }
+
+    /// The document renders in the selected brand, in both renderers.
+    ///
+    /// This is what the app-chrome brand axis was missing: before it, an LFI
+    /// user got a corporate app and a violet document.
+    func testExportsFollowTheBrand() {
+        let lfi = ExportTheme.of(.lfi)
+        XCTAssertEqual(lfi.accent, "#b46b3e", "rust, not violet")
+        XCTAssertEqual(lfi.text, "#47443e", "charcoal, not the shotAI ink")
+        XCTAssertTrue(docCSS(theme: lfi).contains("#b46b3e"))
+        XCTAssertFalse(docCSS(theme: lfi).contains("#6344f1"), "no violet in an LFI document")
+        XCTAssertEqual(hex(Ink(lfi).badge), lfi.accent, "the PDF follows too")
+        // Always the LIGHT values: a dark-background SOP is unreadable printed.
+        XCTAssertEqual(lfi.pageBg, "#ffffff")
     }
 
     // MARK: helpers

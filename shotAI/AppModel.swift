@@ -174,7 +174,8 @@ final class AppModel {
             guard let dest = chooseExportDestination(dir: loaded.dir, title: manifest.title, format: format) else {
                 return  // user cancelled the Save dialog
             }
-            let result = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline, to: dest)
+            let result = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline, to: dest,
+                                                theme: .of(preferences.brand))
             // Reveal the written file for EVERY format — `outputPath` is the export
             // itself (for Markdown, the `.md` inside its self-contained folder), so
             // Finder opens that folder with the file selected. Matches the Windows
@@ -981,7 +982,8 @@ final class AppModel {
                 case .oneFolder(let dir):
                     dest = bulkCustomDestination(in: dir, title: manifest.title, format: format, used: &usedStems)
                 }
-                _ = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline, to: dest)
+                _ = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline, to: dest,
+                                                theme: .of(preferences.brand))
             } catch {
                 failed += 1
                 Log.store.error("bulk export \(format.rawValue, privacy: .public) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")
