@@ -554,6 +554,31 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// than defaulted (a `3.0` from a future build means "as large as possible",
     /// not "normal").
     public var displayScale: Double?
+    /// The brand this project is PINNED to, as written — raw, not resolved.
+    ///
+    /// **Absent means "follow the app preference"; present means "pin this
+    /// brand".** Those are different states and both must be representable: with
+    /// the app set to LFI, a project can only be held on shotAI by writing
+    /// `"shotAI"` here. An earlier draft of this contract omitted the key
+    /// whenever it matched the default brand, which made that state
+    /// unrepresentable — Windows shipped that and hit it in live testing within
+    /// minutes (Armadillon44/shotAI#77).
+    ///
+    /// A `String`, not a `BrandPref`, so a brand this build does not recognise
+    /// survives a read/write cycle rather than being erased. `theme` is a KNOWN
+    /// key, so it no longer falls into `extra` — and `extra` covers unknown
+    /// *keys*, never an unknown *value* of a known key. Resolve it through
+    /// `pinnedBrand`, which yields nil for anything unrecognised so rendering
+    /// falls back to the app preference.
+    public var theme: String?
+
+    /// The pinned brand, or nil to follow the app preference.
+    ///
+    /// nil for an absent key AND for a value this build does not recognise —
+    /// both mean "I cannot honour a pin", and falling back to the app preference
+    /// is the safe answer for each. The raw `theme` is left untouched either way,
+    /// so an unrecognised brand is not destroyed by a build that predates it.
+    public var pinnedBrand: BrandPref? { theme.flatMap(BrandPref.init(rawValue:)) }
     public var intro: SopIntro?
     /// The author edited `intro` by hand AFTER an AI generation.
     ///
@@ -582,7 +607,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
 
     private static let knownKeys: Set<String> = [
         "version", "id", "title", "createdWith", "createdAt", "updatedAt",
-        "captureSettings", "steps", "displayScale", "intro", "introEditedByUser", "sopBackup", "archived", "archivedAt",
+        "captureSettings", "steps", "displayScale", "theme", "intro", "introEditedByUser", "sopBackup", "archived", "archivedAt",
     ]
 
     public init(
@@ -627,6 +652,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         captureSettings = try? c.decodeIfPresent(CaptureTarget.self, forKey: key("captureSettings"))
         steps = (try? c.decodeIfPresent([ProjectStep].self, forKey: key("steps"))) ?? []
         displayScale = try? c.decodeIfPresent(Double.self, forKey: key("displayScale"))
+        theme = try? c.decodeIfPresent(String.self, forKey: key("theme"))
         let rawIntro = try? c.decodeIfPresent(SopIntro.self, forKey: key("intro"))
         introEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: key("introEditedByUser"))
         intro = (rawIntro?.isEmpty ?? true) ? nil : rawIntro
@@ -654,6 +680,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         try c.encode(steps, forKey: key("steps"))
         // Omitted when nil, which is how the default stays off disk.
         try c.encodeIfPresent(displayScale, forKey: key("displayScale"))
+        try c.encodeIfPresent(theme, forKey: key("theme"))
         try c.encode(intro, forKey: key("intro"))
         try c.encodeIfPresent(introEditedByUser, forKey: key("introEditedByUser"))
         try c.encode(sopBackup, forKey: key("sopBackup"))
