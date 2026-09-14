@@ -96,6 +96,22 @@ public struct ExportTheme: Sendable, Equatable {
     /// system font. Unlike HTML, a PDF EMBEDS what it draws with, so the brand
     /// face reaches every reader regardless of what they have installed.
     public let fontPostScriptName: String?
+    /// The `font-family` for the Word-facing "HTML for Word / Google Docs"
+    /// export. **Arial-first, brand face in front of it.**
+    ///
+    /// A separate stack from `fontStack`, not an oversight. That document exists
+    /// to be pasted into Word, Google Docs and Freshservice, where Arial is the
+    /// one face present everywhere and substitution is silent — so the
+    /// grotesque fallbacks the styled export uses (chosen to *resemble* the
+    /// brand) are the wrong tail here, and Arial's stays.
+    ///
+    /// Naming the face costs nothing and is not the same decision as embedding
+    /// it: a recipient who has the brand face sees it, everyone else lands on
+    /// Arial exactly as before. Embedding was declined separately — ~0.84MB of
+    /// base64 against a measured 0.8-1.5MB paste budget would push the images
+    /// out. For the default brand this is byte-identical to the stack this
+    /// export has always carried, because that brand names no family.
+    public let plainFontStack: String
 
     /// The step-number badge and the callout glyph badge. `nil` means fully
     /// round — a circle, since the badge is square — which is not expressible
@@ -111,7 +127,8 @@ public struct ExportTheme: Sendable, Equatable {
         text: String, bodyText: String, meta: String, pageBg: String,
         accent: String, onAccent: String,
         cardBg: String, cardBorder: String, hair: String, introBg: String, quoteRule: String,
-        cardRadius: Int, figureRadius: Int, chipRadius: Int?, fontStack: String, fontPostScriptName: String?,
+        cardRadius: Int, figureRadius: Int, chipRadius: Int?,
+        fontStack: String, fontPostScriptName: String?, plainFontStack: String,
         note: Callout, caution: Callout, warning: Callout
     ) {
         self.text = text
@@ -130,6 +147,7 @@ public struct ExportTheme: Sendable, Equatable {
         self.chipRadius = chipRadius
         self.fontStack = fontStack
         self.fontPostScriptName = fontPostScriptName
+        self.plainFontStack = plainFontStack
         self.note = note
         self.caution = caution
         self.warning = warning
@@ -166,6 +184,8 @@ public extension ExportTheme {
             fontStack: ([b.fontFamily.map { "\"\($0)\"" }].compactMap { $0 } + b.fontFallbacks)
                 .joined(separator: ","),
             fontPostScriptName: b.fontPostScriptName,
+            plainFontStack: ([b.fontFamily.map { "\"\($0)\"" }].compactMap { $0 } + Self.plainFallbacks)
+                .joined(separator: ","),
             note: Callout(bg: BrandPalette.hex(b.noteBg.light),
                           border: BrandPalette.hex(b.noteBd.light),
                           text: BrandPalette.hex(b.noteFg.light)),
@@ -180,6 +200,11 @@ public extension ExportTheme {
 
     /// The fallback every document has always used.
     static let systemStack = "-apple-system,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif"
+
+    /// The Word-facing export's tail. Arial first by COMPATIBILITY, not design:
+    /// it is the one face present in Word, Google Docs and a Freshservice KB
+    /// article alike, and substitution there is silent.
+    static let plainFallbacks = ["Arial", "Helvetica", "sans-serif"]
 
     static let shotAI = ExportTheme(.shotAI)
     static let lfi = ExportTheme(.lfi)

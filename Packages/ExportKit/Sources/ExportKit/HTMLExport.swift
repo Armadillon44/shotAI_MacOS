@@ -281,7 +281,7 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
 func plainCSS(scale: Double = 1.0, theme t: ExportTheme = .shotAI) -> String {
     let body = DocScale.plainBody(scale)
     return """
-body{font-family:Arial,Helvetica,sans-serif;color:\(t.text);line-height:1.5;max-width:\(body)px;margin:24px auto;padding:0 20px}
+body{font-family:\(t.plainFontStack);color:\(t.text);line-height:1.5;max-width:\(body)px;margin:24px auto;padding:0 20px}
 h1{font-size:1.8rem;font-weight:700;margin:0 0 .3rem}
 h2{font-size:1.2rem;font-weight:700;margin:1.3rem 0 .4rem}
 p{margin:.5rem 0}
