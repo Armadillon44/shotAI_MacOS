@@ -175,7 +175,7 @@ final class AppModel {
                 return  // user cancelled the Save dialog
             }
             let result = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline, to: dest,
-                                                theme: .of(preferences.brand))
+                                                brand: preferences.brand)
             // Reveal the written file for EVERY format — `outputPath` is the export
             // itself (for Markdown, the `.md` inside its self-contained folder), so
             // Finder opens that folder with the file selected. Matches the Windows
@@ -475,6 +475,47 @@ final class AppModel {
             // no indication at all.
             errorMessage = "Couldn't save the document size. \(error.localizedDescription)"
             Log.store.error("setDisplayScale failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Per-project brand (1b)
+
+    /// The brand the OPEN PROJECT's document renders in: its own pin if it has
+    /// one, otherwise the app preference.
+    ///
+    /// **Scope is the document, not the window.** The report and this project's
+    /// exports follow it; the toolbar, Home and Settings stay on the app
+    /// preference. Windows lets a pinned project reskin the window chrome while
+    /// it is open — macOS deliberately does not. A pin is a property of the
+    /// document being authored, so having `open` repaint the whole application
+    /// reads as the app breaking rather than the document being branded, and it
+    /// makes the app's own identity a function of whatever was clicked last.
+    var projectBrand: BrandPref { opened?.manifest.pinnedBrand ?? preferences.brand }
+
+    /// The pin AS STORED. nil means "follow the app preference", which is a
+    /// DIFFERENT state from being pinned to the brand the preference happens to
+    /// hold right now — that distinction is the whole point of the first radio in
+    /// View ▸ Brand, and folding the two together is the bug Windows shipped and
+    /// caught in live testing (Armadillon44/shotAI#77): with the app on LFI there
+    /// was then no way to hold a project on shotAI.
+    var projectBrandPin: BrandPref? { opened?.manifest.pinnedBrand }
+
+    /// Pin the open project to a brand; nil clears the pin so it follows the app.
+    ///
+    /// The store refuses a no-op, which matters for the same reason it does for
+    /// the document scale: `mutate` bumps `updatedAt` unconditionally, so
+    /// re-choosing the brand already in effect would re-date the project and
+    /// throw it to the top of Home.
+    func setProjectBrand(_ brand: BrandPref?) async {
+        guard let path = opened?.dir else { return }
+        do {
+            guard try await store.setTheme(at: path, brand) != nil else { return }
+            guard opened?.dir == path else { return }   // navigated away mid-write
+            await reloadOpened()
+            Log.store.notice("project brand -> \(brand?.rawValue ?? "app default", privacy: .public)")
+        } catch {
+            errorMessage = "Couldn't change this project's theme. \(error.localizedDescription)"
+            Log.store.error("setTheme failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -799,7 +840,10 @@ final class AppModel {
     @discardableResult
     func createAndSelectProject(title: String? = nil) async -> String? {
         do {
-            let summary = try await store.createProject(title: title)
+            // Stamped with the app brand at birth, so a project keeps the look
+            // it was authored in if the preference later changes. The store omits
+            // the key when the brand is the default one.
+            let summary = try await store.createProject(title: title, brand: preferences.brand)
             await refresh()
             selectedPath = summary.path
             opened = try await store.openProject(at: summary.path)
@@ -983,7 +1027,7 @@ final class AppModel {
                     dest = bulkCustomDestination(in: dir, title: manifest.title, format: format, used: &usedStems)
                 }
                 _ = try await exportProject(dir: loaded.dir, manifest: manifest, format: format, byline: preferences.exportByline, to: dest,
-                                                theme: .of(preferences.brand))
+                                                brand: preferences.brand)
             } catch {
                 failed += 1
                 Log.store.error("bulk export \(format.rawValue, privacy: .public) failed [\(String(describing: type(of: error)), privacy: .public)]: \(error.localizedDescription, privacy: .private)")

@@ -90,6 +90,29 @@ struct ShotAIApp: App {
                 Button("Import shotAI Package…") { model.promptImportPackage() }
                     .disabled(model.exporting || model.tourActive)
             }
+            // View ▸ Brand — pins the OPEN PROJECT to a brand (1b). It is a
+            // property of the document, so it lives on the document's menu
+            // rather than in Settings, and it is disabled with no project open.
+            //
+            // "App Default" is a real third state, not a synonym for whichever
+            // brand the preference currently holds: it REMOVES `theme` from
+            // project.json, so the project keeps following the preference as it
+            // changes. Picking a brand — the default one included — writes the
+            // key. Collapsing those two made a project unpinnable from a
+            // non-default app brand on Windows (Armadillon44/shotAI#77).
+            CommandGroup(after: .toolbar) {
+                Menu("Brand") {
+                    Picker("Brand", selection: projectBrandPin) {
+                        Text("App Default (\(model.preferences.brand.label))")
+                            .tag(nil as BrandPref?)
+                        ForEach(BrandPref.allCases, id: \.self) { brand in
+                            Text(brand.label).tag(brand as BrandPref?)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
+                .disabled(model.opened == nil)
+            }
             // Troubleshooting: dump this app's recent log to a file + reveal it,
             // so a user can send it (parity with the Windows log file).
             CommandGroup(after: .help) {
@@ -116,6 +139,15 @@ struct ShotAIApp: App {
                 .environment(model)
                 .environment(\.palette, PaletteTokens.of(model.preferences.brand))
         }
+    }
+
+    /// The open project's brand pin, as the menu's selection.
+    ///
+    /// Writes go through `AppModel` so the store's no-op refusal and the reload
+    /// happen in one place; the menu never touches the manifest itself.
+    private var projectBrandPin: Binding<BrandPref?> {
+        Binding(get: { model.projectBrandPin },
+                set: { brand in Task { await model.setProjectBrand(brand) } })
     }
 
     /// One-time purge of window/split-view autosave records left by EARLIER app

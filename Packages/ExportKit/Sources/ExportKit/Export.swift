@@ -31,11 +31,23 @@ public func exportProject(
     byline: String? = nil,
     generatedAt: Date = Date(),
     to destination: ExportDestination = .projectFolder,
-    /// The brand the document renders in. Always the brand's LIGHT values — the
-    /// export axis is *which brand*, never *which appearance*, because a
-    /// dark-background SOP is unreadable printed.
-    theme: ExportTheme = .shotAI
+    /// The brand to render in when the project does not pin one — pass the app
+    /// preference. It is a FALLBACK, never the answer: `manifest.theme` wins.
+    ///
+    /// The precedence is resolved HERE rather than by the caller, deliberately.
+    /// A caller that resolved it would be reading `project.json` a second time,
+    /// through its own copy of the manifest, and the two reads eventually
+    /// disagree — a project re-pinned between the caller's load and this call
+    /// would export in the stale brand. One read, one decision, one place. An
+    /// unrecognised `theme` (a brand a newer build wrote) falls back rather than
+    /// failing the export.
+    ///
+    /// Whichever brand wins, the document takes its LIGHT values — the export
+    /// axis is *which brand*, never *which appearance*, because a dark-background
+    /// SOP is unreadable printed.
+    brand: BrandPref = .shotAI
 ) async throws -> ExportResult {
+    let theme = ExportTheme.of(manifest.pinnedBrand ?? brand)
     let items = try collectSteps(dir: dir, manifest: manifest)
     let createdLine = buildCreatedLine(generatedAt: generatedAt, byline: byline)
 

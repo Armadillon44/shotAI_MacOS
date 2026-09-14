@@ -285,7 +285,13 @@ public actor ProjectStore {
 
     /// Create a new, empty project folder (named by uuid — the human title lives
     /// only in the manifest) and write its v1 manifest.
-    public func createProject(title: String? = nil) throws -> ProjectSummary {
+    /// - Parameter brand: the app preference at creation time. Stamped onto the
+    ///   new project so it keeps that brand if the preference later changes —
+    ///   and **omitted when it is the default**, so a default-branded operator's
+    ///   projects carry no key and stay byte-identical to pre-1b files. An
+    ///   IMPORTED package is deliberately not stamped: it reproduces in the brand
+    ///   it was authored in.
+    public func createProject(title: String? = nil, brand: BrandPref = .shotAI) throws -> ProjectSummary {
         let root = lexicallyResolve(absolutize(settings.projectsDir()))
         let id = UUID().uuidString.lowercased()
         let dir = (root as NSString).appendingPathComponent(id)
@@ -294,12 +300,13 @@ public actor ProjectStore {
 
         let now = ProjectJSON.isoNow()
         let name = (title ?? "").trimmingCharacters(in: .whitespaces)
-        let manifest = ProjectManifest(
+        var manifest = ProjectManifest(
             id: id,
             title: name.isEmpty ? Self.defaultTitle() : name,
             createdAt: now,
             updatedAt: now
         )
+        manifest.theme = brand == .shotAI ? nil : brand.rawValue
         try writeManifest(manifest, at: dir)
         settings.addRecent(dir)
         Log.store.notice("createProject: created project [id \(id, privacy: .public)]")
@@ -324,6 +331,13 @@ public actor ProjectStore {
     /// CONFINED (symlink-hardened) to the new folder — anything else, including a
     /// path-traversal name, is refused. The manifest is re-stamped with the new id
     /// and a cleared sopBackup (the sender's local revert history isn't shared).
+    ///
+    /// `theme` is carried over UNTOUCHED and deliberately not re-stamped from the
+    /// receiver's preference: a shared package reproduces in the brand it was
+    /// authored in, which is the whole point of pinning it. An unrecognised value
+    /// survives too — `pinnedBrand` returns nil for it, so it *renders* as the app
+    /// preference while the key itself round-trips back to the sender intact.
+    ///
     /// Ported from the Windows `createProjectFromImport`.
     public func createProjectFromImport(manifest: ProjectManifest, files: [ImportFile]) throws -> ProjectSummary {
         let root = lexicallyResolve(absolutize(settings.projectsDir()))
@@ -488,6 +502,31 @@ public actor ProjectStore {
         return try mutate(at: projectPath) {
             $0.displayScale = snapped == DocScale.default ? nil : snapped
         }
+    }
+
+    /// Pin this project to a brand, or clear the pin so it follows the app.
+    ///
+    /// **An explicit choice always writes, the default brand included.** Only
+    /// `nil` removes the key. "Absent" and "explicitly the default" are different
+    /// states: with the app preference on LFI, writing `"shotAI"` is the only way
+    /// to hold a project on shotAI, and an earlier draft of this contract that
+    /// omitted the key whenever it matched the default made that state
+    /// unrepresentable. Windows shipped that version and hit it in live testing
+    /// (Armadillon44/shotAI#77).
+    ///
+    /// The no-op guard compares RAW values, not resolved ones — coercing both
+    /// sides would fold "absent" and "explicitly default" back together and
+    /// reintroduce exactly the bug above. It matters because `mutate` bumps
+    /// `updatedAt` unconditionally, so an unguarded no-op re-dates the project
+    /// and jumps it to the top of Home.
+    ///
+    /// Returns nil when nothing was written.
+    public func setTheme(at projectPath: String, _ brand: BrandPref?) throws -> ProjectManifest? {
+        let next = brand?.rawValue
+        let current = try openProject(at: projectPath).manifest.theme
+        guard next != current else { return nil }
+        Log.store.info("setTheme -> \(next ?? "app default", privacy: .public)")
+        return try mutate(at: projectPath) { $0.theme = next }
     }
 
     /// Convert a text step between plain text and a callout by setting (a kind) or

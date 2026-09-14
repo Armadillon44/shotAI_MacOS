@@ -1,7 +1,8 @@
 # Implementation plan — the "LFI" theme
 
-**Status (2026-09-10):** macOS is COMPLETE except 1b. Windows phase 0 + 0b are done
-on its `design/lfi-theme`, with two follow-ups outstanding (see §6b).
+**Status (2026-09-14):** macOS is COMPLETE, 1b included. Windows phase 0 + 0b are done
+on its `design/lfi-theme`, with two follow-ups outstanding (see §6b); Windows has also
+implemented 1b, and its write rule is the one in §6a below.
 **Open questions:** none — see §6 and §6b.
 **Design source:** [`design/lfi-theme-study.html`](lfi-theme-study.html) (published mock-up) and `design/lfi-design-system/`.
 **Companion issue (Windows):** `Armadillon44/shotAI#77`.
@@ -16,13 +17,12 @@ on its `design/lfi-theme`, with two follow-ups outstanding (see §6b).
 | 4 · themed exports | ✅ #93 | — |
 | 2 · geometry, chips, badges, glyph | ✅ #95 | partial (`--radius-card`) |
 | 3 · typography (Archivo) | ✅ #96 | — |
-| 1b · `project.json` theme key | **blocked on Windows** | — |
+| 1b · `project.json` theme key | ✅ #97 | ✅ |
 
 **macOS is complete.** LFI renders end to end — app chrome, the report, HTML and
-PDF — in colour, geometry and typeface. The only remaining phase is 1b, the
-per-project `theme` key, which enters the byte-compatible cross-platform schema
-and therefore needs the Windows side first. `BrandPref` already sits in ShotModel
-waiting for it.
+PDF — in colour, geometry and typeface, and a project can pin its own brand
+(§6a). The one deliberate difference from Windows is that a pinned project does
+not reskin the window chrome on macOS; see the divergence note in §6a.
 
 This document is written to be ported. Every count and file reference below was
 measured against the tree at `985515b`, and the Windows section is a survey of the
@@ -269,42 +269,98 @@ accepting rose markers inside a rust-and-charcoal document, or treating it as se
 | wdth 66 or 62? | **62** | Named instance, no variation-axis abstraction, indistinguishable at UI sizes. |
 | Ship the italic TTF? | **No** | 741 KB of the 1.4 MB, and only `PdfExport` has an italic path. |
 
-### 6a. Resolution model — app preference *and* project *(settled)*
+### 6a. Resolution model — app preference *and* project *(settled; corrected 2026-09-14)*
 
 The theme lives in two places with a defined precedence, mirroring how `displayScale`
 already works.
 
-**`AppPreferences.brand`** — an app preference. Governs Home, Settings, the sheets and
-the wizard. This is the operator's choice.
+**`AppPreferences.brand`** — an app preference. Governs Home, Settings, the sheets, the
+wizard **and the window chrome**. This is the operator's choice.
 
 **`ProjectManifest.theme`** — an additive optional key in `project.json`. Governs that
 project's report rendering **and all of its exports**, so the same project produces the
 same document on any machine.
 
-**Precedence, stated once so both platforms implement it identically:**
+**The invariant, stated once:** **absent ⇒ follow the app preference; present ⇒ pin that
+brand.** Two states, not one. Everything below follows from keeping them apart.
 
-1. A project with a `theme` key renders and exports in that theme, **including the
-   window chrome while it is open.** A half-LFI window — corporate report inside a
-   violet shell — is incoherent, and the report is meant to be WYSIWYG with the export.
+**Precedence:**
+
+1. A project with a `theme` key renders its **report** and every **export** in that
+   brand.
 2. A project with no `theme` key falls back to the app preference. Existing projects
    therefore behave exactly as they do today.
-3. Home and Settings always use the app preference; they belong to no project.
+3. Home, Settings and the window chrome always use the app preference; they belong to no
+   project.
 
-**Write rule, copied from `displayScale`:** the key is stamped at project creation from
-the current app preference, and **omitted entirely when it is the default brand.** A
-shotAI-branded project writes nothing, so existing projects and the common case stay
-byte-identical; only an LFI project carries the key. The store must also refuse a no-op
-write, because `mutate` bumps `updatedAt` unconditionally — the same trap `setDisplayScale`
-already guards against.
+**The contract:**
 
-**Where the user changes it:** a per-project control in the report toolbar beside the
-document-size slider. Same place, same semantics, same precedent.
+| Item | Value |
+|---|---|
+| Key name | `theme`, at the root of `project.json`, beside `displayScale` |
+| Values | `"shotAI"` / `"lfi"` — exactly the `BrandPref` raw values |
+| Stored as | a raw **string**, not the enum |
+| Stamped at creation | **yes**, from the app preference — omitted when it is the default |
+| Stamped on import | **no** |
+| Written on an explicit choice | **always**, the default brand included |
+| Removed | only by choosing "App Default" |
+| Unknown value on read | does not resolve (falls back), but is **kept** |
 
-**Cross-platform:** this is a schema change and needs the Windows companion issue before
-either side ships it. Tolerant decode means a macOS-written `theme` key round-trips
-through an older Windows build untouched via `extra`, so a staggered rollout is safe —
-Windows will render such a project in its own theme until it learns the key, which is
-the same way `displayScale` rolled out.
+**Where the user changes it:** on macOS, **View ▸ Brand** — `App Default (shotAI) /
+shotAI / LFI`, disabled with no project open. Windows uses the same menu. The three
+radios are the three states; "App Default" is not a synonym for whichever brand the
+preference currently holds.
+
+**Read rule.** A recognised brand resolves; an unrecognised one — a brand a newer build
+wrote — resolves to nothing and falls back. But it is stored as a raw `String`, not a
+`BrandPref`, so it **survives**: decoding into the enum would drop the key and the next
+write from this build would silently delete another build's pin.
+
+**Write rule *(this is the correction)*.** The key is stamped at creation from the app
+preference and **omitted when that is the default brand**, so the ordinary operator's
+projects carry no key and stay byte-identical to pre-1b files. But an **explicit user
+choice always writes, the default brand included**, and only "App Default" removes the
+key.
+
+The earlier draft of this section said the key is *"omitted entirely when it is the
+default brand"* — full stop, for creation and for explicit choices alike. That makes
+*absent* and *explicitly-default* the same state, and the consequence is not subtle:
+with the app preference on LFI, a project **cannot be pinned to shotAI at all**, because
+the write that would pin it deletes the key instead, and the next render falls back to
+LFI. Windows shipped that rule and hit it in live testing within minutes.
+
+Windows also flagged what it would have cost macOS: a `theme` key survives a Mac round
+trip today only *by accident*, because it is unknown and rides through `extra`
+untouched. That protection ends the moment `theme` becomes a known key — which is
+precisely when a pinned `"shotAI"` would have started being deleted on the next write
+from macOS.
+
+**No-op writes are refused in the store**, because `mutate` bumps `updatedAt`
+unconditionally — the same trap `setDisplayScale` already guards. The comparison is on
+**raw** values. Coercing both sides through `BrandPref` first would make `nil` and
+`"shotAI"` compare equal and fold the two states back together through the back door.
+
+**Export precedence is resolved inside `exportProject`**, from the manifest it was
+handed: `ExportTheme.of(manifest.pinnedBrand ?? brand)`, where the caller's `brand` is
+the app preference passed as a **fallback, never the answer**. A caller that resolved it
+would be reading `project.json` a second time through its own copy of the manifest, and
+two reads eventually disagree — a project re-pinned between the caller's load and the
+export would come out in the stale brand.
+
+**Deliberate divergence from Windows: the window chrome.** Windows' precedence #1 reskins
+the window chrome while a pinned project is open. macOS does **not**: the pin governs the
+document — report and exports — and the toolbar, Home and Settings stay on the app
+preference. Dylan's call, 2026-09-14. A pin is a property of the document being authored;
+having `open` repaint the whole application reads as the app breaking rather than the
+document being branded, and it makes the app's own identity a function of whatever was
+clicked last. The WYSIWYG argument in the original #1 is satisfied by the *report*
+following the pin, which it does. Everything else in this section is identical on both
+platforms.
+
+**Cross-platform rollout:** tolerant decode means a `theme` key round-trips through an
+older build untouched via `extra`, so a staggered rollout is safe — a build that has not
+learned the key renders such a project in its own brand, the same way `displayScale`
+rolled out.
 
 ### 6b. Two corrections from the Windows port *(2026-09-10)*
 

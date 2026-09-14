@@ -132,6 +132,12 @@ struct ContentView: View {
             if let opened = model.opened {
                 ReportView(opened: opened, onEdit: { step in openEditor(step, in: opened.dir) })
                     .id(opened.dir)
+                    // The DOCUMENT wears the project's brand; the window around
+                    // it does not. This override stops here on purpose — the
+                    // toolbar is attached below, outside this Group, and Home and
+                    // Settings never see it, so a project pinned to another brand
+                    // reskins what it owns and nothing else. View ▸ Brand sets it.
+                    .environment(\.palette, PaletteTokens.of(model.projectBrand))
             } else {
                 HomeView(capture: capture, onOpen: { path in
                     Task { await model.open(path: path) }
