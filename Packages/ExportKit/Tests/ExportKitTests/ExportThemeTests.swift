@@ -158,6 +158,35 @@ final class ExportThemeTests: XCTestCase {
         XCTAssertEqual(lfi.pageBg, "#ffffff")
     }
 
+    /// The Word-facing export names the brand face too — in front of Arial.
+    ///
+    /// The styled export and this one resolve the SAME brand, so an LFI project
+    /// that comes out in Archivo as an HTML document and in plain Arial as the
+    /// Word-facing one is the same project rendering two ways. Windows names it
+    /// in both (`plainFontStackFor`, Armadillon44/shotAI#77); this is the macOS
+    /// half of that agreement.
+    ///
+    /// Arial stays at the FRONT of the tail rather than being replaced by the
+    /// styled export's grotesques: those are chosen to resemble the brand, while
+    /// this document has to survive a paste into Word, Google Docs or a
+    /// Freshservice article, where Arial is the one face present everywhere.
+    func testPlainExportNamesTheBrandFaceAheadOfArial() {
+        let lfi = ExportTheme.of(.lfi)
+        XCTAssertEqual(lfi.plainFontStack, "\"Archivo\",Arial,Helvetica,sans-serif")
+        XCTAssertTrue(plainCSS(theme: lfi).contains("font-family:\"Archivo\",Arial"))
+        // NAMED, never embedded — that is a separate decision and it was declined.
+        XCTAssertFalse(plainCSS(theme: lfi).contains("@font-face"))
+        XCTAssertFalse(plainCSS(theme: lfi).contains("base64"))
+    }
+
+    /// The default brand's Word-facing export is byte-identical to the one this
+    /// format has always produced — that brand names no family, so the stack is
+    /// exactly the historical literal.
+    func testPlainExportIsUnchangedForTheDefaultBrand() {
+        XCTAssertEqual(ExportTheme.shotAI.plainFontStack, "Arial,Helvetica,sans-serif")
+        XCTAssertTrue(plainCSS(theme: .shotAI).contains("font-family:Arial,Helvetica,sans-serif"))
+    }
+
     /// Geometry follows the brand, and keeps the concentric relationship.
     ///
     /// The screenshot is nested inside a card, so it must stay SMALLER than the
