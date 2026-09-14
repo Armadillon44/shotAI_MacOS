@@ -1,0 +1,65 @@
+# Continuous integration for the macOS port.
+#
+# This repo had no CI until now, which is why a broken package manifest went
+# unnoticed for a month: `Packages/EntraKit` declared an executable target whose
+# sources were never committed, so SwiftPM refused to configure it and 41 auth
+# tests silently did not run (#99). Every check below is a command already in
+# CLAUDE.md — the point is that something other than a person remembering runs
+# them.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A new push supersedes the previous run on the same ref.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packages:
+    name: swift test · ${{ matrix.package }}
+    runs-on: macos-latest
+    strategy:
+      # Every package reports independently. Without this, the first failure
+      # hides the state of the other six — which is the failure mode that let
+      # EntraKit stay broken.
+      fail-fast: false
+      matrix:
+        package:
+          - ShotModel
+          - CaptureKit
+          - EditorKit
+          - SOPKit
+          - ExportKit
+          - EntraKit
+          - UpdateKit
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: swift test
+        run: swift test --package-path Packages/${{ matrix.package }}
+
+  app:
+    name: xcodebuild
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Signing is DISABLED here on purpose. The app target is manually signed
+      # with an Apple Development identity so TCC grants survive local rebuilds
+      # (see CLAUDE.md § Signing); a runner holds no such certificate, and this
+      # job only needs to know the tree compiles. Anything that has to be signed
+      # — the VM build, the release DMG — stays a local script.
+      - name: Build (unsigned)
+        run: |
+          xcodebuild \
+            -project shotAI.xcodeproj \
+            -scheme shotAI \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
