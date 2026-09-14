@@ -27,6 +27,5 @@ let package = Package(
     targets: [
         .target(name: "EntraKit", dependencies: ["ShotModel", "SOPKit"]),
         .testTarget(name: "EntraKitTests", dependencies: ["EntraKit"]),
-        .executableTarget(name: "EntraSelfTest", dependencies: ["EntraKit"]),
     ]
 )
