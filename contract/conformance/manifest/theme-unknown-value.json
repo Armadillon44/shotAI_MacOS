@@ -1,0 +1,19 @@
+{
+  "name": "theme-unknown-value",
+  "why": "A brand a NEWER build wrote must survive a round trip. Only its RESOLUTION falls back \u2014 dropping the value means an older build silently deletes a newer build's pin, and the user's choice is gone rather than merely unrendered.",
+  "status": "open",
+  "issue": "Armadillon44/shotAI#77 \u00a71",
+  "divergence": "macOS preserves the raw string; Windows' coerceManifest drops any value that is not a known BrandId, so the next write deletes it.",
+  "input": {
+    "id": "p",
+    "title": "T",
+    "createdWith": "shotAI",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z",
+    "steps": [],
+    "theme": "solarpunk"
+  },
+  "expect": {
+    "theme": "solarpunk"
+  }
+}

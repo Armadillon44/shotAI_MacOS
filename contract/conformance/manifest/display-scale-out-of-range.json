@@ -1,0 +1,14 @@
+{
+  "name": "display-scale-out-of-range",
+  "why": "A scale outside 0.65-1.25 has to render clamped on both platforms. Whether the FILE keeps the original number is the separate question this case pins: normalising on read means opening a project rewrites a value the user never touched, and the original is gone.",
+  "status": "open",
+  "issue": "Armadillon44/shotAI_MacOS#105",
+  "divergence": "macOS stores displayScale raw and clamps only at the point of use (DocScale.of), so 9.0 survives the round trip. Windows clamps inside coerceManifest, so the written file becomes 1.25.",
+  "input": {
+    "id": "p", "title": "T", "createdWith": "shotAI",
+    "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z",
+    "steps": [],
+    "displayScale": 9.0
+  },
+  "expect": { "displayScale": 9 }
+}
