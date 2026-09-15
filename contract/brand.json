@@ -1,0 +1,622 @@
+{
+  "version": 1,
+  "tokenOrder": [
+    "accent",
+    "accentPress",
+    "accentTint",
+    "accentInk",
+    "onAccent",
+    "ink",
+    "ink2",
+    "ink3",
+    "hair",
+    "hair2",
+    "controlBd",
+    "surface",
+    "surface2",
+    "ground",
+    "field",
+    "ok",
+    "okTint",
+    "okInk",
+    "draft",
+    "draftTint",
+    "draftInk",
+    "danger",
+    "dangerTint",
+    "dangerInk",
+    "noteBg",
+    "noteBd",
+    "noteFg",
+    "cautBg",
+    "cautBd",
+    "cautFg",
+    "warnBg",
+    "warnBd",
+    "warnFg",
+    "focusRing",
+    "accentSoft",
+    "dangerBd"
+  ],
+  "alphaOrder": [
+    "cardShadow",
+    "cardShadowHover"
+  ],
+  "windowsRenames": {
+    "field": "fieldBg"
+  },
+  "invariants": [
+    {
+      "rule": "distinct",
+      "mode": "dark",
+      "tokens": [
+        "field",
+        "surface2"
+      ],
+      "why": "a text field the same colour as the card stops reading as an input on an elevated surface. Windows shipped fieldBg == surface2 in dark; this rule is why that cannot come back."
+    }
+  ],
+  "platforms": {
+    "$comment": [
+      "Which tokens each platform's generated file emits. A generator ERRORS if a token it",
+      "needs is absent from brands.*.colors \u2014 that error is the point: it is what stops a",
+      "token being added on one side and quietly missing on the other."
+    ],
+    "macos": {
+      "$comment": "Ordered as declared in BrandPalette.swift \u2014 the memberwise initializer's argument order.",
+      "members": [
+        {
+          "name": "accent",
+          "kind": "pair"
+        },
+        {
+          "name": "accentPress",
+          "kind": "pair"
+        },
+        {
+          "name": "accentTint",
+          "kind": "pair"
+        },
+        {
+          "name": "accentInk",
+          "kind": "pair"
+        },
+        {
+          "name": "onAccent",
+          "kind": "pair"
+        },
+        {
+          "name": "ink",
+          "kind": "pair"
+        },
+        {
+          "name": "ink2",
+          "kind": "pair"
+        },
+        {
+          "name": "ink3",
+          "kind": "pair"
+        },
+        {
+          "name": "hair",
+          "kind": "pair"
+        },
+        {
+          "name": "hair2",
+          "kind": "pair"
+        },
+        {
+          "name": "controlBd",
+          "kind": "pair"
+        },
+        {
+          "name": "surface",
+          "kind": "pair"
+        },
+        {
+          "name": "surface2",
+          "kind": "pair"
+        },
+        {
+          "name": "ground",
+          "kind": "pair"
+        },
+        {
+          "name": "field",
+          "kind": "pair"
+        },
+        {
+          "name": "cardShadow",
+          "kind": "alpha"
+        },
+        {
+          "name": "cardShadowHover",
+          "kind": "alpha"
+        },
+        {
+          "name": "ok",
+          "kind": "pair"
+        },
+        {
+          "name": "okTint",
+          "kind": "pair"
+        },
+        {
+          "name": "okInk",
+          "kind": "pair"
+        },
+        {
+          "name": "draft",
+          "kind": "pair"
+        },
+        {
+          "name": "draftTint",
+          "kind": "pair"
+        },
+        {
+          "name": "draftInk",
+          "kind": "pair"
+        },
+        {
+          "name": "danger",
+          "kind": "pair"
+        },
+        {
+          "name": "dangerTint",
+          "kind": "pair"
+        },
+        {
+          "name": "dangerInk",
+          "kind": "pair"
+        },
+        {
+          "name": "noteBg",
+          "kind": "pair"
+        },
+        {
+          "name": "noteBd",
+          "kind": "pair"
+        },
+        {
+          "name": "noteFg",
+          "kind": "pair"
+        },
+        {
+          "name": "cautBg",
+          "kind": "pair"
+        },
+        {
+          "name": "cautBd",
+          "kind": "pair"
+        },
+        {
+          "name": "cautFg",
+          "kind": "pair"
+        },
+        {
+          "name": "warnBg",
+          "kind": "pair"
+        },
+        {
+          "name": "warnBd",
+          "kind": "pair"
+        },
+        {
+          "name": "warnFg",
+          "kind": "pair"
+        }
+      ]
+    },
+    "windows": {
+      "colors": [
+        "accent",
+        "accentPress",
+        "accentTint",
+        "accentInk",
+        "onAccent",
+        "ink",
+        "ink2",
+        "ink3",
+        "hair",
+        "hair2",
+        "controlBd",
+        "surface",
+        "surface2",
+        "ground",
+        "field",
+        "ok",
+        "okTint",
+        "okInk",
+        "draft",
+        "draftTint",
+        "draftInk",
+        "danger",
+        "dangerTint",
+        "dangerInk",
+        "noteBg",
+        "noteBd",
+        "noteFg",
+        "cautBg",
+        "cautBd",
+        "cautFg",
+        "warnBg",
+        "warnBd",
+        "warnFg",
+        "focusRing",
+        "accentSoft",
+        "dangerBd"
+      ],
+      "alpha": []
+    }
+  },
+  "brands": {
+    "shotAI": {
+      "label": "shotAI",
+      "colors": {
+        "accent": {
+          "light": "#6344f1",
+          "dark": "#9a8bf7"
+        },
+        "accentPress": {
+          "light": "#5233d4",
+          "dark": "#b0a4fa"
+        },
+        "accentTint": {
+          "light": "#efeafe",
+          "dark": "#241f3a"
+        },
+        "accentInk": {
+          "light": "#4a34c9",
+          "dark": "#c8bdfb"
+        },
+        "onAccent": {
+          "light": "#ffffff",
+          "dark": "#171528"
+        },
+        "ink": {
+          "light": "#191826",
+          "dark": "#ece9f7"
+        },
+        "ink2": {
+          "light": "#5a5772",
+          "dark": "#a8a4c0"
+        },
+        "ink3": {
+          "light": "#6f6c88",
+          "dark": "#8e8aa8"
+        },
+        "hair": {
+          "light": "#e7e4f2",
+          "dark": "#302c42"
+        },
+        "hair2": {
+          "light": "#efedf7",
+          "dark": "#282539"
+        },
+        "controlBd": {
+          "light": "#cbc7db",
+          "dark": "#3c3852"
+        },
+        "surface": {
+          "light": "#ffffff",
+          "dark": "#1b1926"
+        },
+        "surface2": {
+          "light": "#faf9ff",
+          "dark": "#211f2e"
+        },
+        "ground": {
+          "light": "#f5f4fb",
+          "dark": "#121019"
+        },
+        "field": {
+          "light": "#ffffff",
+          "dark": "#2e2b40"
+        },
+        "ok": {
+          "light": "#0e9f6e",
+          "dark": "#34d399"
+        },
+        "okTint": {
+          "light": "#e7f7ef",
+          "dark": "#12271e"
+        },
+        "okInk": {
+          "light": "#07724f",
+          "dark": "#6ee7b7"
+        },
+        "draft": {
+          "light": "#c77d16",
+          "dark": "#e0a355"
+        },
+        "draftTint": {
+          "light": "#fbf1e0",
+          "dark": "#2a2113"
+        },
+        "draftInk": {
+          "light": "#8a5610",
+          "dark": "#f0c98a"
+        },
+        "danger": {
+          "light": "#dc2626",
+          "dark": "#f87171"
+        },
+        "dangerTint": {
+          "light": "#fef2f2",
+          "dark": "#2a1414"
+        },
+        "dangerInk": {
+          "light": "#b91c1c",
+          "dark": "#fca5a5"
+        },
+        "noteBg": {
+          "light": "#ecfdf5",
+          "dark": "#10281f"
+        },
+        "noteBd": {
+          "light": "#6ee7b7",
+          "dark": "#2f6f52"
+        },
+        "noteFg": {
+          "light": "#065f46",
+          "dark": "#8ee7bf"
+        },
+        "cautBg": {
+          "light": "#fffbeb",
+          "dark": "#2a2113"
+        },
+        "cautBd": {
+          "light": "#fcd34d",
+          "dark": "#7a5c1e"
+        },
+        "cautFg": {
+          "light": "#92400e",
+          "dark": "#f0c98a"
+        },
+        "warnBg": {
+          "light": "#fef2f2",
+          "dark": "#2a1414"
+        },
+        "warnBd": {
+          "light": "#fca5a5",
+          "dark": "#7a3a3a"
+        },
+        "warnFg": {
+          "light": "#991b1b",
+          "dark": "#f6b0b0"
+        },
+        "focusRing": {
+          "light": "#c7d2fe",
+          "dark": "#c7d2fe"
+        },
+        "accentSoft": {
+          "light": "#a5b4fc",
+          "dark": "#a5b4fc"
+        },
+        "dangerBd": {
+          "light": "#f0c2c2",
+          "dark": "#5a2a2a"
+        }
+      },
+      "alpha": {
+        "cardShadow": {
+          "dark": 0.55,
+          "light": 0.1,
+          "rgb": "#241b4d"
+        },
+        "cardShadowHover": {
+          "dark": 0.7,
+          "light": 0.18,
+          "rgb": "#241b4d"
+        }
+      },
+      "radii": {
+        "panel": 12,
+        "card": 10,
+        "figure": 8,
+        "control": {
+          "macos": 6,
+          "windows": 8
+        },
+        "controlSm": 6,
+        "micro": 4,
+        "chip": null
+      },
+      "font": {
+        "family": null,
+        "postScriptName": null,
+        "fallbacks": [
+          "-apple-system",
+          "\"Segoe UI\"",
+          "Roboto",
+          "Helvetica",
+          "Arial",
+          "sans-serif"
+        ],
+        "labelStretch": null
+      }
+    },
+    "lfi": {
+      "label": "LFI",
+      "colors": {
+        "accent": {
+          "light": "#b46b3e",
+          "dark": "#d58b5c"
+        },
+        "accentPress": {
+          "light": "#9a5a33",
+          "dark": "#e3a579"
+        },
+        "accentTint": {
+          "light": "#f6ede5",
+          "dark": "#3a2e25"
+        },
+        "accentInk": {
+          "light": "#8f5430",
+          "dark": "#e3a579"
+        },
+        "onAccent": {
+          "light": "#ffffff",
+          "dark": "#211f1c"
+        },
+        "ink": {
+          "light": "#47443e",
+          "dark": "#f8f4ec"
+        },
+        "ink2": {
+          "light": "#6f695f",
+          "dark": "#cfc7b8"
+        },
+        "ink3": {
+          "light": "#756c5c",
+          "dark": "#b5aa99"
+        },
+        "hair": {
+          "light": "#d8d2c6",
+          "dark": "#4a463f"
+        },
+        "hair2": {
+          "light": "#e7e2d7",
+          "dark": "#3f3c36"
+        },
+        "controlBd": {
+          "light": "#c9c1b3",
+          "dark": "#686258"
+        },
+        "surface": {
+          "light": "#ffffff",
+          "dark": "#3a3833"
+        },
+        "surface2": {
+          "light": "#faf8f3",
+          "dark": "#43403a"
+        },
+        "ground": {
+          "light": "#f5f2eb",
+          "dark": "#2f2d29"
+        },
+        "field": {
+          "light": "#ffffff",
+          "dark": "#4a4740"
+        },
+        "ok": {
+          "light": "#3e7d5a",
+          "dark": "#6fb089"
+        },
+        "okTint": {
+          "light": "#e9f1eb",
+          "dark": "#23302a"
+        },
+        "okInk": {
+          "light": "#2b5b40",
+          "dark": "#9bceb1"
+        },
+        "draft": {
+          "light": "#c79a72",
+          "dark": "#d5ae89"
+        },
+        "draftTint": {
+          "light": "#f7efe6",
+          "dark": "#332a21"
+        },
+        "draftInk": {
+          "light": "#8a5f35",
+          "dark": "#e0c09e"
+        },
+        "danger": {
+          "light": "#9d3f32",
+          "dark": "#c96253"
+        },
+        "dangerTint": {
+          "light": "#f7eae7",
+          "dark": "#33211e"
+        },
+        "dangerInk": {
+          "light": "#7f3227",
+          "dark": "#e0897b"
+        },
+        "noteBg": {
+          "light": "#e9f1eb",
+          "dark": "#23302a"
+        },
+        "noteBd": {
+          "light": "#3e7d5a",
+          "dark": "#6fb089"
+        },
+        "noteFg": {
+          "light": "#2b5b40",
+          "dark": "#9bceb1"
+        },
+        "cautBg": {
+          "light": "#f7efe6",
+          "dark": "#332a21"
+        },
+        "cautBd": {
+          "light": "#c79a72",
+          "dark": "#d5ae89"
+        },
+        "cautFg": {
+          "light": "#8a5f35",
+          "dark": "#e0c09e"
+        },
+        "warnBg": {
+          "light": "#f7eae7",
+          "dark": "#33211e"
+        },
+        "warnBd": {
+          "light": "#c97f72",
+          "dark": "#c96253"
+        },
+        "warnFg": {
+          "light": "#7f3227",
+          "dark": "#e0897b"
+        },
+        "focusRing": {
+          "light": "#e8cdb4",
+          "dark": "#e8cdb4"
+        },
+        "accentSoft": {
+          "light": "#dcb896",
+          "dark": "#dcb896"
+        },
+        "dangerBd": {
+          "light": "#ddbcb7",
+          "dark": "#5a332c"
+        }
+      },
+      "alpha": {
+        "cardShadow": {
+          "dark": 0.55,
+          "light": 0.1,
+          "rgb": "#47443e"
+        },
+        "cardShadowHover": {
+          "dark": 0.7,
+          "light": 0.18,
+          "rgb": "#47443e"
+        }
+      },
+      "radii": {
+        "panel": 8,
+        "card": 8,
+        "figure": 6,
+        "control": 5,
+        "controlSm": 4,
+        "micro": 3,
+        "chip": 8
+      },
+      "font": {
+        "family": "Archivo",
+        "postScriptName": "Archivo-SemiBold",
+        "fallbacks": [
+          "\"Helvetica Neue\"",
+          "Helvetica",
+          "Arial",
+          "\"Liberation Sans\"",
+          "sans-serif"
+        ],
+        "labelStretch": 62
+      }
+    }
+  }
+}
