@@ -42,6 +42,20 @@ jobs:
       - name: swift test
         run: swift test --package-path Packages/${{ matrix.package }}
 
+  contract:
+    name: brand table is current
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The brand table is generated from contract/brand.json, which is byte-identical
+      # to the copy in Armadillon44/shotAI. This step is what makes that true: it fails
+      # if the checked-in table no longer matches the contract, so a colour cannot be
+      # edited on one platform and silently left alone on the other — which is how
+      # every drift in the 2026-09-14 cross-check happened.
+      - name: swift Scripts/gen-brand.swift --check
+        run: swift Scripts/gen-brand.swift --check
+
   app:
     name: xcodebuild
     runs-on: macos-latest
