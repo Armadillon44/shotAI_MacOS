@@ -49,7 +49,7 @@ APP="$OUT/shotAI.app"
 SHA=$(git rev-parse --short HEAD)
 
 # Stamp the commit into the bundle version, so a running copy can say which
-# build it is. Finder ▸ Get Info shows "1.3.0 (<sha>)", and About does too.
+# build it is. Finder ▸ Get Info shows "1.4.0 (<sha>)", and About does too.
 # Without this a stale install is indistinguishable from a change that did not
 # work — which cost a full round of "the radii look the same" when the answer
 # was that the build predated them.

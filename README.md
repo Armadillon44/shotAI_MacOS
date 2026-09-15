@@ -12,12 +12,20 @@ check against GitHub that you can turn off. This is a native Swift/SwiftUI port 
 the [Windows app](https://github.com/Armadillon44/shotAI); `project.json` is
 byte-compatible, so projects **round-trip between platforms**.
 
-> **Status:** **1.2.0.** Capture engine, native SwiftUI
+> **Status:** **1.4.0.** Capture engine, native SwiftUI
 > annotation editor, manual redaction (blur or solid box, baked into a flattened copy), Claude SOP
 > generation with review-before-send + one-click revert, element-at-point captions (native
 > Accessibility), export to HTML / PDF / Markdown / "HTML for Word" + a shareable
-> round-trip `.zip` package, project archiving, a first-run tour, and light/dark theming are
-> all implemented.
+> round-trip `.zip` package, project archiving, a first-run tour, light/dark appearance and
+> selectable brand themes are all implemented.
+> **New in 1.4.0:** a second **brand theme** — LFI, in charcoal and rust, with its own corner
+> radii and typeface. It reaches the app, the report *and* every export, so a guide you send
+> looks like the guide you wrote. A single project can **pin its own brand** (View ▸ Brand), and
+> the pin travels inside the `.zip` package and round-trips with the Windows app. Also: the
+> Word-facing export now names the brand typeface, and two bugs that could lose work — a crash
+> on a malformed project file, and one bad entry emptying a project's steps — are fixed.
+> **In 1.3.0:** each project has a **document size** (65–125%), applied to the report and every
+> export at the same width, and stored in the project rather than in your settings.
 > **New in 1.2.0:** **Single sign-on.** Where an organization has configured it, staff sign in with
 > their **work account** and Claude just works — no API key issued, stored, or typed on any
 > machine, and no gateway or proxy in between. Access is an identity-provider role assignment,
@@ -190,6 +198,7 @@ swift test --package-path Packages/CaptureKit
 swift test --package-path Packages/EditorKit
 swift test --package-path Packages/SOPKit
 swift test --package-path Packages/ExportKit
+swift test --package-path Packages/EntraKit
 swift test --package-path Packages/UpdateKit
 
 # Live smoke tests (drive the real frameworks / services)
@@ -197,6 +206,10 @@ swift run --package-path Packages/CaptureKit CaptureSelfTest   # needs Screen Re
 swift run --package-path Packages/ExportKit PdfSelfTest        # exercises the PDF renderer
 swift run --package-path Packages/UpdateKit UpdateSelfTest     # one live GitHub API call
 ```
+
+Every package suite and an unsigned app build run in **CI on every push and pull request**
+(`.github/workflows/ci.yml`), each package reported independently so one failure cannot hide
+the others.
 
 The app target is manually signed with an **Apple Development** cert (team `JX6BU857VX`)
 so TCC grants persist across rebuilds; a fresh checkout will need its own dev signing
