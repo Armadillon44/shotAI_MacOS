@@ -29,6 +29,16 @@ func sopEditJSONSchema() -> [String: Any] { [
         ]),
         "steps": [
             "type": "array",
+            // Constrained decoding cannot emit an empty array, so "the model
+            // returned no steps" — by far the most common generation failure —
+            // is now unrepresentable rather than caught after the fact.
+            //
+            // 0 and 1 are the ONLY values the API accepts here, and `minLength`
+            // / `maxItems` are NOT supported at all. shotAI speaks to the API
+            // directly with no SDK, so there is no client-side transform to strip
+            // an unsupported keyword: one would 400 every request. Do not add
+            // range or length constraints to this schema.
+            "minItems": 1,
             "items": [
                 "type": "object",
                 "additionalProperties": false,
