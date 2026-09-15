@@ -1,13 +1,26 @@
 {
   "name": "null-step-entry-keeps-the-rest",
-  "why": "Same invariant as junk-step-entry-keeps-the-rest, for the one junk shape Windows handles differently. `{...null}` is the only spread that throws, so on Windows this makes the project unopenable AND removes it from Home — a harder failure to diagnose than an error would be.",
-  "status": "open",
+  "why": "One malformed entry must cost that entry and nothing else. A null element used to throw in normalizeSteps, which made the project unopenable AND removed it from Home \u2014 a harder failure to diagnose than an error. Resolved on both platforms; this is now the regression test.",
+  "status": "agreed",
   "issue": "Armadillon44/shotAI#86",
-  "divergence": "macOS drops the null entry and keeps the valid step. Windows throws in normalizeSteps, so coerceManifest fails, openProject rejects, and the project vanishes from the listing.",
   "input": {
-    "id": "p", "title": "T", "createdWith": "shotAI",
-    "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z",
-    "steps": [ {"id":"s1","order":0,"kind":"shot","screenshot":"shots/a.png","trigger":"click"}, null ]
+    "id": "p",
+    "title": "T",
+    "createdWith": "shotAI",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z",
+    "steps": [
+      {
+        "id": "s1",
+        "order": 0,
+        "kind": "shot",
+        "screenshot": "shots/a.png",
+        "trigger": "click"
+      },
+      null
+    ]
   },
-  "expect": { "steps.0.id": "s1" }
+  "expect": {
+    "steps.0.id": "s1"
+  }
 }
