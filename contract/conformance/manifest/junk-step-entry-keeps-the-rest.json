@@ -1,0 +1,16 @@
+{
+  "name": "junk-step-entry-keeps-the-rest",
+  "why": "One malformed entry must cost that entry and nothing else. macOS used to discard EVERY step and persist the empty array on the next save, which destroyed real work in silence.",
+  "status": "agreed",
+  "issue": "Armadillon44/shotAI_MacOS#108",
+  "input": {
+    "id": "p", "title": "T", "createdWith": "shotAI",
+    "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z",
+    "steps": [ {"id":"s1","order":0,"kind":"shot","screenshot":"shots/a.png","trigger":"click"}, 42 ]
+  },
+  "expect": {
+    "steps.0.id": "s1",
+    "steps.0.kind": "shot",
+    "steps.0.screenshot": "shots/a.png"
+  }
+}
