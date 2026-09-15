@@ -77,4 +77,67 @@ final class UnderproductionTests: XCTestCase {
         XCTAssertTrue(p.lowercased().contains("filler"), "and must say filler is worse than none")
     }
 
+    // MARK: A plan that would change nothing must fail, not apply silently
+
+    /// The failure actually reported as "it returned only an overview".
+    ///
+    /// A plan full of well-written steps whose `stepNumber`s match no real step
+    /// used to pass the content-only guard, apply to nothing, and leave the user
+    /// with a new title and overview and NO error. Driven end to end through the
+    /// real streaming path so the guard is tested where it lives.
+    ///
+    /// The numbering the assembler shows Claude counts author text blocks too, so
+    /// the only screenshot in a two-item project is "Screenshot step 2", not 1. A
+    /// model that numbers the screenshots 1..N instead lands outside the map
+    /// entirely.
+    func testAPlanMatchingNoRealStepIsRejected() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        try await store.mutate(at: path) { m in
+            m.steps.insert(ProjectStep(id: "t0", order: 0, kind: .text, screenshot: "",
+                                       trigger: .hotkey, heading: "Before you start",
+                                       body: "context"), at: 0)
+            ProjectStore.renumber(&m.steps)
+        }
+        let manifest = try await store.openProject(at: path).manifest
+
+        // Real content, but numbered 1 — the screenshot is step 2.
+        let json = #"{"title":"A Real Title","intro":{"heading":"Overview","body":"words"},"steps":[{"stepNumber":1,"caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null}]}"#
+        let svc = SopService(
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in
+                (sseLines(json: json), ResponseHead(status: 200))
+            })),
+            keyStore: StubKeyStore())
+
+        do {
+            _ = try await svc.generate(dir: dir, manifest: manifest,
+                                       settings: SopSettings(), onProgress: { _ in })
+            XCTFail("a plan that cannot change any step must not be returned as a success")
+        } catch let e as ClaudeError {
+            XCTAssertEqual(e, .incomplete, "expected the under-production failure, got \(e)")
+        }
+    }
+
+    /// The control: the SAME content, numbered correctly, must succeed — or the
+    /// guard above is just rejecting everything.
+    func testACorrectlyNumberedPlanIsAccepted() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        try await store.mutate(at: path) { m in
+            m.steps.insert(ProjectStep(id: "t0", order: 0, kind: .text, screenshot: "",
+                                       trigger: .hotkey, heading: "Before you start",
+                                       body: "context"), at: 0)
+            ProjectStore.renumber(&m.steps)
+        }
+        let manifest = try await store.openProject(at: path).manifest
+
+        let json = #"{"title":"A Real Title","intro":null,"steps":[{"stepNumber":2,"caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null}]}"#
+        let svc = SopService(
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in
+                (sseLines(json: json), ResponseHead(status: 200))
+            })),
+            keyStore: StubKeyStore())
+
+        let plan = try await svc.generate(dir: dir, manifest: manifest,
+                                          settings: SopSettings(), onProgress: { _ in })
+        XCTAssertEqual(plan.steps.first?.caption, "Click Save")
+    }
 }

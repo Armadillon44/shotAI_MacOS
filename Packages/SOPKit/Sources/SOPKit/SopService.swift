@@ -106,14 +106,42 @@ public struct SopService: Sendable {
                             sectionHeading: $0.sectionHeading, sectionBody: $0.sectionBody)
             })
         // A project always has shot steps here (the assembler throws otherwise),
-        // so a plan with no actual step instruction means the model under-produced
-        // (common at low effort). Fail loudly instead of silently applying only an
-        // intro — the caller must NOT snapshot/apply a no-op result.
-        let wroteAnyStep = plan.steps.contains {
-            !$0.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // so a plan that will not change a single one of them means the run
+        // produced nothing usable. Fail loudly instead of silently applying only
+        // an intro — the caller must NOT snapshot/apply a no-op result.
+        //
+        // This checks what will LAND, not merely what was written. Checking the
+        // plan alone missed the case actually reported as "it returned only an
+        // overview": a plan full of well-written steps whose `stepNumber`s match
+        // no real step passes a content-only test, applies to nothing, and the
+        // user gets a new title and overview with no error at all.
+        //
+        // The numbers must line up with `applySopEdits`, which indexes the
+        // non-AI-inserted steps and counts author text blocks — so the only
+        // screenshot in a two-item project is "Screenshot step 2", not 1.
+        let base = manifest.steps.filter { $0.aiInserted != true }
+        let shotNumbers = Set(base.enumerated().compactMap { i, s in s.kind == .text ? nil : i + 1 })
+        let willEditAStep = plan.steps.contains {
+            shotNumbers.contains($0.stepNumber)
+                && (!$0.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        guard wroteAnyStep else { throw ClaudeError.incomplete }
+        if !willEditAStep {
+            // Distinguish the two failures in the log: "wrote nothing" and "wrote
+            // for steps that do not exist" have different causes and different
+            // fixes, and the user-facing message cannot tell them apart.
+            let wroteSomething = plan.steps.contains {
+                !$0.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            let got = plan.steps.map(\.stepNumber).sorted()
+            Log.sop.error("""
+                generation unusable — \(wroteSomething ? "stepNumbers matched no step" : "no step content", privacy: .public). \
+                plan numbers \(String(describing: got), privacy: .public), \
+                expected any of \(String(describing: shotNumbers.sorted()), privacy: .public)
+                """)
+            throw ClaudeError.incomplete
+        }
         onProgress(.done)
         return plan
     }
