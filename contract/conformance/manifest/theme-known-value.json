@@ -1,0 +1,12 @@
+{
+  "name": "theme-known-value",
+  "why": "The control for theme-unknown-value: a recognised brand is kept by both, so a failure here is a real regression rather than the known divergence.",
+  "status": "agreed",
+  "input": {
+    "id": "p", "title": "T", "createdWith": "shotAI",
+    "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z",
+    "steps": [],
+    "theme": "lfi"
+  },
+  "expect": { "theme": "lfi" }
+}

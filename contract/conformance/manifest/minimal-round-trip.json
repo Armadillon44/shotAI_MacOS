@@ -1,0 +1,21 @@
+{
+  "name": "minimal-round-trip",
+  "why": "The floor. A valid manifest with nothing unusual in it must be written back exactly as it arrived, or every existing project churns on first open.",
+  "status": "agreed",
+  "input": {
+    "id": "b7e2c4d1-0000-4000-8000-000000000001",
+    "title": "A Procedure",
+    "createdWith": "shotAI",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-02T00:00:00.000Z",
+    "steps": []
+  },
+  "expect": {
+    "id": "b7e2c4d1-0000-4000-8000-000000000001",
+    "title": "A Procedure",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-02T00:00:00.000Z",
+    "displayScale": { "$absent": true },
+    "theme": { "$absent": true }
+  }
+}
