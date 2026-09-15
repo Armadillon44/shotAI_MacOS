@@ -108,7 +108,24 @@ import Testing
             }
         }
 
-        guard !failures.isEmpty else { return }
+        guard !failures.isEmpty else {
+            // An `open` case that passes HERE is worth saying out loud: without
+            // it, a divergence that gets fixed keeps its `open` label forever and
+            // nobody re-checks by hand, which is the promise the README makes for
+            // the status field.
+            //
+            // But it is NOT proof of resolution. A case is open because at least
+            // one platform diverges, and most of these are open for the OTHER
+            // one — so the message must not tell anyone to flip the status on the
+            // strength of a single side passing. That advice would be wrong more
+            // often than right, and would break the other platform's run.
+            if c.status == "open" {
+                print("[conformance] \(c.name) is marked open and PASSES HERE. "
+                    + "It stays open until the other platform passes too — check there "
+                    + "before flipping status to \"agreed\" (tracked: \(c.issue ?? "untracked")).")
+            }
+            return
+        }
         let detail = "\(c.name): \(failures.joined(separator: "; "))"
         if c.status == "open" {
             // A KNOWN divergence. Reported, never failed — see the README: the
