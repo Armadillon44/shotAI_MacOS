@@ -201,6 +201,11 @@ swift test --package-path Packages/ExportKit
 swift test --package-path Packages/EntraKit
 swift test --package-path Packages/UpdateKit
 
+# The brand table is GENERATED from contract/brand.json — never hand-edit
+# BrandPalette+Generated.swift. CI fails if the two fall out of step.
+swift Scripts/gen-brand.swift          # regenerate
+swift Scripts/gen-brand.swift --check  # fail if stale
+
 # Live smoke tests (drive the real frameworks / services)
 swift run --package-path Packages/CaptureKit CaptureSelfTest   # needs Screen Recording
 swift run --package-path Packages/ExportKit PdfSelfTest        # exercises the PDF renderer
@@ -280,3 +285,6 @@ Full docs, guides, and screenshots live in the
 ## License
 
 [MIT](LICENSE) — © 2026 LFI.
+
+shotAI bundles **Archivo**, used by the LFI theme, under the
+[SIL Open Font License](shotAI/Resources/Fonts/OFL.txt).

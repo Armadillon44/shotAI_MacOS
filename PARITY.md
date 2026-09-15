@@ -2,12 +2,22 @@
 
 **Audit date:** 2026-07-28 · **Target:** shipped Windows **v1.1.4** · **Reference:** `shotAI-original/` (v1.1.4 / `d9823ec`) · **macOS build:** `1.4.0` (build 12)
 
-> ⚠️ **This audit is behind the Windows app.** It was taken against Windows v1.1.4; Windows has
-> since shipped v1.2.0 and merged its own brand theme, per-project `theme` key, CI, the generated
-> brand contract and the shared conformance suite. The rows below are still accurate for
-> everything they cover, but they do not cover any of that, and `shotAI-original/` is still pinned
-> to v1.1.4. **A re-audit against Windows `main` is owed.** Until then, treat a row's silence as
-> "not looked at recently" rather than "at parity".
+> ⚠️ **This audit is behind the Windows app, and two of its rows are now WRONG.** It was taken
+> against Windows v1.1.4. Windows has since shipped **v1.1.5, v1.1.6 and v1.2.0**, and merged a
+> brand theme, the per-project `theme` key, CI, the generated brand contract and the shared
+> conformance suite on top of that.
+>
+> Known-wrong rows, pending a re-audit:
+>
+> - **Export — the "⬆️ ahead" is gone.** Windows v1.1.5 shipped AVIF and the per-block column
+>   width, which were the two items this document still credits macOS with leading on.
+> - **"Windows has no updater at all" is false.** Windows v1.1.6 shipped a notify-only checker.
+>   Only the *self-installing* half remains macOS-specific, and that is still blocked on Phase E.
+>
+> Nothing here covers this release's own subject matter either — the LFI brand, the per-project
+> brand pin, CI, the brand contract or the conformance suite. `shotAI-original/` is still pinned
+> to v1.1.4. **A re-audit against Windows `main` is owed**; until it lands, treat a row's silence
+> as "not looked at recently" rather than "at parity".
 
 Roadmap of record for the macOS port's parity with the shipped Windows app. Full
 surface-by-surface re-audit (Windows v1.1.4 read from source, verified against the current
