@@ -76,7 +76,22 @@ import Testing
 
     @Test(arguments: Self.cases)
     func conforms(_ c: Case) throws {
-        let got = try Self.roundTrip(c.input)
+        // The codec THROWING is itself a possible divergence — a null entry in
+        // `steps` makes the Windows codec throw and is merely dropped here — so a
+        // throw has to be reportable rather than an unconditional failure, or an
+        // `open` case covering it could never be expressed.
+        let got: [String: Any]
+        do {
+            got = try Self.roundTrip(c.input)
+        } catch {
+            let threw = "\(c.name): the codec THREW — \(error)"
+            if c.status == "open" {
+                print("[conformance] open divergence — \(threw)\n  \(c.divergence ?? "")\n  tracked: \(c.issue ?? "untracked")")
+            } else {
+                Issue.record("\(threw)\n  why this matters: \(c.why)")
+            }
+            return
+        }
         var failures: [String] = []
 
         for (path, want) in c.expect.sorted(by: { $0.key < $1.key }) {

@@ -1,0 +1,13 @@
+{
+  "name": "huge-step-order-survives",
+  "why": "A step order beyond Int range must not be fatal. On macOS this was a TRAP, not a throw — the process died on decode, and because Home scans every project one bad file could stop the app launching at all. Windows passes the value through, so such a manifest round-trips there and crashed here.",
+  "status": "agreed",
+  "issue": "Armadillon44/shotAI_MacOS#107",
+  "note": "The stored order is deliberately NOT asserted: macOS clamps to Int.max, Windows keeps 1e21. What both must guarantee is that the manifest still decodes and the step survives.",
+  "input": {
+    "id": "p", "title": "T", "createdWith": "shotAI",
+    "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z",
+    "steps": [ {"id": "s1", "order": 1e21, "kind": "shot", "screenshot": "shots/a.png", "trigger": "click"} ]
+  },
+  "expect": { "steps.0.id": "s1", "steps.0.kind": "shot" }
+}

@@ -461,7 +461,16 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         // Defensive throughout (mirrors normalizeSteps + the TS blind-cast read):
         // a malformed field degrades to its default instead of failing the open.
         id = (try? c.decodeIfPresent(String.self, forKey: key("id"))) ?? ""
-        order = Int(((try? c.decodeIfPresent(Double.self, forKey: key("order"))) ?? 0).rounded())
+        // `Int(Double)` TRAPS on overflow. A trap is a fatalError, not a throw, so
+        // the `try?` cannot catch it and the PROCESS DIES — an `order` of 1e21 in a
+        // hand-edited or foreign-written manifest killed the app on decode, and
+        // since Home scans every project one bad file took the whole app down (#107).
+        // Windows passes `order` through untouched, so such a file round-trips there
+        // and crashes here, which is exactly the cross-platform case this schema
+        // exists to survive. Clamped rather than zeroed so an absurd value still
+        // sorts where it was asking to.
+        let rawOrder = ((try? c.decodeIfPresent(Double.self, forKey: key("order"))) ?? 0).rounded()
+        order = Int(exactly: rawOrder) ?? (rawOrder > 0 ? Int.max : 0)
         kind = try? c.decodeIfPresent(StepKind.self, forKey: key("kind"))
         screenshot = (try? c.decodeIfPresent(String.self, forKey: key("screenshot"))) ?? ""
         trigger = (try? c.decodeIfPresent(Trigger.self, forKey: key("trigger"))) ?? .hotkey
@@ -529,6 +538,20 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
 }
 
 // MARK: - Manifest
+
+/// Decodes `T` if it can, and yields nil rather than failing if it cannot.
+///
+/// Exists so a COLLECTION can be tolerant per element. `try? decode([T].self)`
+/// looks like the same thing and is not: it fails as a unit, so a single bad
+/// entry discards every good one alongside it (#108).
+///
+/// It catches THROWS only. A decoder that traps — `Int(Double)` on an
+/// out-of-range value, say — still takes the process down through this wrapper,
+/// which is why #107 had to be fixed for this to be worth anything.
+struct Lenient<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: Decoder) throws { value = try? T(from: decoder) }
+}
 
 public struct ProjectManifest: Codable, Equatable, Sendable {
     public var version: Int
@@ -650,7 +673,23 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         createdAt = (try? c.decodeIfPresent(String.self, forKey: key("createdAt"))) ?? ""
         updatedAt = (try? c.decodeIfPresent(String.self, forKey: key("updatedAt"))) ?? ""
         captureSettings = try? c.decodeIfPresent(CaptureTarget.self, forKey: key("captureSettings"))
-        steps = (try? c.decodeIfPresent([ProjectStep].self, forKey: key("steps"))) ?? []
+        // Element-wise, deliberately. `try? decode([ProjectStep].self)` fails as a
+        // UNIT, so one malformed entry — a number, a string, a null — cost the
+        // ENTIRE array, and the next save persisted `"steps": []` over real work
+        // with nothing shown to the user (#108). One bad element should cost that
+        // element, which is the tolerance every individual field above already has.
+        let rawSteps = (try? c.decodeIfPresent([Lenient<ProjectStep>].self, forKey: key("steps"))) ?? []
+        let keptSteps = rawSteps.compactMap(\.value)
+        steps = keptSteps
+        // Counts hoisted into locals: os.Logger interpolation is an autoclosure, and
+        // reading `self.steps` inside one from a mutating init does not compile.
+        let dropped = rawSteps.count - keptSteps.count
+        if dropped > 0 {
+            // Say so. A silent drop is indistinguishable from a project that never
+            // had those steps, which is what made the original bug so hard to see.
+            let total = rawSteps.count
+            Log.store.error("manifest: dropped \(dropped, privacy: .public) malformed step(s) of \(total, privacy: .public)")
+        }
         displayScale = try? c.decodeIfPresent(Double.self, forKey: key("displayScale"))
         theme = try? c.decodeIfPresent(String.self, forKey: key("theme"))
         let rawIntro = try? c.decodeIfPresent(SopIntro.self, forKey: key("intro"))
