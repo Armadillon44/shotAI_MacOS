@@ -44,6 +44,11 @@ business.
 | `agreed` | both platforms must pass. A failure is a bug. |
 | `open` | a **known** divergence. Each harness reports it and does not fail. |
 
+When an `open` case **passes on one platform**, that harness says so — otherwise a
+divergence that gets fixed keeps its `open` label forever and nobody re-checks by
+hand. It is not proof of resolution: a case is open because at least one platform
+diverges, so both sides must pass before the status is flipped.
+
 `open` is the point of the field, not a loophole. These divergences already
 exist; writing them here turns a paragraph in a document nobody re-reads into
 executable, reviewable state. Every `open` case names the issue tracking it, and
@@ -54,7 +59,7 @@ Add a case by writing the JSON. Both harnesses discover files, so neither needs
 touching:
 
 - macOS — `Packages/ShotModel/Tests/ShotModelTests/ConformanceTests.swift`
-- Windows — `src/shared/conformance.test.ts`
+- Windows — `src/main/conformance.test.ts`
 
 ## What this does not yet check
 
