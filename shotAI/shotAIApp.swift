@@ -102,11 +102,16 @@ struct ShotAIApp: App {
             // non-default app brand on Windows (Armadillon44/shotAI#77).
             CommandGroup(after: .toolbar) {
                 Menu("Brand") {
-                    Picker("Brand", selection: projectBrandPin) {
+                    // Selection carries a fourth state — `.unrecognised` — for a
+                    // project pinned to a brand this build cannot read. It has no
+                    // row, so NOTHING is ticked, which is honest: the project is
+                    // in none of the three states offered. Ticking "App Default"
+                    // there made clearing the pin look like a no-op (#118).
+                    Picker("Brand", selection: brandMenuSelection) {
                         Text("App Default (\(model.preferences.brand.label))")
-                            .tag(nil as BrandPref?)
+                            .tag(AppModel.BrandMenuSelection.appDefault)
                         ForEach(BrandPref.allCases, id: \.self) { brand in
-                            Text(brand.label).tag(brand as BrandPref?)
+                            Text(brand.label).tag(AppModel.BrandMenuSelection.brand(brand))
                         }
                     }
                     .pickerStyle(.inline)
@@ -145,9 +150,9 @@ struct ShotAIApp: App {
     ///
     /// Writes go through `AppModel` so the store's no-op refusal and the reload
     /// happen in one place; the menu never touches the manifest itself.
-    private var projectBrandPin: Binding<BrandPref?> {
-        Binding(get: { model.projectBrandPin },
-                set: { brand in Task { await model.setProjectBrand(brand) } })
+    private var brandMenuSelection: Binding<AppModel.BrandMenuSelection> {
+        Binding(get: { model.brandMenuSelection },
+                set: { sel in Task { await model.applyBrandMenuSelection(sel) } })
     }
 
     /// One-time purge of window/split-view autosave records left by EARLIER app

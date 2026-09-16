@@ -492,13 +492,44 @@ final class AppModel {
     /// makes the app's own identity a function of whatever was clicked last.
     var projectBrand: BrandPref { opened?.manifest.pinnedBrand ?? preferences.brand }
 
-    /// The pin AS STORED. nil means "follow the app preference", which is a
-    /// DIFFERENT state from being pinned to the brand the preference happens to
-    /// hold right now — that distinction is the whole point of the first radio in
-    /// View ▸ Brand, and folding the two together is the bug Windows shipped and
-    /// caught in live testing (Armadillon44/shotAI#77): with the app on LFI there
-    /// was then no way to hold a project on shotAI.
-    var projectBrandPin: BrandPref? { opened?.manifest.pinnedBrand }
+    /// What View ▸ Brand should show as selected.
+    ///
+    /// A fourth state exists and the menu must not hide it: a project can be
+    /// pinned to a brand this build does not recognise — one a newer build wrote.
+    /// `pinnedBrand` is nil for that, correctly, because the pin cannot be
+    /// honoured; but binding the menu straight to it ticked "App Default", which
+    /// is a state the project is NOT in. The user then clicks an already-ticked
+    /// row, the UI presents that as a no-op, and it deletes their pin and
+    /// re-dates the project (#118, Armadillon44/shotAI#107).
+    ///
+    /// `.unrecognised` is deliberately not offered as a choice: it is not
+    /// something a user can select, only something a project can be in. With no
+    /// row ticked, picking "App Default" is a visible change rather than a
+    /// silent one — which is all that was wrong. Clearing an unreadable pin has
+    /// to stay possible, or it would become permanent.
+    enum BrandMenuSelection: Hashable {
+        case appDefault
+        case brand(BrandPref)
+        /// Pinned to a brand this build cannot read. Never offered in the menu.
+        case unrecognised
+    }
+
+    var brandMenuSelection: BrandMenuSelection {
+        guard let raw = opened?.manifest.theme else { return .appDefault }
+        guard let known = BrandPref(rawValue: raw) else { return .unrecognised }
+        return .brand(known)
+    }
+
+    /// Apply a menu choice. `.unrecognised` is unreachable from the UI and is
+    /// ignored rather than trusted, since it has no meaning as an instruction.
+    func applyBrandMenuSelection(_ sel: BrandMenuSelection) async {
+        switch sel {
+        case .appDefault: await setProjectBrand(nil)
+        case .brand(let b): await setProjectBrand(b)
+        case .unrecognised: break
+        }
+    }
+
 
     /// Pin the open project to a brand; nil clears the pin so it follows the app.
     ///
