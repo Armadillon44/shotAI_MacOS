@@ -139,7 +139,12 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
     case refusal                         // stop_reason == refusal
     case noContent
     case malformed
-    case incomplete
+    /// Nothing usable came back. `wroteNothing` distinguishes the two causes,
+    /// because they need OPPOSITE advice: the model producing no step text may
+    /// improve at a higher effort, whereas a plan that wrote instructions for
+    /// steps that do not exist will not — telling that user to raise Effort sends
+    /// them to a setting that cannot help.
+    case incomplete(wroteNothing: Bool)
     case api(status: Int, failure: ApiFailure)
 
     /// Payload-free discriminator, so callers and tests can compare a case
@@ -247,7 +252,10 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         case .refusal: "Claude declined to generate this SOP (the content was flagged)."
         case .noContent: "Claude returned no SOP content."
         case .malformed: "Claude returned malformed SOP data. Please try again."
-        case .incomplete: "Claude returned an incomplete SOP — no step instructions were written. Try again, and consider raising Effort (Settings ▸ AI) — low effort sometimes under-produces."
+        case .incomplete(let wroteNothing):
+            wroteNothing
+                ? "Claude returned an incomplete SOP — no step instructions were written. Try again, and consider raising Effort (Settings ▸ AI) — low effort sometimes under-produces."
+                : "Claude wrote instructions, but numbered them for steps this guide doesn't have, so none could be applied. Try again — raising Effort won't help with this one."
         case .api(let status, let f): (f.message ?? "API error (\(status)).") + f.idSuffix
         }
     }

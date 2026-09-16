@@ -261,7 +261,7 @@ final class SopServiceTests: XCTestCase {
             client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: empty), ResponseHead(status: 200)) })),
             keyStore: StubKeyStore())
         do { _ = try await svc1.generate(dir: dir, manifest: m, settings: SopSettings()); XCTFail() }
-        catch { XCTAssertEqual(error as? ClaudeError, .incomplete) }
+        catch { XCTAssertEqual(error as? ClaudeError, .incomplete(wroteNothing: true)) }
 
         // Steps present but all blank → also incomplete.
         let blank = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"  ","body":"","sectionHeading":null,"sectionBody":null}]}"#
@@ -269,7 +269,7 @@ final class SopServiceTests: XCTestCase {
             client: ClaudeClient(transport: MockTransport(streamHandler: { _ in (sseLines(json: blank), ResponseHead(status: 200)) })),
             keyStore: StubKeyStore())
         do { _ = try await svc2.generate(dir: dir, manifest: m, settings: SopSettings()); XCTFail() }
-        catch { XCTAssertEqual(error as? ClaudeError, .incomplete) }
+        catch { XCTAssertEqual(error as? ClaudeError, .incomplete(wroteNothing: true)) }
 
         // A real edit passes.
         let good = #"{"title":"T","intro":null,"steps":[{"stepNumber":1,"caption":"Do it","body":"Click","sectionHeading":null,"sectionBody":null}]}"#

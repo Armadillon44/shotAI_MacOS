@@ -113,7 +113,11 @@ final class UnderproductionTests: XCTestCase {
                                        settings: SopSettings(), onProgress: { _ in })
             XCTFail("a plan that cannot change any step must not be returned as a success")
         } catch let e as ClaudeError {
-            XCTAssertEqual(e, .incomplete, "expected the under-production failure, got \(e)")
+            // The numbering case specifically: instructions WERE written, they
+            // just matched nothing. The two causes carry opposite advice, so the
+            // test pins which one rather than only that it failed.
+            XCTAssertEqual(e, .incomplete(wroteNothing: false),
+                           "expected the stepNumber-mismatch failure, got \(e)")
         }
     }
 

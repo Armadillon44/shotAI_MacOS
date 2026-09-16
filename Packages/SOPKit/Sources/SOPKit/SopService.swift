@@ -140,7 +140,7 @@ public struct SopService: Sendable {
                 plan numbers \(String(describing: got), privacy: .public), \
                 expected any of \(String(describing: shotNumbers.sorted()), privacy: .public)
                 """)
-            throw ClaudeError.incomplete
+            throw ClaudeError.incomplete(wroteNothing: !wroteSomething)
         }
         onProgress(.done)
         return plan
