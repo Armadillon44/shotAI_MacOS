@@ -12,13 +12,17 @@ check against GitHub that you can turn off. This is a native Swift/SwiftUI port 
 the [Windows app](https://github.com/Armadillon44/shotAI); `project.json` is
 byte-compatible, so projects **round-trip between platforms**.
 
-> **Status:** **1.4.0.** Capture engine, native SwiftUI
+> **Status:** **1.4.1.** Capture engine, native SwiftUI
 > annotation editor, manual redaction (blur or solid box, baked into a flattened copy), Claude SOP
 > generation with review-before-send + one-click revert, element-at-point captions (native
 > Accessibility), export to HTML / PDF / Markdown / "HTML for Word" + a shareable
 > round-trip `.zip` package, project archiving, a first-run tour, light/dark appearance and
 > selectable brand themes are all implemented.
-> **New in 1.4.0:** a second **brand theme** — LFI, in charcoal and rust, with its own corner
+> **Fixed in 1.4.1:** SOP generation could fail outright, or come back with only an
+> Overview and no step instructions; both are fixed, along with two data-safety bugs — a
+> redaction that failed to parse no longer lets the un-redacted screenshot be sent or
+> exported, and one malformed step no longer discards a project's revert history.
+> **In 1.4.0:** a second **brand theme** — LFI, in charcoal and rust, with its own corner
 > radii and typeface. It reaches the app, the report *and* every export, so a guide you send
 > looks like the guide you wrote. A single project can **pin its own brand** (View ▸ Brand), and
 > the pin travels inside the `.zip` package and round-trips with the Windows app. Also: the
