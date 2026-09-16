@@ -1,9 +1,8 @@
 {
   "name": "unknown-root-key",
   "why": "A key a newer build added must survive an older build opening and saving the project, or a staggered rollout silently strips data \u2014 the property the whole additive-schema approach rests on.",
-  "status": "open",
+  "status": "agreed",
   "issue": "Armadillon44/shotAI#95",
-  "divergence": "macOS carries unknown root keys in its `extra` bag and re-encodes them. Windows' coerceManifest rebuilds the manifest field by field, so anything it does not name is dropped on every read.",
   "input": {
     "id": "p",
     "title": "T",
