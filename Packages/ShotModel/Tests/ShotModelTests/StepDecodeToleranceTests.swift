@@ -83,3 +83,43 @@ import Testing
         #expect(manifest(steps: notAnArray)?.steps.isEmpty == true)
     }
 }
+
+/// #112 — the same array-as-a-unit defect as #108, one level down, where what it
+/// cost was the user's one-click revert rather than their steps.
+///
+/// The comment there claimed dropping the whole backup mirrored Windows'
+/// `coerceSopBackup`. Measured against the shipping Windows build, it did not:
+/// that calls `normalizeSteps`, which drops the bad element and keeps the rest.
+@Suite struct SopBackupTolerance {
+    private func manifest(backupSteps: String) -> ProjectManifest? {
+        let json = #"""
+        {"id":"p","title":"T","createdWith":"shotAI","createdAt":"a","updatedAt":"b","steps":[],
+         "sopBackup":{"steps":\#(backupSteps),"title":"Backed up","model":"m","tone":"professional","at":"x"}}
+        """#
+        return try? ProjectJSON.decoder().decode(ProjectManifest.self, from: Data(json.utf8))
+    }
+    private let good = #"{"id":"s1","order":0,"kind":"shot","screenshot":"shots/a.png","trigger":"click"}"#
+
+    @Test(arguments: ["42", "null", #""x""#, "[]", "true"])
+    func oneBadElementDoesNotDiscardTheWholeBackup(_ junk: String) throws {
+        let m = try #require(manifest(backupSteps: "[\(good), \(junk)]"))
+        let b = try #require(m.sopBackup, "junk \(junk) destroyed the revert history")
+        #expect(b.steps.count == 1)
+        #expect(b.steps.first?.id == "s1")
+        #expect(b.title == "Backed up", "the rest of the backup must survive too")
+    }
+
+    /// PARITY, deliberately kept: a `steps` that is not an array at all, or a
+    /// non-string title, still drops the whole backup. Windows does the same.
+    @Test(arguments: [#""not an array""#, "42", "{}", "null"])
+    func aNonArrayStepsStillDropsTheBackup(_ notAnArray: String) {
+        #expect(manifest(backupSteps: notAnArray)?.sopBackup == nil)
+    }
+
+    /// The control: a clean backup is untouched.
+    @Test func acleanBackupSurvivesIntact() throws {
+        let m = try #require(manifest(backupSteps: "[\(good)]"))
+        #expect(m.sopBackup?.steps.count == 1)
+        #expect(m.sopBackup?.title == "Backed up")
+    }
+}

@@ -42,10 +42,28 @@ public enum RenderGateError: Error, LocalizedError, Equatable {
 public func resolveSendableRender(
     dir: String, step: ProjectStep, stepLabel: String, verb: String
 ) throws -> SendableRender {
-    let hasBlur = step.annotations.contains { if case .blur = $0 { return true } else { return false } }
+    // `.unknown` counts. An annotation whose geometry fails to decode — a blur
+    // written by a newer build, or a hand-edited one — becomes `.unknown`, not
+    // `.blur`, so matching only `.blur` meant `hasBlur` was FALSE for something
+    // the file still says is a redaction, and the raw screenshot was cleared for
+    // egress to Claude and into exports (#109).
+    //
+    // The manifest keeps the value verbatim, so nothing looks wrong on inspection:
+    // only its meaning to this gate was lost.
+    //
+    // Erring toward "might be a redaction" is the whole point of a fail-closed
+    // gate. The cost is that a future NON-redacting annotation type forces an
+    // unnecessary re-save on an older build; the cost the other way is leaking an
+    // un-redacted screenshot, which is what this exists to prevent.
+    let mayRedact = step.annotations.contains {
+        switch $0 {
+        case .blur, .unknown: true
+        default: false
+        }
+    }
     let rel = (step.flattened?.isEmpty == false) ? step.flattened : nil
     // Fail closed: an unbaked redaction or crop must never read the raw screenshot.
-    if rel == nil, hasBlur || step.crop != nil {
+    if rel == nil, mayRedact || step.crop != nil {
         throw RenderGateError.unbakedRedaction(step: stepLabel, verb: verb)
     }
     let relToRead = rel ?? step.screenshot
