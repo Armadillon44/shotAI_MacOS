@@ -297,11 +297,22 @@ public struct SopBackup: Codable, Equatable, Sendable {
         self.at = at
     }
 
-    /// Mirrors `coerceSopBackup`: steps must be an array and title a string or
-    /// the whole backup is dropped (the manifest decoder catches the throw).
+    /// Mirrors `coerceSopBackup`: `steps` must be an ARRAY and `title` a string,
+    /// or the whole backup is dropped (the manifest decoder catches the throw).
+    ///
+    /// But a bad ELEMENT inside a valid array is not that case. This used to
+    /// decode the array as a unit, so one malformed step discarded the entire
+    /// backup — and the backup is the user's one-click revert after a
+    /// generation, so what was lost was their ability to undo (#112).
+    ///
+    /// The comment here previously claimed that mirrored Windows. It did not:
+    /// `coerceSopBackup` calls `normalizeSteps`, which drops the bad element and
+    /// keeps the rest. Measured against the shipping Windows build — one null in
+    /// a valid backup array leaves the backup intact with its title and its other
+    /// steps. Now element-wise here too, so the two agree.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        steps = try c.decode([ProjectStep].self, forKey: .steps)
+        steps = try c.decode([Lenient<ProjectStep>].self, forKey: .steps).compactMap(\.value)
         title = try c.decode(String.self, forKey: .title)
         let rawIntro = try? c.decodeIfPresent(SopIntro.self, forKey: .intro)
         introEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: .introEditedByUser)

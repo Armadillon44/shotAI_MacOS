@@ -198,3 +198,59 @@ import Testing
         cleanup()
     }
 }
+
+/// #109 — the fail-closed gate failed OPEN on an annotation it could not decode.
+///
+/// A blur whose geometry is missing or wrong-typed becomes `.unknown`, not
+/// `.blur`. Matching only `.blur` meant the gate saw no redaction for a step the
+/// file still describes as carrying one, and cleared the raw screenshot for
+/// egress — to Claude and into every export.
+@Suite struct RenderGateUnknownAnnotation {
+    private func step(_ annotationsJSON: String, flattened: String? = nil) -> ProjectStep {
+        let f = flattened.map { ",\"flattened\":\"\($0)\"" } ?? ""
+        let json = #"{"id":"s1","order":0,"kind":"shot","screenshot":"shots/a.png","trigger":"click","annotations":\#(annotationsJSON)\#(f)}"#
+        return try! ProjectJSON.decoder().decode(ProjectStep.self, from: Data(json.utf8))
+    }
+
+    /// The exact shape from the issue: `{"type":"blur"}` with no geometry.
+    @Test func aBlurThatFailsToDecodeStillBlocksTheRawScreenshot() throws {
+        let s = step(#"[{"type":"blur"}]"#)
+        #expect(s.annotations.count == 1)
+        if case .unknown = s.annotations[0] {} else {
+            Issue.record("fixture must actually produce .unknown, or this proves nothing")
+        }
+        #expect(throws: RenderGateError.self) {
+            _ = try resolveSendableRender(dir: "/tmp/p", step: s, stepLabel: "Step 1", verb: "send")
+        }
+    }
+
+    /// Any unrecognised annotation, not just one calling itself a blur. The gate
+    /// cannot know what a type it has never seen does.
+    @Test(arguments: [#"[{"type":"futurekind","x":1}]"#, #"[{"type":"redact","w":"wide"}]"#])
+    func anyUndecodableAnnotationBlocksIt(_ json: String) throws {
+        #expect(throws: RenderGateError.self) {
+            _ = try resolveSendableRender(dir: "/tmp/p", step: step(json), stepLabel: "Step 1", verb: "send")
+        }
+    }
+
+    /// Once it IS baked, the render is readable — the gate blocks an unbaked
+    /// redaction, not the annotation's existence.
+    @Test func abakedRenderIsStillAllowed() throws {
+        let s = step(#"[{"type":"blur"}]"#, flattened: "export/.render/s1.png")
+        let r = try resolveSendableRender(dir: "/tmp/p", step: s, stepLabel: "Step 1", verb: "send")
+        #expect(r.abs.hasSuffix("export/.render/s1.png"))
+    }
+
+    /// The control. A step with only well-formed NON-redacting annotations must
+    /// still read its raw screenshot, or the fix has simply blocked everything.
+    @Test func awellFormedNonRedactingAnnotationIsNotBlocked() throws {
+        // ##"…"## because the colour literal contains `"#`, which closes a #"…"# raw
+        // string early. Fields are the arrow's REAL shape: id/points/stroke/strokeWidth.
+        let s = step(##"[{"type":"arrow","id":"a","points":[1,2,3,4],"stroke":"#ff0000","strokeWidth":4}]"##)
+        for a in s.annotations {
+            if case .unknown = a { Issue.record("fixture must decode cleanly, else the control is vacuous") }
+        }
+        let r = try resolveSendableRender(dir: "/tmp/p", step: s, stepLabel: "Step 1", verb: "send")
+        #expect(r.abs.hasSuffix("shots/a.png"))
+    }
+}
