@@ -132,7 +132,12 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
     case permissionDenied(ApiFailure)    // 403
     case modelUnavailable(ApiFailure)    // 404
     case rateLimited(ApiFailure)         // 429, retryable
-    case limitReached(ApiFailure)        // 429 that will NOT succeed on retry
+    // A 429 that will NOT succeed on retry, split by who can actually act on it.
+    // Same reasoning as the 401 split below: naming the wrong party sends the
+    // user to someone who does not exist. Agreed with the Windows port on
+    // Armadillon44/shotAI#113.
+    case orgLimitReached(ApiFailure)     // federated: someone else administers the account
+    case accountLimitReached(ApiFailure) // own key: the user administers it
     case overloaded                      // 529 / mid-stream overloaded_error
     case connection                      // transport failure
     case cutoff                          // stop_reason == max_tokens
@@ -153,7 +158,7 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         case disabled, noKey, notSignedIn, notEntitled, signInRequired
         case federationRefused, configInvalid, noScreenshots, unbakedRedaction
         case invalidKey, sessionRejected, billing, permissionDenied, modelUnavailable
-        case rateLimited, limitReached, overloaded
+        case rateLimited, orgLimitReached, accountLimitReached, overloaded
         case connection, cutoff, refusal, noContent, malformed, incomplete, api
     }
 
@@ -174,7 +179,8 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         case .permissionDenied: .permissionDenied
         case .modelUnavailable: .modelUnavailable
         case .rateLimited: .rateLimited
-        case .limitReached: .limitReached
+        case .orgLimitReached: .orgLimitReached
+        case .accountLimitReached: .accountLimitReached
         case .overloaded: .overloaded
         case .connection: .connection
         case .cutoff: .cutoff
@@ -240,15 +246,27 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         case .modelUnavailable(let f):
             (f.message ?? "The selected model is unavailable for this account.") + f.idSuffix
         case .rateLimited(let f):
-            "Rate limited — " + (f.retryAfter.map { "try again in about \(Int($0.rounded()))s." } ?? "wait a moment and try again.")
-                + f.idSuffix
-        // Deliberately does NOT assert which one it is. A spend cap and a
+            "Rate limited — " + (f.retryAfter.map {
+                let n = Int($0.rounded())
+                return "try again in about \(n) second\(n == 1 ? "" : "s")."
+            } ?? "wait a moment and try again.") + f.idSuffix
+        // Neither message asserts WHICH limit was hit. A spend cap and a
         // sustained rate limit are indistinguishable from the response, so
-        // claiming "budget exhausted" would be a guess presented as fact.
-        case .limitReached(let f):
+        // claiming "budget exhausted" would be a guess presented as fact. That
+        // restraint is load-bearing; do not lose it in a rewrite.
+        //
+        // What differs is not only the party but the next step: one is an action
+        // the user takes themselves, the other is a person they go to. That is
+        // the point of the split, not an inconsistency between the two.
+        case .orgLimitReached(let f):
             (f.message.map { $0 + " " } ?? "")
-                + "Anthropic rejected the request: the workspace's rate limit or spending cap has been reached. "
-                + "Retrying will not help — this needs whoever administers your Anthropic organization."
+                + "Claude is unavailable: your organization's rate limit or spending cap has been reached. "
+                + "Retrying will not help — this needs whoever administers your organization's Anthropic account."
+                + f.idSuffix
+        case .accountLimitReached(let f):
+            (f.message.map { $0 + " " } ?? "")
+                + "Claude is unavailable: your account's rate limit or spending cap has been reached. "
+                + "Retrying will not help — check the limits and billing on your Anthropic account."
                 + f.idSuffix
         case .overloaded: "Anthropic is temporarily overloaded — wait a moment and try again."
         case .connection: "Could not reach Anthropic — check your network connection."
@@ -267,8 +285,14 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
     /// Map a non-2xx response (status + headers + optional API message) to a
     /// friendly case. Takes the whole head, not just the status: 429 alone is
     /// not classifiable (see `ApiFailure.isTransientThrottle`).
-    /// `kind` decides the 401 wording: telling someone with no API key that
-    /// their "API key is invalid" sends them hunting for a setting they never set.
+    /// `kind` decides the 401 and hard-stop-429 wording: telling someone with no
+    /// API key that their "API key is invalid" sends them hunting for a setting
+    /// they never set, and telling someone who administers their own account to
+    /// go find an administrator sends them to a person who does not exist.
+    ///
+    /// Both populations ship in the SAME artifact: the release DMG is built
+    /// `SHOTAI_SSO=on`, and a user without the app role falls to the API-key path
+    /// inside it. So neither wording can be assumed.
     static func from(head: ResponseHead, message: String?,
                      kind: ClaudeCredential.Kind = .apiKey) -> ClaudeError {
         let f = ApiFailure(message: message, requestId: head.requestId,
@@ -278,7 +302,9 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         case 402: return .billing(f)
         case 403: return .permissionDenied(f)
         case 404: return .modelUnavailable(f)
-        case 429: return f.isTransientThrottle ? .rateLimited(f) : .limitReached(f)
+        case 429:
+            if f.isTransientThrottle { return .rateLimited(f) }
+            return kind == .federated ? .orgLimitReached(f) : .accountLimitReached(f)
         case 529: return .overloaded
         default: return .api(status: head.status, failure: f)
         }

@@ -223,8 +223,9 @@ final class ClaudeClientTests: XCTestCase {
     // this table wrong means telling someone to retry something that cannot
     // succeed until next month.
 
-    private func classify(_ headers: [String: String]) -> ClaudeError.Kind? {
-        ClaudeError.from(head: ResponseHead(status: 429, headers: headers), message: nil).kind
+    private func classify(_ headers: [String: String],
+                          kind: ClaudeCredential.Kind = .apiKey) -> ClaudeError.Kind? {
+        ClaudeError.from(head: ResponseHead(status: 429, headers: headers), message: nil, kind: kind).kind
     }
 
     func test429WithSmallRetryAfterIsTransient() {
@@ -235,22 +236,72 @@ final class ClaudeClientTests: XCTestCase {
     func test429WithoutRetryAfterIsHardStop() {
         // A real throttle tells you when to come back. Silence is not an
         // invitation to hammer the endpoint.
-        XCTAssertEqual(classify([:]), .limitReached)
+        XCTAssertEqual(classify([:]), .accountLimitReached)
     }
 
     func test429WithImplausiblyLongRetryAfterIsHardStop() {
-        XCTAssertEqual(classify(["retry-after": "86400"]), .limitReached)
+        XCTAssertEqual(classify(["retry-after": "86400"]), .accountLimitReached)
     }
 
     func test429WithShouldRetryFalseIsHardStop() {
         // The explicit signal wins even when a plausible retry-after is present.
-        XCTAssertEqual(classify(["retry-after": "5", "x-should-retry": "false"]), .limitReached)
+        XCTAssertEqual(classify(["retry-after": "5", "x-should-retry": "false"]), .accountLimitReached)
     }
 
     func testHttpDateRetryAfterFallsBackToHardStop() {
         // Only delta-seconds is parsed. Failing closed is the safe direction:
         // an unnecessary manual re-run beats promising a retry that cannot work.
-        XCTAssertEqual(classify(["retry-after": "Wed, 21 Oct 2026 07:28:00 GMT"]), .limitReached)
+        XCTAssertEqual(classify(["retry-after": "Wed, 21 Oct 2026 07:28:00 GMT"]), .accountLimitReached)
+    }
+
+    /// The hard stop names who can act, and it is not the same person. A
+    /// federated user's limits belong to an organization someone else
+    /// administers; a bring-your-own-key user administers their own account and
+    /// being sent to find an administrator sends them to nobody.
+    ///
+    /// Both directions are asserted. A test for one alone passes with the branch
+    /// inverted, which is how the sibling Windows build shipped a `federated`
+    /// branch with zero coverage (Armadillon44/shotAI#111).
+    ///
+    /// The transient branch must NOT split: "try again in about 30 seconds" is
+    /// the same instruction whoever you are.
+    func testTheHardStopNamesWhoCanActOnIt() {
+        XCTAssertEqual(classify([:], kind: .federated), .orgLimitReached)
+        XCTAssertEqual(classify([:], kind: .apiKey), .accountLimitReached)
+        XCTAssertEqual(classify(["retry-after": "30"], kind: .federated), .rateLimited,
+                       "a transient throttle is the same instruction for both")
+        XCTAssertEqual(classify(["retry-after": "30"], kind: .apiKey), .rateLimited)
+    }
+
+    /// Each hard-stop message must carry the remedy that fits its audience, and
+    /// neither may claim WHICH limit was hit. Pinning the case alone would let
+    /// the two message bodies be swapped undetected.
+    func testEachHardStopCarriesTheRemedyThatFitsIt() {
+        let f = ApiFailure(message: nil, requestId: nil, retryAfter: nil, shouldRetry: nil)
+        let org = ClaudeError.orgLimitReached(f).errorDescription ?? ""
+        let own = ClaudeError.accountLimitReached(f).errorDescription ?? ""
+
+        XCTAssertNotEqual(org, own)
+        for d in [org, own] {
+            XCTAssertTrue(d.contains("rate limit or spending cap"),
+                          "must not claim which of the two was hit: \(d)")
+            XCTAssertTrue(d.contains("Retrying will not help"), "must rule out a retry: \(d)")
+        }
+        XCTAssertTrue(org.contains("administers"), "the federated remedy is a person")
+        XCTAssertFalse(own.contains("administers"),
+                       "a user who administers their own account must not be sent to an administrator")
+        XCTAssertTrue(own.contains("billing"), "the own-key remedy is an action they can take")
+    }
+
+    /// Wording agreed with the Windows port (Armadillon44/shotAI#114) so the two
+    /// builds say the same thing. "1 second", not "1 seconds" or "1s".
+    func testTransientWordingPluralises() {
+        func msg(_ secs: String) -> String {
+            ClaudeError.from(head: ResponseHead(status: 429, headers: ["retry-after": secs]),
+                             message: nil).errorDescription ?? ""
+        }
+        XCTAssertTrue(msg("1").contains("about 1 second."), msg("1"))
+        XCTAssertTrue(msg("30").contains("about 30 seconds."), msg("30"))
     }
 
     func testHardStopDoesNotClaimWhichLimitWasHit() {
