@@ -135,6 +135,49 @@ final class ClaudeClientTests: XCTestCase {
         catch { XCTAssertEqual(error as? ClaudeError, .refusal) }
     }
 
+    /// `.noContent` was asserted by no test in the repo, and the empty-body
+    /// guard that produces it picks between two opposite instructions: `.cutoff`
+    /// says to split the project into fewer steps, `.noContent` says nothing came
+    /// back and implies a plain retry. Inverting that ternary passed all 70
+    /// tests. Both directions are pinned here, because a test for one branch
+    /// alone still passes with the branch inverted.
+    func testEmptyBodyDistinguishesCutoffFromNoContent() async {
+        func run(_ stop: String) async -> ClaudeError? {
+            let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in
+                (sseLines(json: "", stopReason: stop), ResponseHead(status: 200))
+            }))
+            do { _ = try await c.streamEditPlan(credential: .apiKey("sk-ant-test"), body: [:], onProgress: { _ in }); return nil }
+            catch { return error as? ClaudeError }
+        }
+        let cutOff = await run("max_tokens")
+        let nothing = await run("end_turn")
+        XCTAssertEqual(cutOff, .cutoff, "an empty body at the output limit is a cutoff, not an empty response")
+        XCTAssertEqual(nothing, .noContent, "an empty body that simply ended is no content, not a cutoff")
+    }
+
+    /// The refusal check runs BEFORE the empty-body guard, and that order is
+    /// load-bearing: a pre-output refusal carries no text at all, so with the two
+    /// reordered it would surface as "Claude returned no SOP content" and the
+    /// user would retry the same flagged input indefinitely instead of being told
+    /// to change it.
+    ///
+    /// `testStreamRefusal` cannot catch a reorder, because its fixture streams
+    /// `{}` as the body: `trimmed` is non-empty, so the empty-body guard is never
+    /// the competing branch and that test passes under either order. This one
+    /// streams what a real refusal streams — nothing.
+    func testRefusalWithNoTextOutranksTheEmptyBodyGuard() async {
+        let c = ClaudeClient(transport: MockTransport(streamHandler: { _ in
+            (sseLines(json: "", stopReason: "refusal"), ResponseHead(status: 200))
+        }))
+        do {
+            _ = try await c.streamEditPlan(credential: .apiKey("sk-ant-test"), body: [:], onProgress: { _ in })
+            XCTFail("a refusal must not be reported as a success")
+        } catch {
+            XCTAssertEqual(error as? ClaudeError, .refusal,
+                           "a refusal with an empty body must stay a refusal, not become .noContent")
+        }
+    }
+
     func testStreamCutoffOnTruncatedMaxTokens() async {
         // A truncated (invalid) JSON body with stop_reason max_tokens → cutoff.
         let lines = sseLines(json: #"{"title":"x","steps":["#, stopReason: "max_tokens")

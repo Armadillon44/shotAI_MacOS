@@ -222,8 +222,12 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
                 + " Ask IT to re-apply the shotAI configuration profile."
         case .noScreenshots: "This project has no captured screenshots to build an SOP from."
         case .unbakedRedaction(let m): m
-        // The server's own text is kept on the mapped statuses: for the
-        // ambiguous ones it is the only signal that distinguishes them.
+        // The server's own text is kept on the AMBIGUOUS mapped statuses, where
+        // it is the only signal that distinguishes them. Not on every mapped
+        // status: `.rateLimited` deliberately drops it, because `retry-after`
+        // already answered the only question the user has and the server's text
+        // restates the status. The earlier wording claimed all of them, which
+        // made `.rateLimited` read as an oversight rather than a choice.
         case .invalidKey(let f): (f.message ?? "Invalid API key.") + f.idSuffix
         case .sessionRejected(let f):
             (f.message ?? "Anthropic rejected this session token. Signing out and back in usually fixes it.")
