@@ -16,8 +16,16 @@ import Foundation
 /// - Unknown manifest/step keys and unknown annotation types are preserved in
 ///   `extra` bags / an `.unknown` case so a Mac-side rewrite can't destroy data
 ///   written by a newer Windows build.
-/// - Encoding reproduces the Windows writer's key order and null-vs-absent shape
-///   (JSON.stringify(manifest, null, 2)).
+/// - Encoding reproduces the Windows writer's null-vs-absent shape exactly
+///   (measured: `captureSettings`, `intro`, `sopBackup` and `archivedAt` written
+///   as null; `displayScale`, `theme` and `introEditedByUser` omitted when unset)
+///   and its two-space `JSON.stringify(manifest, null, 2)` formatting.
+///   It does **not** reproduce that writer's key ORDER, and deliberately no
+///   longer claims to — keys are sorted (#110). The earlier claim was false from
+///   the day it was written: `JSONEncoder` ignores call order for a keyed
+///   container, so the explicit sequence in `encode(to:)` never reached the
+///   file. Byte-for-byte parity is not reachable from this side alone; see
+///   `ProjectJSON.encoder()`.
 
 public let projectSchemaVersion = 1
 
