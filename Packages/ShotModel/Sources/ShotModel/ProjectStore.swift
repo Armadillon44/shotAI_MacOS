@@ -367,6 +367,18 @@ public actor ProjectStore {
         var out = manifest
         let now = ProjectJSON.isoNow()
         out.id = id
+        // A package whose author cleared the title would otherwise import as a
+        // blank Home row: nothing to read, nothing to tell it from its
+        // neighbours, nothing to search for. `readManifest` recovers a title on
+        // the NEXT open, which is too late — the row is unidentifiable exactly
+        // while the user is looking for the thing they just imported.
+        //
+        // The string matches Windows (`export-package.ts`, `coerceManifest(...,
+        // 'Imported project')`) so the same package lands with the same name on
+        // either platform. Emptiness is tested the same way too: Windows uses a
+        // falsy check, so "" falls back and a whitespace-only title is KEPT.
+        // Trimming here would be a new divergence, not a fix.
+        if out.title.isEmpty { out.title = Self.importedProjectTitle }
         out.createdWith = "shotAI"
         if out.createdAt.isEmpty { out.createdAt = now }
         out.updatedAt = now
@@ -796,6 +808,9 @@ public actor ProjectStore {
     }
 
     /// "Project yyyy/MM/dd HH:mm:ss" (local time) — same default as Windows.
+    /// Matches the Windows import fallback verbatim; see `createProjectFromImport`.
+    static let importedProjectTitle = "Imported project"
+
     private static func defaultTitle() -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
