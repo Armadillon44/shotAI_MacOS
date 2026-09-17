@@ -188,6 +188,24 @@ final class EntraAuthClientTests: XCTestCase {
         guard case .reauthenticationRequired = classify(999999) else { return XCTFail("default") }
     }
 
+    /// `test5xxAndThrottlingAreTransient` sends a 503 whose body is
+    /// `{"error":"server_error"}`, which ALSO maps to `.transient` through the
+    /// error-string switch further down. So that test passes with the status
+    /// branch removed entirely — measured: the whole suite stays green.
+    ///
+    /// This pins the status branch on its own, with a 5xx body that no later
+    /// branch rescues. Without it, a 503 carrying an unrecognised or unparseable
+    /// body falls through to `default:` and is reported as `.configuration` —
+    /// telling the user their sign-in is misconfigured when the service is down.
+    func test5xxIsTransientOnStatusAloneRegardlessOfBody() {
+        for body in [#"{"error":"invalid_request"}"#, "", "not json at all"] {
+            let e = EntraAuthClient.classify(status: 503, headers: [:], body: Data(body.utf8))
+            guard case .transient = e else {
+                return XCTFail("503 with body \(body.isEmpty ? "<empty>" : body) classified as \(e), not transient")
+            }
+        }
+    }
+
     func test5xxAndThrottlingAreTransient() {
         let e = EntraAuthClient.classify(status: 503, headers: ["retry-after": "7"],
                                          body: Data(#"{"error":"server_error"}"#.utf8))
