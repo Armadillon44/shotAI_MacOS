@@ -121,20 +121,26 @@ public struct SopService: Sendable {
         // screenshot in a two-item project is "Screenshot step 2", not 1.
         let base = manifest.steps.filter { $0.aiInserted != true }
         let shotNumbers = Set(base.enumerated().compactMap { i, s in s.kind == .text ? nil : i + 1 })
-        let willEditAStep = plan.steps.contains {
-            shotNumbers.contains($0.stepNumber)
-                && (!$0.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        // Reduced the way applySopEdits reduces it — LAST WINS per stepNumber —
+        // because the question is what will LAND, not what was written. Scanning
+        // the raw plan passed a pair like [{2, "Click Save"}, {2, ""}]: the good
+        // entry satisfied the guard and the empty one overwrote it before apply.
+        let effective = effectiveEdits(plan)
+        let hasContent: (SopStepEdit) -> Bool = {
+            !$0.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
+        let willEditAStep = effective.contains { num, e in shotNumbers.contains(num) && hasContent(e) }
         if !willEditAStep {
             // Distinguish the two failures in the log: "wrote nothing" and "wrote
             // for steps that do not exist" have different causes and different
             // fixes, and the user-facing message cannot tell them apart.
-            let wroteSomething = plan.steps.contains {
-                !$0.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            let got = plan.steps.map(\.stepNumber).sorted()
+            // Judged on the EFFECTIVE plan too, so the two messages stay
+            // accurate: a plan whose duplicates cancelled out reads as "wrote
+            // nothing", which is what the user experiences, rather than as a
+            // numbering problem it does not have.
+            let wroteSomething = effective.values.contains(where: hasContent)
+            let got = effective.keys.sorted()
             Log.sop.error("""
                 generation unusable — \(wroteSomething ? "stepNumbers matched no step" : "no step content", privacy: .public). \
                 plan numbers \(String(describing: got), privacy: .public), \
