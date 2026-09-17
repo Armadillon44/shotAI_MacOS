@@ -1,6 +1,6 @@
 # Windows → macOS parity
 
-**Audit date:** 2026-07-28 · **Target:** shipped Windows **v1.1.4** · **Reference:** `shotAI-original/` (v1.1.4 / `d9823ec`) · **macOS build:** `1.4.0` (build 12)
+**Audit date:** 2026-07-28 · **Audit target:** shipped Windows **v1.1.4** · **Reference clone now at:** `shotAI-original/` (**v1.3.0** / `e32bb8f`) · **macOS build:** `1.4.1` (build 13)
 
 > ⚠️ **This audit is behind the Windows app, and two of its rows are now WRONG.** It was taken
 > against Windows v1.1.4. Windows has since shipped **v1.1.5, v1.1.6 and v1.2.0**, and merged a
@@ -15,9 +15,13 @@
 >   Only the *self-installing* half remains macOS-specific, and that is still blocked on Phase E.
 >
 > Nothing here covers this release's own subject matter either — the LFI brand, the per-project
-> brand pin, CI, the brand contract or the conformance suite. `shotAI-original/` is still pinned
-> to v1.1.4. **A re-audit against Windows `main` is owed**; until it lands, treat a row's silence
-> as "not looked at recently" rather than "at parity".
+> brand pin, CI, the brand contract or the conformance suite.
+>
+> **The reference clone was advanced to v1.3.0 / `e32bb8f` on 2026-09-17** (it had been pinned to
+> v1.1.4). That removes the obstacle rather than the debt: a re-audit is now possible from source
+> in this tree, and is still **owed**. Windows has since also shipped v1.2.0 and v1.3.0. Until the
+> re-audit lands, treat a row's silence as "not looked at recently" rather than "at parity" — the
+> two known-wrong rows above were found that way, and nothing has re-checked the rest.
 
 Roadmap of record for the macOS port's parity with the shipped Windows app. Full
 surface-by-surface re-audit (Windows v1.1.4 read from source, verified against the current

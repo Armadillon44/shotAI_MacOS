@@ -5,12 +5,14 @@ Native Swift/SwiftUI port of **shotAI** — Dylan's local-first, Scribe-style SO
 ## This repo
 
 - `FEASIBILITY.md` — the full port assessment (2026-07-02). **Read this first**; it contains the component-by-component API mapping, permissions/distribution story, risks, and the phased plan.
-- `PARITY.md` — Windows→macOS parity roadmap (re-audited 2026-07-28). The macOS port targets the **shipped Windows release** (currently **v1.1.4**); this is the surface-by-surface gap analysis. Read it before UI/feature work.
+- `PARITY.md` — Windows→macOS parity roadmap. **Its audit was taken against Windows v1.1.4 and Windows now ships v1.3.0**, so read its stale-audit banner before trusting a row. Read it before UI/feature work, but treat a row's silence as "not looked at recently" rather than "at parity".
 - `docs/SSO-WIF.md` — **Entra SSO via Workload Identity Federation** (#69): how shotAI reaches
   `api.anthropic.com` with no API key on any machine and no gateway, the CEL app-role gate, the
   parallel-rule procedure for changing a match safely, and the operational traps. Read it before
   touching auth on either platform; the Windows client has to reproduce this.
-- `shotAI-original/` — reference clone of the Windows Electron app (github.com/Armadillon44/shotAI, private). The source of truth for behavior, data model, and security invariants; **kept synced to the shipped release (currently v1.1.4 / `d9823ec`)**, not pinned to rc1. Do not modify it; it's a read-only reference (advance it only by checking out a newer shipped tag).
+- `shotAI-original/` — reference clone of the Windows Electron app (github.com/Armadillon44/shotAI). The source of truth for behavior, data model, and security invariants; **kept synced to the shipped release (currently v1.3.0 / `e32bb8f`, advanced 2026-09-17 from v1.1.4)**. Do not modify it; it's a read-only reference (advance it only by checking out a newer shipped tag: `git fetch --tags && git checkout <tag>`).
+  **Check its version before trusting it.** It sat at v1.1.4 long enough to predate `theme`, `sopBackup`, `displayScale` and `introEditedByUser`, so it silently answered "that key does not exist" for four keys that did. If a question is about current Windows behavior, confirm the tag first or ask the Windows session.
+- **Both repos are PUBLIC.** No tenant, app-registration, org, workspace or service-account IDs in source, comments, issues or commit messages on either side.
 
 ## Key decisions (from FEASIBILITY.md)
 
