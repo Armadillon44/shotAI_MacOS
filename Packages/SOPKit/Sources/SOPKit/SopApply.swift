@@ -87,8 +87,7 @@ public func applySopEdits(
         // Rebuild from the non-AI base (drop a prior run's inserts), matching the
         // numbering the assembler showed Claude.
         let base = manifest.steps.filter { $0.aiInserted != true }
-        var editByNum: [Int: SopStepEdit] = [:]
-        for e in plan.steps { editByNum[e.stepNumber] = e }
+        let editByNum = effectiveEdits(plan)
 
         var next: [ProjectStep] = []
         for (i, step) in base.enumerated() {
@@ -156,4 +155,23 @@ public func revertSop(store: ProjectStore, projectPath: String) async throws -> 
         manifest.introEditedByUser = backup.introEditedByUser
         manifest.sopBackup = nil
     }
+}
+
+/// The plan reduced to what will actually be APPLIED: one entry per step
+/// number, LAST WINS on a duplicate.
+///
+/// Shared with the guard in `SopService` on purpose. That guard scanned the raw
+/// plan, so a plan carrying two entries for one step — a good one followed by an
+/// empty one — passed it, and then the empty entry won here and nothing landed.
+/// The user got a success with no change: exactly the failure #114 fixed, through
+/// a different door.
+///
+/// Two pieces of logic deciding "what lands" is how that happens, so there is now
+/// one. A guard that re-implements this would drift from it again the moment
+/// either changed. Found by the Windows port, which hit the same shape
+/// implementing its equivalent (Armadillon44/shotAI#108).
+func effectiveEdits(_ plan: SopEditPlan) -> [Int: SopStepEdit] {
+    var out: [Int: SopStepEdit] = [:]
+    for e in plan.steps { out[e.stepNumber] = e }
+    return out
 }

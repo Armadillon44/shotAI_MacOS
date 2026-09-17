@@ -144,4 +144,100 @@ final class UnderproductionTests: XCTestCase {
                                           settings: SopSettings(), onProgress: { _ in })
         XCTAssertEqual(plan.steps.first?.caption, "Click Save")
     }
+
+    // MARK: The guard must judge the plan the way the apply reduces it
+
+    /// The fourth way through, found by the Windows port while implementing its
+    /// own version of this guard.
+    ///
+    /// `applySopEdits` reduces the plan to one edit per `stepNumber` and LAST
+    /// WINS. A plan carrying two entries for the same step — a good one followed
+    /// by an empty one — satisfied a guard that scanned the raw array (the good
+    /// entry is right there), and then the empty entry overwrote it before
+    /// anything landed. Success reported, nothing changed: the exact silent
+    /// no-op the guard exists to prevent, through a door it wasn't watching.
+    ///
+    /// Reproduced end to end before the fix, through this same path:
+    ///     guard let it through: 2 plan entries
+    ///     caption after apply: EMPTY — nothing landed
+    ///
+    /// The fix is not a second copy of the reduction inside the guard — that is
+    /// what drifts. Both sides call `effectiveEdits`. This test fails if anyone
+    /// gives the guard its own reasoning about the plan again.
+    func testAPlanWhoseDuplicateOverwritesTheOnlyContentIsRejected() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        let manifest = try await store.openProject(at: path).manifest
+
+        // Both entries are step 1 (no leading text block here, so the shot IS 1).
+        // The first would land; the second is the one that actually survives.
+        let json = ##"{"title":"A Real Title","intro":null,"steps":[{"stepNumber":1,"caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null},{"stepNumber":1,"caption":"","body":"","sectionHeading":null,"sectionBody":null}]}"##
+        let svc = SopService(
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in
+                (sseLines(json: json), ResponseHead(status: 200))
+            })),
+            keyStore: StubKeyStore())
+
+        do {
+            _ = try await svc.generate(dir: dir, manifest: manifest,
+                                       settings: SopSettings(), onProgress: { _ in })
+            XCTFail("a plan whose surviving edit is empty must not be returned as a success")
+        } catch let e as ClaudeError {
+            // Not `wroteNothing: false`. The numbers were fine; what the user
+            // experienced is a generation that wrote nothing usable, and the
+            // advice attached to that message is the advice that helps.
+            XCTAssertEqual(e, .incomplete(wroteNothing: true),
+                           "expected the wrote-nothing failure, got \(e)")
+        }
+    }
+
+    /// Pinning the discriminator is only worth anything because it picks between
+    /// two messages that give OPPOSITE advice: one tells the user to raise
+    /// Effort, the other tells them raising Effort will not help. Nothing tied
+    /// either case to its own sentence, so swapping the two strings — or editing
+    /// one and not the other — passed every test while sending the user the
+    /// wrong way. These strings have already been rewritten once in anger
+    /// (3c56a3c, after this failure pointed at a setting that could not help).
+    ///
+    /// Raised by the Windows port, which asserts its messages rather than only
+    /// that it threw, and which found a real bug in its own diagnosis that way.
+    func testTheTwoIncompleteMessagesCarryTheAdviceThatFitsThem() {
+        let wroteNothing = ClaudeError.incomplete(wroteNothing: true).errorDescription ?? ""
+        let badNumbering = ClaudeError.incomplete(wroteNothing: false).errorDescription ?? ""
+
+        XCTAssertNotEqual(wroteNothing, badNumbering,
+                          "the two cases exist to say different things")
+
+        // Nothing usable was written: Effort is the lever that can help.
+        XCTAssertTrue(wroteNothing.contains("Effort"),
+                      "the wrote-nothing message should point at Effort")
+        XCTAssertFalse(wroteNothing.contains("won\'t help"),
+                       "...and must not be the one that rules Effort out")
+
+        // The numbers were wrong, not the volume: more Effort produces more of
+        // the same mistake, so the message says so.
+        XCTAssertTrue(badNumbering.contains("won\'t help"),
+                      "the bad-numbering message must rule Effort out, not suggest it")
+    }
+
+    /// The control for the case above: the same duplicate pair in the other
+    /// order. Here the GOOD entry is the survivor, so this must succeed — which
+    /// is also what proves the test above is about last-wins and not merely
+    /// about the plan containing an empty entry somewhere.
+    func testADuplicateWhoseSurvivingEntryHasContentIsAccepted() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        let manifest = try await store.openProject(at: path).manifest
+
+        let json = ##"{"title":"A Real Title","intro":null,"steps":[{"stepNumber":1,"caption":"","body":"","sectionHeading":null,"sectionBody":null},{"stepNumber":1,"caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null}]}"##
+        let svc = SopService(
+            client: ClaudeClient(transport: MockTransport(streamHandler: { _ in
+                (sseLines(json: json), ResponseHead(status: 200))
+            })),
+            keyStore: StubKeyStore())
+
+        let plan = try await svc.generate(dir: dir, manifest: manifest,
+                                          settings: SopSettings(), onProgress: { _ in })
+        let landed = effectiveEdits(plan)[1]
+        XCTAssertEqual(landed?.caption, "Click Save",
+                       "the surviving edit carries content, so this plan is usable")
+    }
 }
