@@ -190,6 +190,35 @@ final class UnderproductionTests: XCTestCase {
         }
     }
 
+    /// Pinning the discriminator is only worth anything because it picks between
+    /// two messages that give OPPOSITE advice: one tells the user to raise
+    /// Effort, the other tells them raising Effort will not help. Nothing tied
+    /// either case to its own sentence, so swapping the two strings — or editing
+    /// one and not the other — passed every test while sending the user the
+    /// wrong way. These strings have already been rewritten once in anger
+    /// (3c56a3c, after this failure pointed at a setting that could not help).
+    ///
+    /// Raised by the Windows port, which asserts its messages rather than only
+    /// that it threw, and which found a real bug in its own diagnosis that way.
+    func testTheTwoIncompleteMessagesCarryTheAdviceThatFitsThem() {
+        let wroteNothing = ClaudeError.incomplete(wroteNothing: true).errorDescription ?? ""
+        let badNumbering = ClaudeError.incomplete(wroteNothing: false).errorDescription ?? ""
+
+        XCTAssertNotEqual(wroteNothing, badNumbering,
+                          "the two cases exist to say different things")
+
+        // Nothing usable was written: Effort is the lever that can help.
+        XCTAssertTrue(wroteNothing.contains("Effort"),
+                      "the wrote-nothing message should point at Effort")
+        XCTAssertFalse(wroteNothing.contains("won\'t help"),
+                       "...and must not be the one that rules Effort out")
+
+        // The numbers were wrong, not the volume: more Effort produces more of
+        // the same mistake, so the message says so.
+        XCTAssertTrue(badNumbering.contains("won\'t help"),
+                      "the bad-numbering message must rule Effort out, not suggest it")
+    }
+
     /// The control for the case above: the same duplicate pair in the other
     /// order. Here the GOOD entry is the survivor, so this must succeed — which
     /// is also what proves the test above is about last-wins and not merely
