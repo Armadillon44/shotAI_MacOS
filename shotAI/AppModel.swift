@@ -883,6 +883,9 @@ final class AppModel {
             await reloadOpened()
             await refresh()
         } catch {
+            // The kind is cleared: a stale one from an earlier generation failure
+            // titled this alert "Sign in to generate an SOP" and offered Sign In.
+            sopErrorKind = nil
             sopError = error.localizedDescription
         }
     }
@@ -900,6 +903,7 @@ final class AppModel {
             await reloadOpened()
             await refresh()
         } catch {
+            sopErrorKind = nil
             sopError = error.localizedDescription
         }
     }
@@ -1232,7 +1236,13 @@ final class AppModel {
     /// or a revert. `undoSopRun` also refuses if the project no longer matches what
     /// the run produced, which covers edits arriving by paths that bypass this model.
     private(set) var lastSopRun: (dir: String, undo: SopRunUndo)?
-    var canUndoSopRun: Bool { lastSopRun != nil && lastSopRun?.dir == opened?.dir && !sopBusy }
+    /// Offered only while it would succeed: checked against the LIVE manifest, so an
+    /// edit arriving by any path — a zoom, a recording, the annotation editor — hides
+    /// the button instead of leaving one that fails when clicked.
+    var canUndoSopRun: Bool {
+        guard let run = lastSopRun, let opened, run.dir == opened.dir, !sopBusy else { return false }
+        return run.undo.matches(opened.manifest)
+    }
     var canUndoMerge: Bool { lastMerge != nil && lastMerge?.projectDir == opened?.dir }
 
     private func reloadOnly() async {

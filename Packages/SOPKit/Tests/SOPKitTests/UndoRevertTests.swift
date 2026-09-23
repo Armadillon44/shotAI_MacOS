@@ -80,10 +80,13 @@ final class UndoRevertTests: XCTestCase {
         let (store, path, _) = try await makeProject(shots: 1)
         let pre = try await store.openProject(at: path).manifest.steps[0]
         _ = try await apply(store, path, plan(["AI caption"]))
+        let note = Annotation.text(TextAnnotation(id: "a1", x: 5, y: 5, text: "Here", fontSize: 14, fill: "#000"))
         _ = try await store.mutate(at: path) { m in
             m.steps[0].reportZoom = 2.0
             m.steps[0].crop = Rect(x: 1, y: 2, width: 30, height: 40)
             m.steps[0].renderRev = 7
+            m.steps[0].annotations = [note]
+            m.steps[0].flattened = "export/.render/\(m.steps[0].id).png"
         }
 
         try await revertSop(store: store, projectPath: path)
@@ -93,6 +96,34 @@ final class UndoRevertTests: XCTestCase {
         XCTAssertEqual(step.reportZoom, 2.0, "a later zoom survives")
         XCTAssertEqual(step.crop, Rect(x: 1, y: 2, width: 30, height: 40), "a later crop survives")
         XCTAssertEqual(step.renderRev, 7, "the render revision is not rolled back under its file")
+        XCTAssertEqual(step.annotations, [note], "a later annotation survives")
+        XCTAssertEqual(step.flattened, "export/.render/\(step.id).png", "and so does the render it was baked into")
+    }
+
+    /// Generation never writes author text blocks, so Revert must not touch them.
+    /// A first version restored their body and kept their heading, producing a
+    /// callout whose heading and body never existed together.
+    func testRevertLeavesAuthorTextBlocksAlone() async throws {
+        let (store, path, _) = try await makeProject(shots: 1)
+        _ = try await store.addTextStep(at: path, atIndex: 0, heading: "Old heading", body: "Old body", callout: .warning)
+        _ = try await apply(store, path, plan(["unused", "AI caption"]))
+        let warning = try await store.openProject(at: path).manifest.steps.first { $0.kind == .text && $0.aiInserted != true }!
+        _ = try await store.editStepText(at: path, stepId: warning.id, heading: "New heading", body: "New body")
+        try await revertSop(store: store, projectPath: path)
+        let after = try await store.openProject(at: path).manifest.steps.first { $0.id == warning.id }
+        XCTAssertEqual(after?.heading, "New heading")
+        XCTAssertEqual(after?.body, "New body", "the author's later edit to their own block stands")
+    }
+
+    func testMatchesReportsWhetherUndoWouldSucceed() async throws {
+        let (store, path, _) = try await makeProject(shots: 1)
+        let undo = try await apply(store, path, plan(["A"]))
+        let fresh = try await store.openProject(at: path).manifest
+        XCTAssertTrue(undo.matches(fresh))
+        _ = try await store.mutate(at: path) { $0.steps[0].reportZoom = 1.5 }
+        let zoomed = try await store.openProject(at: path).manifest
+        XCTAssertFalse(undo.matches(zoomed),
+                       "even a display-only change makes undo unavailable, so the button must hide")
     }
 
     func testRevertRestoresTheAuthorEditedFlag() async throws {

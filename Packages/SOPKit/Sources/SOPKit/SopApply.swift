@@ -44,6 +44,10 @@ public struct SopRunUndo: Sendable, Equatable {
     }
     let before: State
     let after: State
+
+    /// Whether `manifest` is still exactly what this run produced — the only state
+    /// `undoSopRun` will act on. Lets the UI offer undo only when it would work.
+    public func matches(_ manifest: ProjectManifest) -> Bool { State(manifest) == after }
 }
 
 /// A fresh AI-inserted section divider — a text step tagged `callout: .section`
@@ -88,7 +92,7 @@ public func applySopEditsUndoable(
 @discardableResult
 public func undoSopRun(store: ProjectStore, projectPath: String, undo: SopRunUndo) async throws -> ProjectManifest {
     try await store.mutate(at: projectPath) { manifest in
-        guard SopRunUndo.State(manifest) == undo.after else { throw SopApplyError.changedSinceGeneration }
+        guard undo.matches(manifest) else { throw SopApplyError.changedSinceGeneration }
         undo.before.restore(into: &manifest)
     }
 }
@@ -213,7 +217,13 @@ public func revertSop(store: ProjectStore, projectPath: String) async throws -> 
         var next: [ProjectStep] = []
         for step in manifest.steps {
             if step.aiInserted == true { continue }                 // drop AI-inserted intro/sections
-            if let original = originalById[step.id] {
+            if step.kind != .text, let original = originalById[step.id] {
+                // Restore only what generation writes, on the only steps it writes to:
+                // screenshots. Author text blocks pass through generation untouched,
+                // so reverting their body while keeping their heading (as a first
+                // version of this did) produced a heading and body that never
+                // existed together.
+                //
                 // Restore only what generation writes. It used to restore the
                 // WHOLE step, so Revert also rolled back annotations, crop, zoom
                 // and the render revision made since — and could leave a step's
