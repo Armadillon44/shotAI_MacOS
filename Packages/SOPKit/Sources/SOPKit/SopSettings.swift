@@ -124,6 +124,11 @@ public struct SopStepEdit: Sendable, Equatable {
     /// If set, insert a section-heading text step immediately BEFORE this step.
     public let sectionHeading: String?
     public let sectionBody: String?
+    /// The kind of block the model declared it was writing for: "screenshot" or
+    /// "text". Checked against the block's real kind, which is what keeps
+    /// renumbering detectable now that every block's number is writable. For a text
+    /// block, `caption` carries the block's heading.
+    public var kind: String? = nil
     // NOTE: no `note` field — the SOP generator no longer writes the step's
     // legacy `note` (it has no editor in the report, so AI-written notes were
     // uneditable). The existing `note` is preserved as-is on apply.
@@ -136,4 +141,24 @@ public struct SopEditPlan: Sendable, Equatable {
     /// Optional leading intro rendered as a preamble above the steps.
     public let intro: SopIntro?
     public let steps: [SopStepEdit]
+    /// `stepNumber` → step id, captured from the SAME manifest the request was
+    /// assembled from. `applySopEdits` looks edits up by id through this.
+    ///
+    /// Without it, apply matched edits by POSITION on a manifest it re-reads from
+    /// disk, while the numbers were assigned against the in-memory snapshot the
+    /// request was built from. Any structural edit made while the request was in
+    /// flight — a drag, a delete, an inserted note, a recording appended mid-project
+    /// — shifted every later step's text onto its neighbour, with no error. Binding
+    /// by identity makes a moved step keep its own text and a deleted step simply
+    /// receive nothing.
+    ///
+    /// nil means "match by position", which is only correct when nothing can have
+    /// changed in between. `SopService.generate` always sets it; it is nil for plans
+    /// built directly (tests) and for a manifest whose step ids are not unique, where
+    /// an id cannot name one step.
+    public var boundStepIds: [Int: String]? = nil
+    /// Screenshot steps (by id) that did not come back fully usable even after a
+    /// repair turn. Whatever could not be used was withheld, so those fields keep
+    /// their previous text; the caller tells the user which steps they are.
+    public var incompleteStepIds: [String] = []
 }

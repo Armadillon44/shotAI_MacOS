@@ -16,13 +16,17 @@ final class UnderproductionTests: XCTestCase {
     /// the fact by `SopService`'s `wroteAnyStep` guard. Constrained decoding
     /// cannot emit an empty array with this set.
     func testStepsCannotBeEmpty() {
-        let schema = sopEditJSONSchema()
+        let schema = plainJSON(sopEditJSONSchema(blockCount: 3)) as! [String: Any]
         let steps = schema["properties"].flatMap { ($0 as? [String: Any])?["steps"] as? [String: Any] }
         XCTAssertEqual(steps?["minItems"] as? Int, 1, "steps must declare minItems: 1")
     }
 
     /// The API accepts ONLY 0 and 1 for `minItems`, and rejects `minLength`,
-    /// `maxItems`, `minimum`/`maximum` and `pattern` outright. shotAI speaks to
+    /// `maxItems` and `minimum`/`maximum` outright. `pattern` is documented as
+    /// supported, but MEASURED unusable here (2026-09-23): a `\\w` pattern on the
+    /// string fields made even a 3-block schema "too complex" after 35–180 s of
+    /// compiling. It stays banned for that reason, not for the one this comment used
+    /// to give. shotAI speaks to
     /// the API directly with no SDK, so there is no client-side transform to
     /// strip an unsupported keyword — one would 400 every request rather than
     /// being quietly dropped. This walks the whole schema rather than the one
@@ -44,7 +48,7 @@ final class UnderproductionTests: XCTestCase {
             }
             for (k, v) in dict { walk(v, path: "\(path).\(k)") }
         }
-        walk(sopEditJSONSchema(), path: "root")
+        walk(plainJSON(sopEditJSONSchema(blockCount: 3)), path: "root")
         XCTAssertTrue(found.isEmpty, "unsupported schema keywords would 400 the request: \(found)")
     }
 
@@ -101,7 +105,7 @@ final class UnderproductionTests: XCTestCase {
         let manifest = try await store.openProject(at: path).manifest
 
         // Real content, but numbered 1 — the screenshot is step 2.
-        let json = #"{"title":"A Real Title","intro":{"heading":"Overview","body":"words"},"steps":[{"stepNumber":1,"caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null}]}"#
+        let json = #"{"title":"A Real Title","intro":{"heading":"Overview","body":"words"},"steps":[{"stepNumber":1,"kind":"screenshot","caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null}]}"#
         let svc = SopService(
             client: ClaudeClient(transport: MockTransport(streamHandler: { _ in
                 (sseLines(json: json), ResponseHead(status: 200))
@@ -147,29 +151,17 @@ final class UnderproductionTests: XCTestCase {
 
     // MARK: The guard must judge the plan the way the apply reduces it
 
-    /// The fourth way through, found by the Windows port while implementing its
-    /// own version of this guard.
+    /// A step written twice, good text first and an empty entry after it.
     ///
-    /// `applySopEdits` reduces the plan to one edit per `stepNumber` and LAST
-    /// WINS. A plan carrying two entries for the same step — a good one followed
-    /// by an empty one — satisfied a guard that scanned the raw array (the good
-    /// entry is right there), and then the empty entry overwrote it before
-    /// anything landed. Success reported, nothing changed: the exact silent
-    /// no-op the guard exists to prevent, through a door it wasn't watching.
-    ///
-    /// Reproduced end to end before the fix, through this same path:
-    ///     guard let it through: 2 plan entries
-    ///     caption after apply: EMPTY — nothing landed
-    ///
-    /// The fix is not a second copy of the reduction inside the guard — that is
-    /// what drifts. Both sides call `effectiveEdits`. This test fails if anyone
-    /// gives the guard its own reasoning about the plan again.
-    func testAPlanWhoseDuplicateOverwritesTheOnlyContentIsRejected() async throws {
+    /// Under #120 the empty entry won (strict last-wins) and the run was rejected
+    /// as "wrote nothing": the guard correctly refused to report success for text
+    /// that would not land. The text WAS there, though. Duplicates now resolve to
+    /// the last USABLE entry (`resolvedEdits`), so "Click Save" lands. #120's
+    /// invariant is unchanged: review and apply judge the same thing, because the
+    /// plan apply receives has exactly one resolved entry per screenshot.
+    func testADuplicateKeepsItsUsableEntryRatherThanTheEmptyOneAfterIt() async throws {
         let (store, path, dir) = try await makeProject(shots: 1)
         let manifest = try await store.openProject(at: path).manifest
-
-        // Both entries are step 1 (no leading text block here, so the shot IS 1).
-        // The first would land; the second is the one that actually survives.
         let json = ##"{"title":"A Real Title","intro":null,"steps":[{"stepNumber":1,"caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null},{"stepNumber":1,"caption":"","body":"","sectionHeading":null,"sectionBody":null}]}"##
         let svc = SopService(
             client: ClaudeClient(transport: MockTransport(streamHandler: { _ in
@@ -177,17 +169,14 @@ final class UnderproductionTests: XCTestCase {
             })),
             keyStore: StubKeyStore())
 
-        do {
-            _ = try await svc.generate(dir: dir, manifest: manifest,
-                                       settings: SopSettings(), onProgress: { _ in })
-            XCTFail("a plan whose surviving edit is empty must not be returned as a success")
-        } catch let e as ClaudeError {
-            // Not `wroteNothing: false`. The numbers were fine; what the user
-            // experienced is a generation that wrote nothing usable, and the
-            // advice attached to that message is the advice that helps.
-            XCTAssertEqual(e, .incomplete(wroteNothing: true),
-                           "expected the wrote-nothing failure, got \(e)")
-        }
+        let plan = try await svc.generate(dir: dir, manifest: manifest, settings: SopSettings(), onProgress: { _ in })
+        XCTAssertEqual(plan.steps.count, 1, "apply must receive exactly one entry per screenshot")
+        XCTAssertEqual(effectiveEdits(plan)[1]?.caption, "Click Save")
+        XCTAssertTrue(plan.incompleteStepIds.isEmpty)
+
+        try await applySopEdits(store: store, projectPath: path, plan: plan, model: .sonnet5, tone: .professional)
+        let landed = try await store.openProject(at: path).manifest.steps.first?.caption
+        XCTAssertEqual(landed, "Click Save")
     }
 
     /// Pinning the discriminator is only worth anything because it picks between
@@ -219,25 +208,21 @@ final class UnderproductionTests: XCTestCase {
                       "the bad-numbering message must rule Effort out, not suggest it")
     }
 
-    /// The control for the case above: the same duplicate pair in the other
-    /// order. Here the GOOD entry is the survivor, so this must succeed — which
-    /// is also what proves the test above is about last-wins and not merely
-    /// about the plan containing an empty entry somewhere.
-    func testADuplicateWhoseSurvivingEntryHasContentIsAccepted() async throws {
+    /// The companion to the case above, and the rule stated directly: of two
+    /// USABLE entries for one step, the later one wins. (This test used to be the
+    /// empty-then-good control, which the usable-entry rule made indistinguishable
+    /// from the case above, so nothing pinned what happens between two good ones.)
+    func testOfTwoUsableEntriesForOneStepTheLaterOneLands() async throws {
         let (store, path, dir) = try await makeProject(shots: 1)
         let manifest = try await store.openProject(at: path).manifest
-
-        let json = ##"{"title":"A Real Title","intro":null,"steps":[{"stepNumber":1,"caption":"","body":"","sectionHeading":null,"sectionBody":null},{"stepNumber":1,"caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null}]}"##
+        let json = ##"{"title":"A Real Title","intro":null,"steps":[{"stepNumber":1,"caption":"First wording","body":"a.","sectionHeading":null,"sectionBody":null},{"stepNumber":1,"caption":"Second wording","body":"b.","sectionHeading":null,"sectionBody":null}]}"##
         let svc = SopService(
             client: ClaudeClient(transport: MockTransport(streamHandler: { _ in
                 (sseLines(json: json), ResponseHead(status: 200))
             })),
             keyStore: StubKeyStore())
-
-        let plan = try await svc.generate(dir: dir, manifest: manifest,
-                                          settings: SopSettings(), onProgress: { _ in })
-        let landed = effectiveEdits(plan)[1]
-        XCTAssertEqual(landed?.caption, "Click Save",
-                       "the surviving edit carries content, so this plan is usable")
+        let plan = try await svc.generate(dir: dir, manifest: manifest, settings: SopSettings(), onProgress: { _ in })
+        XCTAssertEqual(plan.steps.count, 1)
+        XCTAssertEqual(effectiveEdits(plan)[1]?.caption, "Second wording")
     }
 }

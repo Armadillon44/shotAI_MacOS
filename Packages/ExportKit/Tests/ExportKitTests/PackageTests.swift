@@ -110,6 +110,34 @@ final class PackageTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: abs))
     }
 
+    /// The per-block record of what generation wrote, and the words it wrote from, is
+    /// the sender's local history like sopBackup. It can hold wording the sender has
+    /// since changed or deleted, so it never leaves in a package — and is dropped on
+    /// import too, for packages built by something that did not strip it.
+    func testAPackageCarriesNoRecordOfWhatGenerationWrote() async throws {
+        let root = tempDir()
+        let store = ProjectStore(settings: InMemorySettings(projectsDir: root))
+        let created = try await store.createProject(title: "Records")
+        _ = try await store.importImageStep(at: created.path, atIndex: nil, imageData: pngData(w: 40, h: 30))
+        _ = try await store.addTextStep(at: created.path, atIndex: 0, heading: "Key", body: "Polished.", callout: .warning)
+        _ = try await store.mutate(at: created.path) { m in
+            m.steps[0].sopRewrite = SopTextRewrite(heading: "Key", body: "Polished.",
+                                                   sourceHeading: "Key", sourceBody: "Call Bob on 555-0100.")
+        }
+        let opened = try await store.openProject(at: created.path)
+        let result = try exportPackage(dir: opened.dir, manifest: opened.manifest, includeOriginals: false)
+        let entries = try zipRead(Data(contentsOf: URL(fileURLWithPath: result.outputPath)), maxEntryBytes: 10_000_000)
+        let manifestJSON = String(decoding: try XCTUnwrap(entries.first { $0.name == "project.json" }?.data), as: UTF8.self)
+        XCTAssertFalse(manifestJSON.contains("sopRewrite"))
+        XCTAssertFalse(manifestJSON.contains("555-0100"), "the sender's pre-generation wording does not ship")
+
+        var crafted = opened.manifest
+        crafted.steps[0].sopRewrite = SopTextRewrite(heading: "Key", body: "Polished.", sourceHeading: nil, sourceBody: "hidden")
+        let summary = try await store.createProjectFromImport(manifest: crafted, files: [])
+        let imported = try await store.openProject(at: summary.path)
+        XCTAssertNil(imported.manifest.steps[0].sopRewrite, "and an import drops one that arrives anyway")
+    }
+
     // MARK: - Untrusted-input rejections
 
     func testRejectsMissingMarker() async throws {

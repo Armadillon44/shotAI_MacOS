@@ -27,7 +27,7 @@ final class AssemblerTests: XCTestCase {
         // "Test SOP" is human-written, so Claude is told to keep it.
         XCTAssertEqual(lead?.contains("written by a person"), true)
         XCTAssertEqual(lead?.contains("MUST be replaced"), false)
-        XCTAssertEqual(lead?.contains("The 2 steps"), true)
+        XCTAssertEqual(lead?.contains("The 2 blocks"), true)
         XCTAssertEqual(content.filter { $0["type"] as? String == "image" }.count, 2)
         XCTAssertNotNil((content.last?["cache_control"]))
     }
@@ -40,7 +40,7 @@ final class AssemblerTests: XCTestCase {
                                    trigger: .hotkey, heading: "AI intro", body: "x", aiInserted: true))
         let req = try assembleRequest(dir: dir, manifest: m, settings: SopSettings())
         let content = req.messages[0]["content"] as! [[String: Any]]
-        XCTAssertEqual((content.first?["text"] as? String)?.contains("The 1 steps"), true)
+        XCTAssertEqual((content.first?["text"] as? String)?.contains("The 1 blocks"), true)
         XCTAssertEqual(content.filter { $0["type"] as? String == "image" }.count, 1)
     }
 
@@ -223,10 +223,12 @@ final class AuthorContextTests: XCTestCase {
     }
 
     /// A plain text step gets no callout guidance — nothing to respect or avoid.
-    func testPlainTextStepGetsNoExtraGuidance() {
-        XCTAssertNil(AssembledRequest.authorBlockGuidance(nil))
-        XCTAssertEqual(AssembledRequest.authorBlockLabel(nil), "Text step")
-        XCTAssertEqual(AssembledRequest.authorBlockLabel(.caution), "Caution callout")
+    func testAPlainTextStepIsOfferedForRewritingWithItsFactsKept() {
+        // It used to get no guidance: the model was told to leave every author block
+        // alone. The whole SOP is written now, plain paragraphs included, so it gets
+        // the same "reword, keep every fact" instruction as the other kinds.
+        let g = AssembledRequest.authorBlockGuidance(nil)
+        XCTAssertEqual(g?.contains("keep every fact and instruction"), true, g ?? "nil")
     }
 }
 

@@ -27,6 +27,16 @@ public struct SopService: Sendable {
 
     /// Bring-your-own-key construction. Kept so the API-key path (and every
     /// existing test) works unchanged when federation is not configured.
+    /// Backoff before each retry of a transient failure. Two retries, as the official
+    /// SDKs do by default; Windows gets them for free from its SDK, and this client
+    /// had none, so a momentary overload failed the whole generation.
+    var retryDelays: [TimeInterval] = [2, 5]
+    /// Injected so tests do not actually wait.
+    var sleep: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
+    /// A rate limit asking for longer than this is surfaced instead of waited out:
+    /// the user is better told "try again in about 40s" than left watching a spinner.
+    static let maxRetryAfterWait: TimeInterval = 20
+
     public init(client: ClaudeClient = ClaudeClient(), keyStore: ApiKeyStore = KeychainApiKeyStore()) {
         self.init(client: client, credentials: StoredKeyCredentialProvider(keyStore: keyStore))
     }
@@ -77,14 +87,15 @@ public struct SopService: Sendable {
     ) async throws -> SopEditPlan {
         guard settings.enabled else { throw ClaudeError.disabled }
         // Resolved BEFORE the (slow) request assembly so an expired session
-        // fails fast, instead of after flattening every screenshot.
-        let cred = try await credential()
+        // fails fast, instead of after flattening every screenshot. Each request
+        // resolves it again (see streamWithRetry); the provider caches it.
+        _ = try await credential()
         onProgress(.preparing)
         let assembled = try assembleRequest(dir: dir, manifest: manifest, settings: settings)
         let p = params(settings.model)
 
         var outputConfig: [String: Any] = [
-            "format": ["type": "json_schema", "schema": sopEditJSONSchema()],
+            "format": ["type": "json_schema", "schema": sopEditJSONSchema(blockCount: numberedBase(manifest).count)],
         ]
         if p.supportsEffort { outputConfig["effort"] = settings.effort.rawValue }
         var body: [String: Any] = [
@@ -97,58 +108,167 @@ public struct SopService: Sendable {
         ]
         if p.adaptiveThinking { body["thinking"] = ["type": "adaptive"] }
 
-        let raw = try await client.streamEditPlan(credential: cred, body: body, onProgress: onProgress)
-        let plan = SopEditPlan(
+        // Review before anything lands, then recover: at most one full retry for
+        // a numbering fault and one repair turn for content faults, so a run is
+        // never more than three requests. See SopValidation.swift.
+        var plan = Self.plan(from: try await streamWithRetry(body, onProgress))
+        var review = reviewPlan(plan, against: manifest)
+        var retried = false, repaired = false
+
+        // 1. Numbering. An entry whose declared kind is not its block's kind (or,
+        //    defensively, a number naming no block) means none of the numbers can
+        //    be trusted, so nothing is applied partially: run it again once.
+        if review.misnumbered {
+            Log.sop.error("""
+                generation misnumbered — kind mismatch at \(review.kindMismatches, privacy: .public), \
+                invalid \(review.invalidNumbers, privacy: .public), blocks \(review.blockNumbers.count, privacy: .public); retrying
+                """)
+            onProgress(.retrying)
+            plan = Self.plan(from: try await streamWithRetry(body, onProgress))
+            review = reviewPlan(plan, against: manifest)
+            retried = true
+            if review.misnumbered {
+                Log.sop.error("generation misnumbered twice — kind mismatch at \(review.kindMismatches, privacy: .public); nothing applied")
+                throw ClaudeError.incomplete(wroteNothing: false)
+            }
+        }
+
+        // 2. Content. Ask again for ONLY the steps that came back missing, empty
+        //    or as filler, showing the model its own previous answer so the new
+        //    text fits the rest. The image prefix is prompt-cached, so this is
+        //    cheap. A failed repair must not cost the steps that already came
+        //    back good, so only a cancel propagates.
+        let needRepair = review.faultedNumbers
+        if !needRepair.isEmpty {
+            onProgress(.repairing(steps: needRepair.count))
+            do {
+                let fixed = Self.plan(from: try await streamWithRetry(Self.repairBody(body, previous: plan, steps: needRepair), onProgress))
+                // The repair's numbering is checked the way the first answer's is.
+                // A repair that renumbered — answering [1, 2] for "steps 2 and 5"
+                // — would put step 5's text on step 2 and report step 2 complete.
+                // Any number it was not asked for, or any repeat, discards the
+                // whole repair: none of its numbers can be trusted.
+                let got = fixed.steps.map(\.stepNumber)
+                let allScreenshots = fixed.steps.allSatisfy { ($0.kind ?? "screenshot") == "screenshot" }
+                if Set(got).isSubset(of: Set(needRepair)), Set(got).count == got.count, allScreenshots {
+                    plan = mergeRepairs(into: plan, from: fixed, steps: needRepair)
+                    review = reviewPlan(plan, against: manifest)
+                    repaired = true
+                } else {
+                    Log.sop.error("repair misnumbered — asked \(needRepair, privacy: .public), got \(got, privacy: .public); discarded")
+                }
+            } catch {
+                if Task.isCancelled { throw error }
+                Log.sop.error("repair failed [\(String(describing: (error as? ClaudeError)?.kind), privacy: .public)]; applying what passed")
+            }
+        }
+
+        // 3. Nothing usable anywhere is still a failure, not an empty success.
+        guard review.landsSomething else {
+            Log.sop.error("generation unusable — no screenshot received usable text")
+            throw ClaudeError.incomplete(wroteNothing: true)
+        }
+
+        let numbered = numberedBase(manifest)
+        let idAt = Dictionary(numbered.map { ($0.number, $0.step.id) }, uniquingKeysWith: { a, _ in a })
+        plan = sanitize(plan, review)
+        plan.incompleteStepIds = review.faultedNumbers.compactMap { idAt[$0] }
+        Log.sop.notice("""
+            generation ok — shots \(review.shotNumbers.count, privacy: .public), \
+            complete \(review.cleanCount, privacy: .public), retried \(retried, privacy: .public), \
+            repaired \(repaired, privacy: .public), title \(review.titleUsable, privacy: .public), \
+            intro \(review.introUsable, privacy: .public)
+            """)
+        onProgress(.done)
+        // Bound against the same manifest the request was assembled from, so
+        // apply can find each edit's step by id even if the project changed
+        // while the request was in flight.
+        plan.boundStepIds = stepNumberBinding(manifest)
+        return plan
+    }
+
+    static func plan(from raw: SopEditRaw) -> SopEditPlan {
+        SopEditPlan(
             title: raw.title,
             intro: raw.intro.map { SopIntro(heading: $0.heading, body: $0.body) },
             steps: raw.steps.map {
                 SopStepEdit(stepNumber: $0.stepNumber, caption: $0.caption, body: $0.body,
-                            sectionHeading: $0.sectionHeading, sectionBody: $0.sectionBody)
+                            sectionHeading: $0.sectionHeading, sectionBody: $0.sectionBody, kind: $0.kind)
             })
-        // A project always has shot steps here (the assembler throws otherwise),
-        // so a plan that will not change a single one of them means the run
-        // produced nothing usable. Fail loudly instead of silently applying only
-        // an intro — the caller must NOT snapshot/apply a no-op result.
-        //
-        // This checks what will LAND, not merely what was written. Checking the
-        // plan alone missed the case actually reported as "it returned only an
-        // overview": a plan full of well-written steps whose `stepNumber`s match
-        // no real step passes a content-only test, applies to nothing, and the
-        // user gets a new title and overview with no error at all.
-        //
-        // The numbers must line up with `applySopEdits`, which indexes the
-        // non-AI-inserted steps and counts author text blocks — so the only
-        // screenshot in a two-item project is "Screenshot step 2", not 1.
-        let base = manifest.steps.filter { $0.aiInserted != true }
-        let shotNumbers = Set(base.enumerated().compactMap { i, s in s.kind == .text ? nil : i + 1 })
-        // Reduced the way applySopEdits reduces it — LAST WINS per stepNumber —
-        // because the question is what will LAND, not what was written. Scanning
-        // the raw plan passed a pair like [{2, "Click Save"}, {2, ""}]: the good
-        // entry satisfied the guard and the empty one overwrote it before apply.
-        let effective = effectiveEdits(plan)
-        let hasContent: (SopStepEdit) -> Bool = {
-            !$0.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The original request plus two turns: the model's own previous answer, and
+    /// a request to rewrite only the listed steps.
+    ///
+    /// The ask names no bad values and says nothing about WHY these steps need
+    /// another pass. Naming "placeholder" to the model is how it came back as a
+    /// title and then as an overview (#113), and the model does not need the
+    /// reason to write the step.
+    static func repairBody(_ body: [String: Any], previous: SopEditPlan, steps: [Int]) -> [String: Any] {
+        var out = body
+        var messages = body["messages"] as? [[String: Any]] ?? []
+        messages.append(["role": "assistant", "content": [["type": "text", "text": planJSON(previous)]]])
+        let list = steps.map { "Screenshot step \($0)" }.joined(separator: ", ")
+        messages.append(["role": "user", "content": [["type": "text", "text":
+            "These screenshot steps still need their text: \(list). For each one, write the `caption` "
+            + "and `body` from what its screenshot and metadata show, following all of the same "
+            + "instructions as before. Return the edit plan with entries for ONLY those steps, each "
+            + "`stepNumber` exactly as listed, and keep `title` and `intro` as they were in your previous answer."]]])
+        out["messages"] = messages
+        return out
+    }
+
+    /// The plan as the model wrote it, in the schema's own field order.
+    static func planJSON(_ p: SopEditPlan) -> String {
+        let steps: [Any] = p.steps.map {
+            OrderedObject([
+                "stepNumber": $0.stepNumber, "kind": $0.kind ?? "screenshot",
+                "caption": $0.caption, "body": $0.body,
+                "sectionHeading": $0.sectionHeading as Any? ?? NSNull(),
+                "sectionBody": $0.sectionBody as Any? ?? NSNull(),
+            ])
         }
-        let willEditAStep = effective.contains { num, e in shotNumbers.contains(num) && hasContent(e) }
-        if !willEditAStep {
-            // Distinguish the two failures in the log: "wrote nothing" and "wrote
-            // for steps that do not exist" have different causes and different
-            // fixes, and the user-facing message cannot tell them apart.
-            // Judged on the EFFECTIVE plan too, so the two messages stay
-            // accurate: a plan whose duplicates cancelled out reads as "wrote
-            // nothing", which is what the user experiences, rather than as a
-            // numbering problem it does not have.
-            let wroteSomething = effective.values.contains(where: hasContent)
-            let got = effective.keys.sorted()
-            Log.sop.error("""
-                generation unusable — \(wroteSomething ? "stepNumbers matched no step" : "no step content", privacy: .public). \
-                plan numbers \(String(describing: got), privacy: .public), \
-                expected any of \(String(describing: shotNumbers.sorted()), privacy: .public)
-                """)
-            throw ClaudeError.incomplete(wroteNothing: !wroteSomething)
+        let intro: Any = p.intro.map { OrderedObject(["heading": $0.heading, "body": $0.body]) } ?? NSNull()
+        let obj = OrderedObject(["title": p.title as Any? ?? "", "intro": intro, "steps": steps])
+        return (try? RequestJSON.data(obj)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+    }
+
+    /// One generation request, retried on transient failure. A cancel is never
+    /// retried: URLSession reports a cancelled task as a URLError, which arrives
+    /// here as `.connection`, so the check has to be on the task, not the error.
+    ///
+    /// The credential is resolved for EACH attempt, not once per generation. A run
+    /// can now span three requests plus backoff, and a federated token resolved at
+    /// the start could expire before the last of them. The provider caches and
+    /// coalesces, so this costs nothing while the token is still fresh.
+    func streamWithRetry(
+        _ body: [String: Any], _ onProgress: @Sendable (SopProgress) -> Void
+    ) async throws -> SopEditRaw {
+        var attempt = 0
+        while true {
+            do {
+                let cred = try await credential()
+                return try await client.streamEditPlan(credential: cred, body: body, onProgress: onProgress)
+            } catch let e as ClaudeError {
+                guard !Task.isCancelled, attempt < retryDelays.count,
+                      let wait = Self.retryWait(e, backoff: retryDelays[attempt]) else { throw e }
+                attempt += 1
+                Log.sop.notice("transient \(String(describing: e.kind), privacy: .public); retry \(attempt, privacy: .public) in \(wait, privacy: .public)s")
+                onProgress(.waiting(seconds: Int(wait.rounded(.up))))
+                try await sleep(wait)
+            }
         }
-        onProgress(.done)
-        return plan
+    }
+
+    /// How long to wait before retrying `e`, or nil if it is not worth retrying.
+    static func retryWait(_ e: ClaudeError, backoff: TimeInterval) -> TimeInterval? {
+        switch e {
+        case .overloaded, .connection: return backoff
+        case .rateLimited(let f):
+            guard let after = f.retryAfter else { return backoff }
+            return after <= maxRetryAfterWait ? max(after, backoff) : nil
+        case .api(let status, let f) where status >= 500 && f.shouldRetry != false: return backoff
+        default: return nil
+        }
     }
 }
