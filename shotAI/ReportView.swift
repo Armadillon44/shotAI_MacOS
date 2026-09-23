@@ -113,7 +113,7 @@ struct ReportView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 44)
                 }
-                InsertZone { choice in handleInsert(choice, at: steps.count) } // append
+                InsertZone { choice in handleInsert(choice, at: steps.count) }.disabled(model.sopBusy) // append
                     .dropDestination(for: String.self) { ids, _ in
                         guard let dragged = ids.first else { return false }
                         autoScroller.reset()
@@ -316,6 +316,9 @@ struct ReportView: View {
     /// action — the menu's event loop swallows it). Area captures right away;
     /// window/screen open a target picker; "Capture steps" starts a recording.
     private func handleInsert(_ choice: InsertChoice, at index: Int) {
+        // The capture branches below go to the coordinator directly, not through
+        // AppModel's structural guard, so they are refused here while generating.
+        guard !model.sopBusy else { return }
         switch choice {
         case .text: Task { await model.addTextStep(atIndex: index) }
         case .callout(let kind): Task { await model.addTextStep(callout: kind, atIndex: index) }
@@ -1021,6 +1024,15 @@ struct InlineEditable: View {
     var onCommit: (String) -> Void
 
     @State private var draft = ""
+    /// The value the field held when it gained focus. A blur commits only if the
+    /// user actually changed the text from this — never merely because the store
+    /// moved underneath an idle focused field.
+    ///
+    /// Without it, a field that kept focus while generation (or an undo) rewrote
+    /// its text kept the OLD draft, since a focused field ignores store updates,
+    /// and committed that draft on the next click away: the stale value replaced
+    /// the new one and, for a caption, was flagged as the user's own.
+    @State private var atFocus = ""
 
     private var active: Bool { focus.wrappedValue == id }
 
@@ -1053,17 +1065,23 @@ struct InlineEditable: View {
             return .handled
         }
         .onExitCommand { draft = text; focus.wrappedValue = nil }  // Esc discards edits
-        .onChange(of: focus.wrappedValue) { _, current in
-            if current != id { commit() }  // lost focus (blur / another field / Tab / Esc) → save
+        .onChange(of: focus.wrappedValue) { old, current in
+            if current == id { atFocus = draft }        // gained focus: remember what it held
+            else if old == id { commit() }              // lost focus (blur / another field / Tab / Esc) → save
         }
         .onChange(of: text) { _, newText in
-            if !active { draft = newText }  // reflect store updates while not being edited
+            // Reflect store updates while not being edited — and while focused but
+            // untouched, so a focused field can never hold a value that is out of
+            // date. Once the user has typed, their text stands.
+            if !active || draft == atFocus { draft = newText; atFocus = newText }
         }
-        .onAppear { draft = text }
+        .onAppear { draft = text; atFocus = text }
     }
 
     private func commit() {
-        if draft != text { onCommit(draft) } // skip a write when nothing changed
+        // Only a real edit writes: the user changed the text since focusing, and it
+        // differs from what is stored now.
+        if draft != atFocus && draft != text { onCommit(draft) }
     }
 }
 

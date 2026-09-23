@@ -379,6 +379,12 @@ final class AppModel {
     private(set) var apiKeyUnreadable = false
     /// True while any SOP op (prepare/generate/revert) is in flight.
     private(set) var sopBusy = false
+    /// True from the snapshot a generation is built from until its plan is applied —
+    /// the window in which a structural edit would reach disk between the two. Not
+    /// the same as `sopBusy`, which also covers preparing: an edit committed as the
+    /// user clicked Generate (a caption, or a step's position typed into its badge)
+    /// arrives during preparing and must land before the snapshot, not be refused.
+    private var generationInFlight = false
     /// Human-readable progress line shown while generating.
     private(set) var sopProgress: String?
     /// Set once a cost estimate is ready → drives the confirm dialog.
@@ -792,7 +798,7 @@ final class AppModel {
     func confirmGenerateSop() {
         guard let current = opened, sopEstimate != nil, !sopBusy else { return }
         sopEstimate = nil
-        sopBusy = true; sopError = nil; sopProgress = "Preparing…"
+        sopBusy = true; generationInFlight = true; sopError = nil; sopProgress = "Preparing…"
         let dir = current.dir
         let path = selectedPath ?? current.dir
         let manifest = current.manifest
@@ -823,6 +829,7 @@ final class AppModel {
 
     private func finishSop(error: String?, kind: ClaudeError.Kind? = nil) {
         sopBusy = false
+        generationInFlight = false
         sopProgress = nil
         sopTask = nil
         if let error { sopError = error; sopErrorKind = kind }
@@ -840,6 +847,7 @@ final class AppModel {
         sopTask?.cancel()
         sopTask = nil
         sopBusy = false
+        generationInFlight = false
         sopProgress = nil
         sopEstimate = nil
         sopError = nil
@@ -1225,8 +1233,8 @@ final class AppModel {
     /// starts commits the field being typed in, and that commit runs after
     /// `sopBusy` flips, so a gate here would silently discard it.
     private var structureLocked: Bool {
-        if sopBusy { Log.store.notice("structural edit refused: a generation is running") }
-        return sopBusy
+        if generationInFlight { Log.store.notice("structural edit refused: a generation is running") }
+        return generationInFlight
     }
 
     func addTextStep(heading: String = "", body: String = "", callout: CalloutKind? = nil, atIndex: Int? = nil) async {
