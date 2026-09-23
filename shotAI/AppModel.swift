@@ -379,16 +379,29 @@ final class AppModel {
     private(set) var apiKeyUnreadable = false
     /// True while any SOP op (prepare/generate/revert) is in flight.
     private(set) var sopBusy = false
+    /// True from the snapshot a generation is built from until its plan is applied —
+    /// the window in which a structural edit would reach disk between the two. Not
+    /// the same as `sopBusy`, which also covers preparing: an edit committed as the
+    /// user clicked Generate (a caption, or a step's position typed into its badge)
+    /// arrives during preparing and must land before the snapshot, not be refused.
+    private var generationInFlight = false
     /// Human-readable progress line shown while generating.
     private(set) var sopProgress: String?
     /// Set once a cost estimate is ready → drives the confirm dialog.
     var sopEstimate: SopEstimate?
     /// Surfaced by the report's alert.
     var sopError: String?
-    /// A generation that succeeded only in part: which steps are incomplete,
-    /// named by the numbers the REPORT shows. Not an error — shown in the SOP
-    /// panel, not as an alert, because most of the run landed.
-    var sopNotice: String?
+    /// Steps the last generation could not fully write. Held as IDS, and the notice
+    /// is built from the live step order: numbers frozen at generation time pointed
+    /// at the wrong steps after a reorder, delete or insert. Any edit clears it.
+    var sopIncompleteIds: [String] = []
+    /// A generation that succeeded only in part, named by the numbers the REPORT
+    /// shows. Not an error — shown in the SOP panel, not as an alert.
+    var sopNotice: String? {
+        guard let steps = opened?.manifest.steps else { return nil }
+        let present = Set(steps.map(\.id))
+        return incompleteNotice(sopIncompleteIds.filter(present.contains), in: steps)
+    }
     /// Which kind of failure `sopError` describes, so the alert can title itself
     /// honestly and offer the action that would actually fix it. "SOP generation
     /// failed" is the wrong sentence when the user simply isn't signed in yet.
@@ -772,7 +785,7 @@ final class AppModel {
             sopError = blocked.errorDescription
             return
         }
-        sopBusy = true; sopError = nil; sopNotice = nil; sopProgress = "Preparing…"
+        sopBusy = true; sopError = nil; sopIncompleteIds = []; sopProgress = "Preparing…"
         let dir = current.dir
         let manifest = current.manifest
         let settings = sopSettings
@@ -798,7 +811,7 @@ final class AppModel {
         guard let current = opened, sopEstimate != nil, !sopBusy else { return }
         sopEstimate = nil
         lastSopRun = nil
-        sopBusy = true; sopError = nil; sopNotice = nil; sopProgress = "Preparing…"
+        sopBusy = true; generationInFlight = true; sopError = nil; sopIncompleteIds = []; sopProgress = "Preparing…"
         let dir = current.dir
         let path = selectedPath ?? current.dir
         let manifest = current.manifest
@@ -819,7 +832,7 @@ final class AppModel {
                 await self.reloadOpened()
                 await self.refresh()
                 self.finishSop(error: nil)
-                self.sopNotice = self.opened.flatMap { incompleteNotice(plan.incompleteStepIds, in: $0.manifest.steps) }
+                self.sopIncompleteIds = plan.incompleteStepIds
                 Log.store.notice("""
                     SOP applied (\(plan.steps.count, privacy: .public) step edits, \
                     \(plan.incompleteStepIds.count, privacy: .public) incomplete)
@@ -834,6 +847,7 @@ final class AppModel {
 
     private func finishSop(error: String?, kind: ClaudeError.Kind? = nil) {
         sopBusy = false
+        generationInFlight = false
         sopProgress = nil
         sopTask = nil
         if let error { sopError = error; sopErrorKind = kind }
@@ -851,10 +865,11 @@ final class AppModel {
         sopTask?.cancel()
         sopTask = nil
         sopBusy = false
+        generationInFlight = false
         sopProgress = nil
         sopEstimate = nil
         sopError = nil
-        sopNotice = nil
+        sopIncompleteIds = []
     }
 
     /// Undo just the last generation.
@@ -862,7 +877,7 @@ final class AppModel {
         guard let run = lastSopRun, let current = opened, run.dir == current.dir, !sopBusy else { return }
         let path = selectedPath ?? current.dir
         lastSopRun = nil
-        sopNotice = nil
+        sopIncompleteIds = []
         do {
             _ = try await SOPKit.undoSopRun(store: store, projectPath: path, undo: run.undo)
             await reloadOpened()
@@ -881,7 +896,7 @@ final class AppModel {
         do {
             _ = try await SOPKit.revertSop(store: store, projectPath: path)
             lastSopRun = nil
-            sopNotice = nil
+            sopIncompleteIds = []
             await reloadOpened()
             await refresh()
         } catch {
@@ -1228,6 +1243,7 @@ final class AppModel {
     private func afterEdit() async {
         lastMerge = nil       // any normal edit invalidates a pending merge-undo
         lastSopRun = nil      // …and a pending generation-undo
+        sopIncompleteIds = [] // …and a partial-generation notice, which may no longer be true
         await reloadOnly()
     }
 
@@ -1266,8 +1282,8 @@ final class AppModel {
     /// starts commits the field being typed in, and that commit runs after
     /// `sopBusy` flips, so a gate here would silently discard it.
     private var structureLocked: Bool {
-        if sopBusy { Log.store.notice("structural edit refused: a generation is running") }
-        return sopBusy
+        if generationInFlight { Log.store.notice("structural edit refused: a generation is running") }
+        return generationInFlight
     }
 
     func addTextStep(heading: String = "", body: String = "", callout: CalloutKind? = nil, atIndex: Int? = nil) async {

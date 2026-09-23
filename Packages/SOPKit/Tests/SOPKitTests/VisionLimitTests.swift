@@ -54,9 +54,9 @@ final class VisionLimitTests: XCTestCase {
     /// The control: at or under twenty images there is no stricter limit, so the
     /// renders go out at full size — shrinking them would only cost legibility.
     func testTwentyOrFewerImagesAreSentAtFullSize() async throws {
-        let (dir, m) = try await project(3)
+        let (dir, m) = try await project(20)   // the boundary itself: 20 is not "more than 20"
         let sides = sentSides(try assembleRequest(dir: dir, manifest: m, settings: SopSettings()))
-        XCTAssertEqual(sides, [2570, 2570, 2570])
+        XCTAssertEqual(sides, Array(repeating: 2570, count: 20))
     }
 
     /// Over the payload cap the request is refused with a message that says what
