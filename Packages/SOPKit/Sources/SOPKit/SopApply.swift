@@ -8,11 +8,42 @@ import ShotModel
 
 public enum SopApplyError: Error, LocalizedError, Equatable {
     case nothingToRevert
+    case changedSinceGeneration
     public var errorDescription: String? {
         switch self {
         case .nothingToRevert: "Nothing to revert — no AI edits are recorded for this project."
+        case .changedSinceGeneration:
+            "The project changed after this generation, so it can't be undone on its own. "
+                + "Use Revert to original to restore the text from before AI generation."
         }
     }
+}
+
+/// What one generation changed, so it alone can be undone.
+///
+/// Revert restores the PRE-AI original, which after a second generation throws
+/// away a good first one along with a bad second one. This undoes just the last
+/// run. It is exact because it refuses unless the project is still precisely what
+/// that run produced: any later edit, from any path (the report, a recording, the
+/// annotation editor), makes it unavailable rather than silently discarding the edit.
+public struct SopRunUndo: Sendable, Equatable {
+    struct State: Sendable, Equatable {
+        let steps: [ProjectStep]
+        let title: String
+        let intro: SopIntro?
+        let introEditedByUser: Bool?
+        let sopBackup: SopBackup?
+        init(_ m: ProjectManifest) {
+            steps = m.steps; title = m.title; intro = m.intro
+            introEditedByUser = m.introEditedByUser; sopBackup = m.sopBackup
+        }
+        func restore(into m: inout ProjectManifest) {
+            m.steps = steps; m.title = title; m.intro = intro
+            m.introEditedByUser = introEditedByUser; m.sopBackup = sopBackup
+        }
+    }
+    let before: State
+    let after: State
 }
 
 /// A fresh AI-inserted section divider — a text step tagged `callout: .section`
@@ -34,108 +65,135 @@ private func makeAISectionStep(heading: String, body: String) -> ProjectStep {
 public func applySopEdits(
     store: ProjectStore, projectPath: String, plan: SopEditPlan, model: SopModelId, tone: SopTone
 ) async throws -> ProjectManifest {
-    try await store.mutate(at: projectPath) { manifest in
-        // Preserve the FIRST snapshot (pristine pre-AI state) across regenerations
-        // so revert always restores the true original, never a prior AI pass.
-        let backup = manifest.sopBackup ?? SopBackup(
-            steps: manifest.steps, title: manifest.title, intro: manifest.intro,
-            introEditedByUser: manifest.introEditedByUser,
-            model: model.rawValue, tone: tone, at: ProjectJSON.isoNow())
+    try await applySopEditsUndoable(store: store, projectPath: projectPath, plan: plan, model: model, tone: tone).manifest
+}
 
-        // Overview is a PREAMBLE on the manifest, not a step.
-        let authoredIntro = manifest.introEditedByUser == true ? manifest.intro : nil
-        if let intro = plan.intro, !(intro.heading.isEmpty && intro.body.isEmpty) {
-            if let authored = authoredIntro {
-                // PIN THE AUTHOR'S HEADING IN CODE, and keep the flag.
-                //
-                // The body is accepted as a reword; the heading is restored
-                // verbatim. Asking the model to leave the heading alone is not a
-                // guarantee — an instruction it can quietly ignore is not a
-                // guarantee — and the heading is exactly what a user watched get
-                // overwritten (Armadillon44/shotAI#64).
-                //
-                // Note the DELIBERATE asymmetry with captions: applying an edit
-                // DROPS `captionEditedByUser`, because there the model's caption
-                // replaces the human text outright, so the flag must not outlive
-                // what it describes. Here the author's heading is still in the
-                // manifest verbatim afterwards, so the flag has to persist or the
-                // next run stops protecting it. Do not "fix" one to match the
-                // other.
-                manifest.intro = SopIntro(
-                    heading: authored.heading.isEmpty ? intro.heading : authored.heading,
-                    body: intro.body)
-            } else {
-                manifest.intro = SopIntro(heading: intro.heading, body: intro.body)
-                manifest.introEditedByUser = nil
-            }
-        } else if manifest.introEditedByUser == true {
-            // The model returned no overview and the AUTHOR wrote this one. Keep
-            // it, flag and all.
-            //
-            // This branch used to be an unconditional `manifest.intro = nil`,
-            // which was right while the overview was purely Claude's: a
-            // regenerate that produced none should clear the previous one. #73
-            // made the overview author-writable and turned that same line into
-            // silent DATA LOSS — write an overview, generate, get no intro back,
-            // and your text is gone with no undo short of Revert AI edits.
-            //
-            // Deliberately does nothing: leave manifest.intro and the flag alone.
-        } else {
-            manifest.intro = nil
-        }
-
-        // Rebuild from the non-AI base (drop a prior run's inserts).
-        let base = manifest.steps.filter { $0.aiInserted != true }
-        let editByNum = effectiveEdits(plan)
-
-        // Look edits up by the step each number meant WHEN THE REQUEST WAS BUILT,
-        // not by where that step sits now. See `SopEditPlan.boundStepIds`.
-        let editFor: (Int, ProjectStep) -> SopStepEdit?
-        if let bound = plan.boundStepIds {
-            var byId: [String: SopStepEdit] = [:]
-            for (num, e) in editByNum { if let id = bound[num] { byId[id] = e } }
-            editFor = { _, step in byId[step.id] }
-            let then = bound.sorted { $0.key < $1.key }.map(\.value)
-            if then != base.map(\.id) {
-                // Not an error: binding by id is exactly what makes this safe.
-                // Recorded because it is the case that used to misplace text.
-                Log.sop.notice("apply: steps changed while generating; edits matched by step id")
-            }
-        } else {
-            editFor = { i, _ in editByNum[i + 1] }
-        }
-
-        var next: [ProjectStep] = []
-        for (i, step) in base.enumerated() {
-            if step.kind == .text { next.append(step); continue }  // author text passes through
-            guard let e = editFor(i, step) else { next.append(step); continue }
-            if let sh = e.sectionHeading, !sh.isEmpty {
-                next.append(makeAISectionStep(heading: sh, body: e.sectionBody ?? ""))
-            }
-            var edited = step
-            let cap = e.caption.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !cap.isEmpty {
-                edited.caption = cap
-                // The AI just overwrote whatever was here, so any previous
-                // author edit is gone — clear the flag or the next regeneration
-                // would send Claude its own text back as if a human wrote it.
-                edited.captionEditedByUser = nil
-            }
-            let bod = e.body.trimmingCharacters(in: .whitespacesAndNewlines)
-            edited.body = bod.isEmpty ? (step.body ?? "") : bod
-            // The generator no longer writes `note`; keep whatever was there
-            // (a manual/legacy note round-trips untouched).
-            edited.note = step.note
-            next.append(edited)
-        }
-
-        manifest.steps = next
-        ProjectStore.renumber(&manifest.steps)
-        if let t = plan.title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
-            manifest.title = t
-        }
-        manifest.sopBackup = backup
+/// `applySopEdits`, also returning what is needed to undo exactly this run.
+public func applySopEditsUndoable(
+    store: ProjectStore, projectPath: String, plan: SopEditPlan, model: SopModelId, tone: SopTone
+) async throws -> (manifest: ProjectManifest, undo: SopRunUndo) {
+    // Captured inside the same atomic mutate that applies, so the "before" is
+    // exactly the state the plan was applied to.
+    final class Before: @unchecked Sendable { var state: SopRunUndo.State? }
+    let before = Before()
+    let after = try await store.mutate(at: projectPath) { manifest in
+        before.state = SopRunUndo.State(manifest)
+        try applyPlan(plan, to: &manifest, model: model, tone: tone)
     }
+    return (after, SopRunUndo(before: before.state!, after: SopRunUndo.State(after)))
+}
+
+/// Undo the generation `undo` describes, if the project is still exactly what it
+/// produced. Otherwise throws `changedSinceGeneration` and changes nothing.
+@discardableResult
+public func undoSopRun(store: ProjectStore, projectPath: String, undo: SopRunUndo) async throws -> ProjectManifest {
+    try await store.mutate(at: projectPath) { manifest in
+        guard SopRunUndo.State(manifest) == undo.after else { throw SopApplyError.changedSinceGeneration }
+        undo.before.restore(into: &manifest)
+    }
+}
+
+private func applyPlan(_ plan: SopEditPlan, to manifest: inout ProjectManifest, model: SopModelId, tone: SopTone) throws {
+    // Preserve the FIRST snapshot (pristine pre-AI state) across regenerations
+    // so revert always restores the true original, never a prior AI pass.
+    let backup = manifest.sopBackup ?? SopBackup(
+        steps: manifest.steps, title: manifest.title, intro: manifest.intro,
+        introEditedByUser: manifest.introEditedByUser,
+        model: model.rawValue, tone: tone, at: ProjectJSON.isoNow())
+
+    // Overview is a PREAMBLE on the manifest, not a step.
+    let authoredIntro = manifest.introEditedByUser == true ? manifest.intro : nil
+    if let intro = plan.intro, !(intro.heading.isEmpty && intro.body.isEmpty) {
+        if let authored = authoredIntro {
+            // PIN THE AUTHOR'S HEADING IN CODE, and keep the flag.
+            //
+            // The body is accepted as a reword; the heading is restored
+            // verbatim. Asking the model to leave the heading alone is not a
+            // guarantee — an instruction it can quietly ignore is not a
+            // guarantee — and the heading is exactly what a user watched get
+            // overwritten (Armadillon44/shotAI#64).
+            //
+            // Note the DELIBERATE asymmetry with captions: applying an edit
+            // DROPS `captionEditedByUser`, because there the model's caption
+            // replaces the human text outright, so the flag must not outlive
+            // what it describes. Here the author's heading is still in the
+            // manifest verbatim afterwards, so the flag has to persist or the
+            // next run stops protecting it. Do not "fix" one to match the
+            // other.
+            manifest.intro = SopIntro(
+                heading: authored.heading.isEmpty ? intro.heading : authored.heading,
+                body: intro.body)
+        } else {
+            manifest.intro = SopIntro(heading: intro.heading, body: intro.body)
+            manifest.introEditedByUser = nil
+        }
+    } else if manifest.introEditedByUser == true {
+        // The model returned no overview and the AUTHOR wrote this one. Keep
+        // it, flag and all.
+        //
+        // This branch used to be an unconditional `manifest.intro = nil`,
+        // which was right while the overview was purely Claude's: a
+        // regenerate that produced none should clear the previous one. #73
+        // made the overview author-writable and turned that same line into
+        // silent DATA LOSS — write an overview, generate, get no intro back,
+        // and your text is gone with no undo short of Revert AI edits.
+        //
+        // Deliberately does nothing: leave manifest.intro and the flag alone.
+    } else {
+        manifest.intro = nil
+    }
+
+    // Rebuild from the non-AI base (drop a prior run's inserts).
+    let base = manifest.steps.filter { $0.aiInserted != true }
+    let editByNum = effectiveEdits(plan)
+
+    // Look edits up by the step each number meant WHEN THE REQUEST WAS BUILT,
+    // not by where that step sits now. See `SopEditPlan.boundStepIds`.
+    let editFor: (Int, ProjectStep) -> SopStepEdit?
+    if let bound = plan.boundStepIds {
+        var byId: [String: SopStepEdit] = [:]
+        for (num, e) in editByNum { if let id = bound[num] { byId[id] = e } }
+        editFor = { _, step in byId[step.id] }
+        let then = bound.sorted { $0.key < $1.key }.map(\.value)
+        if then != base.map(\.id) {
+            // Not an error: binding by id is exactly what makes this safe.
+            // Recorded because it is the case that used to misplace text.
+            Log.sop.notice("apply: steps changed while generating; edits matched by step id")
+        }
+    } else {
+        editFor = { i, _ in editByNum[i + 1] }
+    }
+
+    var next: [ProjectStep] = []
+    for (i, step) in base.enumerated() {
+        if step.kind == .text { next.append(step); continue }  // author text passes through
+        guard let e = editFor(i, step) else { next.append(step); continue }
+        if let sh = e.sectionHeading, !sh.isEmpty {
+            next.append(makeAISectionStep(heading: sh, body: e.sectionBody ?? ""))
+        }
+        var edited = step
+        let cap = e.caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cap.isEmpty {
+            edited.caption = cap
+            // The AI just overwrote whatever was here, so any previous
+            // author edit is gone — clear the flag or the next regeneration
+            // would send Claude its own text back as if a human wrote it.
+            edited.captionEditedByUser = nil
+        }
+        let bod = e.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        edited.body = bod.isEmpty ? (step.body ?? "") : bod
+        // The generator no longer writes `note`; keep whatever was there
+        // (a manual/legacy note round-trips untouched).
+        edited.note = step.note
+        next.append(edited)
+    }
+
+    manifest.steps = next
+    ProjectStore.renumber(&manifest.steps)
+    if let t = plan.title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+        manifest.title = t
+    }
+    manifest.sopBackup = backup
 }
 
 /// Revert Claude's inline edits while PRESERVING anything the user added after
@@ -156,7 +214,16 @@ public func revertSop(store: ProjectStore, projectPath: String) async throws -> 
         for step in manifest.steps {
             if step.aiInserted == true { continue }                 // drop AI-inserted intro/sections
             if let original = originalById[step.id] {
-                next.append(original)                               // revert AI edits to a pre-existing step
+                // Restore only what generation writes. It used to restore the
+                // WHOLE step, so Revert also rolled back annotations, crop, zoom
+                // and the render revision made since — and could leave a step's
+                // annotation list disagreeing with its render file, dropping a
+                // redaction from the editor that is still baked into the image.
+                var restored = step
+                restored.caption = original.caption
+                restored.captionEditedByUser = original.captionEditedByUser
+                restored.body = original.body
+                next.append(restored)
             } else {
                 next.append(step)                                  // keep a manual post-generation addition
             }

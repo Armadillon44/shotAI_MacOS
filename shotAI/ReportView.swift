@@ -22,6 +22,7 @@ struct ReportView: View {
     /// The id of the field currently being edited — a single shared focus across
     /// all inline fields so a background click can dismiss whichever is active.
     @FocusState private var focus: String?
+    @State private var confirmRevert = false
     /// The step pending a delete confirmation, if any.
     @State private var deleteStepTarget: ProjectStep?
     /// Bumped to force the title field to re-seed from the store — used when an
@@ -160,6 +161,14 @@ struct ReportView: View {
             // was flagged as the user's own, so the step looked skipped. Clearing
             // focus here commits whatever was being typed before the run starts.
             .onChange(of: model.sopBusy) { _, busy in if busy { focus = nil } }
+            .confirmationDialog("Revert to the original text?", isPresented: $confirmRevert, titleVisibility: .visible) {
+                Button("Revert to original", role: .destructive) { Task { await model.revertSop() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Every caption and description, the title and the overview go back to how they were "
+                     + "before AI generation. Changes you made to that text since will be lost. Screenshots, "
+                     + "annotations, crops and step order are kept.")
+            }
             // Resolve the backing NSScrollView so a step drag near the top/bottom
             // edge can auto-scroll (driven per-row via autoScroller.noteHover).
             .background(ScrollProbe { autoScroller.scrollView = $0 })
@@ -255,8 +264,13 @@ struct ReportView: View {
                         ProgressView().controlSize(.small)
                         Button("Cancel") { model.cancelSop() }
                     } else {
+                        if model.canUndoSopRun {
+                            Button("Undo this generation") { Task { await model.undoSopRun() } }
+                        }
                         if model.canRevertSop {
-                            Button("Revert AI edits") { Task { await model.revertSop() } }
+                            // Confirmed: it reaches past every generation, and it
+                            // discards hand edits to the text since the first one.
+                            Button("Revert to original…") { confirmRevert = true }
                         }
                         if model.hasCredential {
                             Button {

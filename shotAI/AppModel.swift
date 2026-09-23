@@ -662,6 +662,7 @@ final class AppModel {
         // closeToHome() does, so an in-flight SOP run can't outlive the switch.
         resetSopState()
         lastMerge = nil
+        lastSopRun = nil
         selectedPath = nil
         opened = nil
         await refresh()
@@ -796,6 +797,7 @@ final class AppModel {
     func confirmGenerateSop() {
         guard let current = opened, sopEstimate != nil, !sopBusy else { return }
         sopEstimate = nil
+        lastSopRun = nil
         sopBusy = true; sopError = nil; sopNotice = nil; sopProgress = "Preparing…"
         let dir = current.dir
         let path = selectedPath ?? current.dir
@@ -811,8 +813,9 @@ final class AppModel {
                 // apply it anyway: the stream had finished, so nothing threw.
                 // Cancel means nothing lands.
                 try Task.checkCancellation()
-                _ = try await SOPKit.applySopEdits(
+                let run = try await SOPKit.applySopEditsUndoable(
                     store: self.store, projectPath: path, plan: plan, model: settings.model, tone: settings.tone)
+                self.lastSopRun = (dir, run.undo)
                 await self.reloadOpened()
                 await self.refresh()
                 self.finishSop(error: nil)
@@ -854,7 +857,22 @@ final class AppModel {
         sopNotice = nil
     }
 
-    /// Restore the pre-AI snapshot (Revert AI edits).
+    /// Undo just the last generation.
+    func undoSopRun() async {
+        guard let run = lastSopRun, let current = opened, run.dir == current.dir, !sopBusy else { return }
+        let path = selectedPath ?? current.dir
+        lastSopRun = nil
+        sopNotice = nil
+        do {
+            _ = try await SOPKit.undoSopRun(store: store, projectPath: path, undo: run.undo)
+            await reloadOpened()
+            await refresh()
+        } catch {
+            sopError = error.localizedDescription
+        }
+    }
+
+    /// Restore the pre-AI snapshot (Revert to original).
     func revertSop() async {
         guard let current = opened, !sopBusy else { return }
         let path = selectedPath ?? current.dir
@@ -862,6 +880,8 @@ final class AppModel {
         defer { sopBusy = false }
         do {
             _ = try await SOPKit.revertSop(store: store, projectPath: path)
+            lastSopRun = nil
+            sopNotice = nil
             await reloadOpened()
             await refresh()
         } catch {
@@ -907,6 +927,7 @@ final class AppModel {
     func open(path: String) async {
         Log.ui.info("open(path:) navigating to project detail")
         lastMerge = nil
+        lastSopRun = nil
         // Belt and braces with closeToHome: a preview left over from another
         // project would render this one at the wrong size.
         docScalePreview = nil
@@ -919,6 +940,7 @@ final class AppModel {
     /// Return to the Home surface (the "← Back" affordance).
     func closeToHome() {
         lastMerge = nil
+        lastSopRun = nil
         resetSopState()  // cancel/clear any in-flight generation on navigate-away
         selectedPath = nil
         opened = nil
@@ -1190,6 +1212,12 @@ final class AppModel {
     /// One-level undo for the most recent merge (cleared by any other edit).
     struct MergeUndo { let projectDir: String; let dropped: ProjectStep; let dropIndex: Int; let keptPre: ProjectStep }
     private(set) var lastMerge: MergeUndo?
+    /// The last generation, so it alone can be undone. Cleared by the same things
+    /// that clear `lastMerge` — any edit, navigation — and by the next generation
+    /// or a revert. `undoSopRun` also refuses if the project no longer matches what
+    /// the run produced, which covers edits arriving by paths that bypass this model.
+    private(set) var lastSopRun: (dir: String, undo: SopRunUndo)?
+    var canUndoSopRun: Bool { lastSopRun != nil && lastSopRun?.dir == opened?.dir && !sopBusy }
     var canUndoMerge: Bool { lastMerge != nil && lastMerge?.projectDir == opened?.dir }
 
     private func reloadOnly() async {
@@ -1199,6 +1227,7 @@ final class AppModel {
 
     private func afterEdit() async {
         lastMerge = nil       // any normal edit invalidates a pending merge-undo
+        lastSopRun = nil      // …and a pending generation-undo
         await reloadOnly()
     }
 
