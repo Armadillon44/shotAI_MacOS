@@ -10,6 +10,9 @@ public enum SopProgress: Sendable, Equatable {
     case retrying
     /// Asking again for just these steps.
     case repairing(steps: Int)
+    /// A transient failure (overloaded, a short rate limit, a dropped connection);
+    /// retrying after this many seconds.
+    case waiting(seconds: Int)
     case done
 }
 
@@ -185,6 +188,8 @@ public struct ClaudeClient: Sendable {
         var chars = 0
         var lastEmit = Date.distantPast
         var stopReason: String?
+        var sawMessageStop = false
+        let started = Date()
 
         for try await line in lines {
             guard line.hasPrefix("data:") else { continue }  // ignore `event:`/blank lines
@@ -215,6 +220,8 @@ public struct ClaudeClient: Sendable {
                 if let delta = ev["delta"] as? [String: Any], let sr = delta["stop_reason"] as? String {
                     stopReason = sr
                 }
+            case "message_stop":
+                sawMessageStop = true
             case "error":
                 // Anthropic can emit an error event mid-stream on a 200 connection
                 // (e.g. overloaded_error under load). Surface the real, actionable
@@ -233,6 +240,19 @@ public struct ClaudeClient: Sendable {
                 break
             }
         }
+
+        // One line per request, content-free, so a failure rate is measurable.
+        Log.sop.notice("""
+            stream end — stop \(stopReason ?? "none", privacy: .public), \
+            message_stop \(sawMessageStop, privacy: .public), chars \(chars, privacy: .public), \
+            \(Int(Date().timeIntervalSince(started)), privacy: .public)s, \
+            request \(head.requestId ?? "-", privacy: .public)
+            """)
+        // A stream that simply STOPPED — no error event, no stop reason, no
+        // message_stop — is a dropped connection, not a model failure. It used to
+        // fall through to "Claude returned malformed SOP data", blaming Claude for
+        // a network problem, and was never retried.
+        if stopReason == nil && !sawMessageStop { throw ClaudeError.connection }
 
         if stopReason == "refusal" { throw ClaudeError.refusal }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -38,8 +38,9 @@ final class SopValidationTests: XCTestCase {
         let (store, path, dir) = try await makeProject(shots: shots)
         if textFirst { _ = try await store.addTextStep(at: path, atIndex: 0, heading: "Before you start") }
         let manifest = try await store.openProject(at: path).manifest
-        let svc = SopService(client: ClaudeClient(transport: MockTransport(streamHandler: script.next)),
+        var svc = SopService(client: ClaudeClient(transport: MockTransport(streamHandler: script.next)),
                              keyStore: StubKeyStore())
+        svc.sleep = { _ in }
         let plan = try await svc.generate(dir: dir, manifest: manifest, settings: SopSettings(), onProgress: { _ in })
         return (store, path, manifest, plan)
     }
@@ -186,8 +187,9 @@ final class SopValidationTests: XCTestCase {
         _ = try await store.setIntro(at: path, heading: "Scope", body: "Only for the Finance team.")
         let manifest = try await store.openProject(at: path).manifest
         let script = Script([ok([(1, "Open Settings", "Click the gear.")], intro: ("Overview", "Placeholder"))])
-        let svc = SopService(client: ClaudeClient(transport: MockTransport(streamHandler: script.next)),
+        var svc = SopService(client: ClaudeClient(transport: MockTransport(streamHandler: script.next)),
                              keyStore: StubKeyStore())
+        svc.sleep = { _ in }
         let plan = try await svc.generate(dir: dir, manifest: manifest, settings: SopSettings(), onProgress: { _ in })
         XCTAssertNil(plan.intro)
         try await applySopEdits(store: store, projectPath: path, plan: plan, model: .sonnet5, tone: .professional)

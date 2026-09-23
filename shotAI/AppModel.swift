@@ -876,6 +876,7 @@ final class AppModel {
         case .writing(let chars): "Writing the SOP… (\(chars) characters)"
         case .retrying: "Checking the step numbering again…"
         case .repairing(let n): n == 1 ? "Filling in 1 step…" : "Filling in \(n) steps…"
+        case .waiting(let secs): "Anthropic is busy — retrying in \(secs)s…"
         case .done: "Finishing…"
         }
     }
