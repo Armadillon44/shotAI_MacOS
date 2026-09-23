@@ -87,8 +87,9 @@ public struct SopService: Sendable {
     ) async throws -> SopEditPlan {
         guard settings.enabled else { throw ClaudeError.disabled }
         // Resolved BEFORE the (slow) request assembly so an expired session
-        // fails fast, instead of after flattening every screenshot.
-        let cred = try await credential()
+        // fails fast, instead of after flattening every screenshot. Each request
+        // resolves it again (see streamWithRetry); the provider caches it.
+        _ = try await credential()
         onProgress(.preparing)
         let assembled = try assembleRequest(dir: dir, manifest: manifest, settings: settings)
         let p = params(settings.model)
@@ -110,7 +111,7 @@ public struct SopService: Sendable {
         // Review before anything lands, then recover: at most one full retry for
         // a numbering fault and one repair turn for content faults, so a run is
         // never more than three requests. See SopValidation.swift.
-        var plan = Self.plan(from: try await streamWithRetry(cred, body, onProgress))
+        var plan = Self.plan(from: try await streamWithRetry(body, onProgress))
         var review = reviewPlan(plan, against: manifest)
         var retried = false, repaired = false
 
@@ -122,7 +123,7 @@ public struct SopService: Sendable {
                 duplicate \(review.duplicateNumbers, privacy: .public), expected \(review.shotNumbers, privacy: .public); retrying
                 """)
             onProgress(.retrying)
-            plan = Self.plan(from: try await streamWithRetry(cred, body, onProgress))
+            plan = Self.plan(from: try await streamWithRetry(body, onProgress))
             review = reviewPlan(plan, against: manifest)
             retried = true
             if review.misnumbered {
@@ -140,7 +141,7 @@ public struct SopService: Sendable {
         if !needRepair.isEmpty {
             onProgress(.repairing(steps: needRepair.count))
             do {
-                let fixed = Self.plan(from: try await streamWithRetry(cred, Self.repairBody(body, previous: plan, steps: needRepair), onProgress))
+                let fixed = Self.plan(from: try await streamWithRetry(Self.repairBody(body, previous: plan, steps: needRepair), onProgress))
                 // The repair's numbering is checked the way the first answer's is.
                 // A repair that renumbered — answering [1, 2] for "steps 2 and 5"
                 // — would put step 5's text on step 2 and report step 2 complete.
@@ -232,12 +233,18 @@ public struct SopService: Sendable {
     /// One generation request, retried on transient failure. A cancel is never
     /// retried: URLSession reports a cancelled task as a URLError, which arrives
     /// here as `.connection`, so the check has to be on the task, not the error.
+    ///
+    /// The credential is resolved for EACH attempt, not once per generation. A run
+    /// can now span three requests plus backoff, and a federated token resolved at
+    /// the start could expire before the last of them. The provider caches and
+    /// coalesces, so this costs nothing while the token is still fresh.
     func streamWithRetry(
-        _ cred: ClaudeCredential, _ body: [String: Any], _ onProgress: @Sendable (SopProgress) -> Void
+        _ body: [String: Any], _ onProgress: @Sendable (SopProgress) -> Void
     ) async throws -> SopEditRaw {
         var attempt = 0
         while true {
             do {
+                let cred = try await credential()
                 return try await client.streamEditPlan(credential: cred, body: body, onProgress: onProgress)
             } catch let e as ClaudeError {
                 guard !Task.isCancelled, attempt < retryDelays.count,
@@ -257,7 +264,7 @@ public struct SopService: Sendable {
         case .rateLimited(let f):
             guard let after = f.retryAfter else { return backoff }
             return after <= maxRetryAfterWait ? max(after, backoff) : nil
-        case .api(let status, _) where status >= 500: return backoff
+        case .api(let status, let f) where status >= 500 && f.shouldRetry != false: return backoff
         default: return nil
         }
     }

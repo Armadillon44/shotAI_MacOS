@@ -88,6 +88,44 @@ final class TransportRobustnessTests: XCTestCase {
         XCTAssertEqual(script.count, 2)
     }
 
+    func testAMidStreamApiErrorIsRetriedLikeAServerError() async throws {
+        let err = ([#"data: {"type":"message_start"}"#,
+                    #"data: {"type":"error","error":{"type":"api_error","message":"Internal server error"}}"#],
+                   ResponseHead(status: 200))
+        let script = Reply([err, ok()])
+        _ = try await generate(service(script))
+        XCTAssertEqual(script.count, 2)
+    }
+
+    func testAServerErrorThatSaysDoNotRetryIsNotRetried() async throws {
+        let script = Reply([status(503, ["x-should-retry": "false"]), ok()])
+        do { _ = try await generate(service(script)); XCTFail("must surface") } catch {}
+        XCTAssertEqual(script.count, 1)
+    }
+
+    /// Every request asks for the credential afresh. Resolved once per generation,
+    /// a federated token could expire across a run that is now up to three
+    /// requests plus backoff.
+    func testEachRequestResolvesTheCredentialAgain() async throws {
+        final class Counting: CredentialProvider, @unchecked Sendable {
+            private let lock = NSLock(); private var n = 0
+            var calls: Int { lock.withLock { n } }
+            func credential() async throws -> ClaudeCredential {
+                lock.withLock { n += 1 }
+                return .apiKey("sk-ant-test")
+            }
+            func status() async -> CredentialStatus { await StoredKeyCredentialProvider(keyStore: StubKeyStore()).status() }
+        }
+        let creds = Counting()
+        let script = Reply([status(529), ok()])
+        var svc = SopService(client: ClaudeClient(transport: MockTransport(streamHandler: script.next)), credentials: creds)
+        svc.sleep = { _ in }
+        _ = try await generate(svc)
+        XCTAssertEqual(script.count, 2)
+        XCTAssertGreaterThanOrEqual(creds.calls, 1 + script.count,
+                                    "one early fail-fast check, then one per request")
+    }
+
     // MARK: Rate limits: wait a short one out, surface a long one
 
     func testAShortRateLimitIsWaitedOut() async throws {

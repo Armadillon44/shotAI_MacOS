@@ -234,6 +234,10 @@ public struct ClaudeClient: Sendable {
                 // on an established 200 is Anthropic shedding load, which IS
                 // transient, and it carries no retry-after to classify with.
                 case "rate_limit_error": throw ClaudeError.rateLimited(f)
+                // Anthropic's internal error, the SSE form of an HTTP 500. Mapped to
+                // 500 so it is retried like one; as status 0 it was the only
+                // transient failure the retry loop could not see.
+                case "api_error": throw ClaudeError.api(status: 500, failure: f)
                 default: throw ClaudeError.api(status: 0, failure: f)
                 }
             default:
