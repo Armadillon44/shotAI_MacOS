@@ -379,12 +379,29 @@ final class AppModel {
     private(set) var apiKeyUnreadable = false
     /// True while any SOP op (prepare/generate/revert) is in flight.
     private(set) var sopBusy = false
+    /// True from the snapshot a generation is built from until its plan is applied —
+    /// the window in which a structural edit would reach disk between the two. Not
+    /// the same as `sopBusy`, which also covers preparing: an edit committed as the
+    /// user clicked Generate (a caption, or a step's position typed into its badge)
+    /// arrives during preparing and must land before the snapshot, not be refused.
+    private var generationInFlight = false
     /// Human-readable progress line shown while generating.
     private(set) var sopProgress: String?
     /// Set once a cost estimate is ready → drives the confirm dialog.
     var sopEstimate: SopEstimate?
     /// Surfaced by the report's alert.
     var sopError: String?
+    /// Steps the last generation could not fully write. Held as IDS, and the notice
+    /// is built from the live step order: numbers frozen at generation time pointed
+    /// at the wrong steps after a reorder, delete or insert. Any edit clears it.
+    var sopIncompleteIds: [String] = []
+    /// A generation that succeeded only in part, named by the numbers the REPORT
+    /// shows. Not an error — shown in the SOP panel, not as an alert.
+    var sopNotice: String? {
+        guard let steps = opened?.manifest.steps else { return nil }
+        let present = Set(steps.map(\.id))
+        return incompleteNotice(sopIncompleteIds.filter(present.contains), in: steps)
+    }
     /// Which kind of failure `sopError` describes, so the alert can title itself
     /// honestly and offer the action that would actually fix it. "SOP generation
     /// failed" is the wrong sentence when the user simply isn't signed in yet.
@@ -767,7 +784,7 @@ final class AppModel {
             sopError = blocked.errorDescription
             return
         }
-        sopBusy = true; sopError = nil; sopProgress = "Preparing…"
+        sopBusy = true; sopError = nil; sopIncompleteIds = []; sopProgress = "Preparing…"
         let dir = current.dir
         let manifest = current.manifest
         let settings = sopSettings
@@ -792,7 +809,7 @@ final class AppModel {
     func confirmGenerateSop() {
         guard let current = opened, sopEstimate != nil, !sopBusy else { return }
         sopEstimate = nil
-        sopBusy = true; sopError = nil; sopProgress = "Preparing…"
+        sopBusy = true; generationInFlight = true; sopError = nil; sopIncompleteIds = []; sopProgress = "Preparing…"
         let dir = current.dir
         let path = selectedPath ?? current.dir
         let manifest = current.manifest
@@ -803,12 +820,20 @@ final class AppModel {
                 let plan = try await self.sopService.generate(dir: dir, manifest: manifest, settings: settings) { p in
                     Task { @MainActor in self.sopProgress = Self.progressText(p) }
                 }
+                // A Cancel that lands after the response has fully arrived used to
+                // apply it anyway: the stream had finished, so nothing threw.
+                // Cancel means nothing lands.
+                try Task.checkCancellation()
                 _ = try await SOPKit.applySopEdits(
                     store: self.store, projectPath: path, plan: plan, model: settings.model, tone: settings.tone)
                 await self.reloadOpened()
                 await self.refresh()
                 self.finishSop(error: nil)
-                Log.store.notice("SOP generated (\(plan.steps.count, privacy: .public) step edits)")
+                self.sopIncompleteIds = plan.incompleteStepIds
+                Log.store.notice("""
+                    SOP applied (\(plan.steps.count, privacy: .public) step edits, \
+                    \(plan.incompleteStepIds.count, privacy: .public) incomplete)
+                    """)
             } catch {
                 // A user cancel surfaces as a transport error; treat it as silent.
                 self.finishSop(error: Task.isCancelled ? nil : error.localizedDescription,
@@ -819,6 +844,7 @@ final class AppModel {
 
     private func finishSop(error: String?, kind: ClaudeError.Kind? = nil) {
         sopBusy = false
+        generationInFlight = false
         sopProgress = nil
         sopTask = nil
         if let error { sopError = error; sopErrorKind = kind }
@@ -836,9 +862,11 @@ final class AppModel {
         sopTask?.cancel()
         sopTask = nil
         sopBusy = false
+        generationInFlight = false
         sopProgress = nil
         sopEstimate = nil
         sopError = nil
+        sopIncompleteIds = []
     }
 
     /// Restore the pre-AI snapshot (Revert AI edits).
@@ -861,6 +889,9 @@ final class AppModel {
         case .preparing: "Preparing…"
         case .thinking: "Claude is thinking…"
         case .writing(let chars): "Writing the SOP… (\(chars) characters)"
+        case .retrying: "Checking the step numbering again…"
+        case .repairing(let n): n == 1 ? "Filling in 1 step…" : "Filling in \(n) steps…"
+        case .waiting(let secs): "Anthropic is busy — retrying in \(secs)s…"
         case .done: "Finishing…"
         }
     }
@@ -1183,6 +1214,7 @@ final class AppModel {
 
     private func afterEdit() async {
         lastMerge = nil       // any normal edit invalidates a pending merge-undo
+        sopIncompleteIds = [] // …and a partial-generation notice, which may no longer be true
         await reloadOnly()
     }
 
@@ -1207,8 +1239,26 @@ final class AppModel {
     }
 
     /// Add a text step or note/caution/warning callout (append when atIndex nil).
+
+    /// True while a generation or revert owns the open project's step structure.
+    ///
+    /// Structural edits refuse while it is set. Since edits bind to step ids they
+    /// can no longer misplace text, but a step dragged or deleted mid-generation
+    /// still produces a result the user did not ask for, and Windows blocks the UI
+    /// for the same window. The report disables its controls for this state; these
+    /// guards exist for the paths that bypass the view — menu commands and keyboard
+    /// shortcuts.
+    ///
+    /// Text edits are deliberately NOT gated: clearing focus when generation
+    /// starts commits the field being typed in, and that commit runs after
+    /// `sopBusy` flips, so a gate here would silently discard it.
+    private var structureLocked: Bool {
+        if generationInFlight { Log.store.notice("structural edit refused: a generation is running") }
+        return generationInFlight
+    }
+
     func addTextStep(heading: String = "", body: String = "", callout: CalloutKind? = nil, atIndex: Int? = nil) async {
-        guard let dir = opened?.dir else { return }
+        guard !structureLocked, let dir = opened?.dir else { return }
         do { try await store.addTextStep(at: dir, atIndex: atIndex, heading: heading, body: body, callout: callout); await afterEdit() }
         catch {
             errorMessage = error.localizedDescription
@@ -1282,7 +1332,7 @@ final class AppModel {
 
     /// Delete one step (and its screenshot/render), then re-render + re-list.
     func deleteStep(id: String) async {
-        guard let dir = opened?.dir else { return }
+        guard !structureLocked, let dir = opened?.dir else { return }
         do { try await store.deleteSteps(at: dir, ids: [id]); await afterEdit() }
         catch {
             errorMessage = error.localizedDescription
@@ -1292,7 +1342,7 @@ final class AppModel {
 
     /// Move a step up (-1) or down (+1) among the steps, clamped at the ends.
     func moveStep(id: String, by offset: Int) async {
-        guard let opened else { return }
+        guard !structureLocked, let opened else { return }
         var ids = opened.manifest.steps.map(\.id)
         guard let i = ids.firstIndex(of: id) else { return }
         let j = i + offset
@@ -1310,7 +1360,7 @@ final class AppModel {
     /// step currently at that position; everything renumbers in turn. Callout
     /// steps (unnumbered) keep their place.
     func moveStep(id: String, toPosition position: Int) async {
-        guard let opened else { return }
+        guard !structureLocked, let opened else { return }
         let steps = opened.manifest.steps
         let numbered = steps.filter { !ReportPresentation.isCalloutStep($0) }.map(\.id)
         guard let cur = numbered.firstIndex(of: id) else { return } // only numbered steps have a position
@@ -1332,7 +1382,7 @@ final class AppModel {
     /// Drag-and-drop reorder: move `draggedId` to just before `targetId`
     /// (any step kind — callouts included). `targetId == nil` moves it to the end.
     func dropStep(_ draggedId: String, before targetId: String?) async {
-        guard let opened, draggedId != targetId else { return }
+        guard !structureLocked, let opened, draggedId != targetId else { return }
         var order = opened.manifest.steps.map(\.id)
         guard let from = order.firstIndex(of: draggedId) else { return }
         order.remove(at: from)
@@ -1350,7 +1400,7 @@ final class AppModel {
 
     /// Import an image file as a new step at `atIndex` (nil → append).
     func importImageStep(data: Data, atIndex: Int?) async {
-        guard let dir = opened?.dir else { return }
+        guard !structureLocked, let dir = opened?.dir else { return }
         do { try await store.importImageStep(at: dir, atIndex: atIndex, imageData: data); await afterEdit() }
         catch {
             errorMessage = error.localizedDescription
@@ -1362,7 +1412,7 @@ final class AppModel {
     /// fold): keep the NEXT step's screenshot, bake this step's click marker onto
     /// it (so both clicks show), drop this step. Shot→shot only.
     func mergeIntoNext(id: String) async {
-        guard let opened else { return }
+        guard !structureLocked, let opened else { return }
         let steps = opened.manifest.steps
         guard let i = steps.firstIndex(where: { $0.id == id }), i + 1 < steps.count else { return }
         let current = steps[i], next = steps[i + 1]
