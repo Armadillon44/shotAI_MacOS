@@ -14,10 +14,27 @@ private func nullable(_ inner: Any) -> OrderedObject {
 /// (not a global `let`) so it builds a fresh value — no shared mutable global.
 ///
 /// Built from `OrderedObject`, not a dictionary: Claude writes properties in the
-/// order declared here, so the order is part of the instruction. `stepNumber` comes
-/// FIRST in each step, so the model commits to which screenshot it is writing for
-/// before it writes the text; `title`, then `intro`, then `steps` at the root.
-func sopEditJSONSchema() -> OrderedObject { OrderedObject([
+/// order declared here, so the order is part of the instruction. `stepNumber` and
+/// `kind` come FIRST in each entry, so the model commits to which block it is
+/// writing for, and what kind of block that is, before it writes the text; `title`,
+/// then `intro`, then `steps` at the root.
+///
+/// `stepNumber` is limited to the numbers the request actually shows (1 through
+/// `blockCount` — every screenshot AND every author block, since the whole SOP is
+/// written). A number naming no block cannot be emitted at all. Measured live: an
+/// enum like this compiled with no measurable cost at 12 and 40 blocks.
+///
+/// `kind` is what keeps renumbering detectable now that every number is writable.
+/// A model that counted screenshots 1, 2, 3 around a text block would put
+/// screenshot text on that block's number, and the number alone would pass; the
+/// entry's declared kind ("screenshot") no longer matches the block ("text"), and
+/// the review treats the plan as misnumbered.
+///
+/// Not adopted, measured 2026-09-23: one REQUIRED property per block (S1…SN) would
+/// have guaranteed coverage, but its grammar is "too large" somewhere between 21 and
+/// 39 blocks, and `pattern` (to forbid empty strings) made even a 3-block schema
+/// "too complex". Coverage and empty values are checked client-side instead.
+func sopEditJSONSchema(blockCount: Int) -> OrderedObject { OrderedObject([
     "type": "object",
     "additionalProperties": false,
     "required": ["title", "intro", "steps"],
@@ -47,9 +64,10 @@ func sopEditJSONSchema() -> OrderedObject { OrderedObject([
             "items": OrderedObject([
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["stepNumber", "caption", "body", "sectionHeading", "sectionBody"],
+                "required": ["stepNumber", "kind", "caption", "body", "sectionHeading", "sectionBody"],
                 "properties": OrderedObject([
-                    "stepNumber": OrderedObject(["type": "integer"]),
+                    "stepNumber": OrderedObject(["type": "integer", "enum": Array(1...max(1, blockCount))]),
+                    "kind": OrderedObject(["type": "string", "enum": ["screenshot", "text"]]),
                     "caption": OrderedObject(["type": "string"]),
                     "body": OrderedObject(["type": "string"]),
                     "sectionHeading": nullable(OrderedObject(["type": "string"])),
@@ -69,6 +87,9 @@ struct SopEditRaw: Decodable {
     struct IntroRaw: Decodable { let heading: String; let body: String }
     struct StepRaw: Decodable {
         let stepNumber: Int
+        /// "screenshot" or "text". Required by the schema, so the model always sends
+        /// it; optional here only so a fixture that omits it still decodes.
+        let kind: String?
         let caption: String
         let body: String
         let sectionHeading: String?

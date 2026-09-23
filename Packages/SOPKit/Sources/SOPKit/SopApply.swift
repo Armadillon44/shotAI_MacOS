@@ -170,8 +170,25 @@ private func applyPlan(_ plan: SopEditPlan, to manifest: inout ProjectManifest, 
 
     var next: [ProjectStep] = []
     for (i, step) in base.enumerated() {
-        if step.kind == .text { next.append(step); continue }  // author text passes through
         guard let e = editFor(i, step) else { next.append(step); continue }
+        if step.kind == .text {
+            // The whole SOP is written, author blocks included (Dylan, 2026-09-23).
+            // Only heading and body change: the callout KIND (note, caution,
+            // warning, section) is the author's decision and is never touched. An
+            // empty field means "leave that part as written", so a callout with no
+            // heading stays without one. Filler has already been withheld by
+            // sanitize, so what reaches here is real text or nothing.
+            var edited = step
+            let h = e.caption.trimmingCharacters(in: .whitespacesAndNewlines)
+            let b = e.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !h.isEmpty { edited.heading = h }
+            if !b.isEmpty { edited.body = b }
+            // As for captions: Claude just rewrote this, so any earlier author edit is
+            // gone and must not be fed back to the next run as if a person wrote it.
+            if !h.isEmpty || !b.isEmpty { edited.captionEditedByUser = nil }
+            next.append(edited)
+            continue
+        }
         if let sh = e.sectionHeading, !sh.isEmpty {
             next.append(makeAISectionStep(heading: sh, body: e.sectionBody ?? ""))
         }
@@ -217,7 +234,16 @@ public func revertSop(store: ProjectStore, projectPath: String) async throws -> 
         var next: [ProjectStep] = []
         for step in manifest.steps {
             if step.aiInserted == true { continue }                 // drop AI-inserted intro/sections
-            if step.kind != .text, let original = originalById[step.id] {
+            if step.kind == .text, let original = originalById[step.id] {
+                // Generation now writes author blocks too, so Revert restores them —
+                // heading AND body together. Restoring only one of them (as a first
+                // version did) produced a heading and body that never coexisted.
+                var restored = step
+                restored.heading = original.heading
+                restored.body = original.body
+                restored.captionEditedByUser = original.captionEditedByUser
+                next.append(restored)
+            } else if let original = originalById[step.id] {
                 // Restore only what generation writes, on the only steps it writes to:
                 // screenshots. Author text blocks pass through generation untouched,
                 // so reverting their body while keeping their heading (as a first

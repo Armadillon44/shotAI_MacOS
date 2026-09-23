@@ -23,8 +23,12 @@ final class SopValidationTests: XCTestCase {
 
     private func ok(_ steps: [(Int, String, String)], title: String = "A Real Title",
                     intro: (String, String)? = nil) -> ([String], ResponseHead) {
+        // Every entry declares itself a screenshot, as a model writing screenshot
+        // text would. That is what makes the renumbering fixtures below meaningful:
+        // their numbers are all valid now, and only the kind gives them away.
         let s: [[String: Any]] = steps.map {
-            ["stepNumber": $0.0, "caption": $0.1, "body": $0.2, "sectionHeading": NSNull(), "sectionBody": NSNull()]
+            ["stepNumber": $0.0, "kind": "screenshot", "caption": $0.1, "body": $0.2,
+             "sectionHeading": NSNull(), "sectionBody": NSNull()]
         }
         let i: Any = intro.map { ["heading": $0.0, "body": $0.1] } ?? NSNull()
         let d = try! JSONSerialization.data(withJSONObject: ["title": title, "intro": i, "steps": s])

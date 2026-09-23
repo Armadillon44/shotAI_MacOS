@@ -381,6 +381,12 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
     /// matters because it is also what a client that does not yet set this field
     /// produces, so a mixed-version fleet degrades to today rather than to
     /// feeding Claude its own output.
+    ///
+    /// On a TEXT step it means the same thing for the block's heading and body: the
+    /// author edited them after a generation rewrote them (macOS writes author blocks
+    /// too since 2026-09-23). Reused rather than added as a new key so project.json
+    /// gains no field the Windows build would have to agree on; Windows sets and reads
+    /// it only on screenshot steps, and carries it through untouched on a text step.
     public var captionEditedByUser: Bool?
     /// Optional crop rect, in image px.
     public var crop: Rect?

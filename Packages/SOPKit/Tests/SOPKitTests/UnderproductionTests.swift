@@ -16,15 +16,17 @@ final class UnderproductionTests: XCTestCase {
     /// the fact by `SopService`'s `wroteAnyStep` guard. Constrained decoding
     /// cannot emit an empty array with this set.
     func testStepsCannotBeEmpty() {
-        let schema = plainJSON(sopEditJSONSchema()) as! [String: Any]
+        let schema = plainJSON(sopEditJSONSchema(blockCount: 3)) as! [String: Any]
         let steps = schema["properties"].flatMap { ($0 as? [String: Any])?["steps"] as? [String: Any] }
         XCTAssertEqual(steps?["minItems"] as? Int, 1, "steps must declare minItems: 1")
     }
 
     /// The API accepts ONLY 0 and 1 for `minItems`, and rejects `minLength`,
     /// `maxItems` and `minimum`/`maximum` outright. `pattern` is documented as
-    /// SUPPORTED (simple regex) and stays banned here only until a live request
-    /// confirms it compiles, since an unsupported keyword would 400 every request. shotAI speaks to
+    /// supported, but MEASURED unusable here (2026-09-23): a `\\w` pattern on the
+    /// string fields made even a 3-block schema "too complex" after 35–180 s of
+    /// compiling. It stays banned for that reason, not for the one this comment used
+    /// to give. shotAI speaks to
     /// the API directly with no SDK, so there is no client-side transform to
     /// strip an unsupported keyword — one would 400 every request rather than
     /// being quietly dropped. This walks the whole schema rather than the one
@@ -46,7 +48,7 @@ final class UnderproductionTests: XCTestCase {
             }
             for (k, v) in dict { walk(v, path: "\(path).\(k)") }
         }
-        walk(plainJSON(sopEditJSONSchema()), path: "root")
+        walk(plainJSON(sopEditJSONSchema(blockCount: 3)), path: "root")
         XCTAssertTrue(found.isEmpty, "unsupported schema keywords would 400 the request: \(found)")
     }
 
@@ -103,7 +105,7 @@ final class UnderproductionTests: XCTestCase {
         let manifest = try await store.openProject(at: path).manifest
 
         // Real content, but numbered 1 — the screenshot is step 2.
-        let json = #"{"title":"A Real Title","intro":{"heading":"Overview","body":"words"},"steps":[{"stepNumber":1,"caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null}]}"#
+        let json = #"{"title":"A Real Title","intro":{"heading":"Overview","body":"words"},"steps":[{"stepNumber":1,"kind":"screenshot","caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null}]}"#
         let svc = SopService(
             client: ClaudeClient(transport: MockTransport(streamHandler: { _ in
                 (sseLines(json: json), ResponseHead(status: 200))

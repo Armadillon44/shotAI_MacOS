@@ -13,17 +13,19 @@ final class RequestOrderTests: XCTestCase {
     /// its stepNumber. Pinned byte-for-byte: any change to the schema, or to its
     /// order, has to be made here on purpose.
     func testTheSchemaIsSentInExactlyThisOrder() throws {
-        let sent = String(decoding: try RequestJSON.data(sopEditJSONSchema()), as: UTF8.self)
-        XCTAssertEqual(sent, #"{"type":"object","additionalProperties":false,"required":["title","intro","steps"],"properties":{"title":{"type":"string"},"intro":{"anyOf":[{"type":"object","additionalProperties":false,"required":["heading","body"],"properties":{"heading":{"type":"string"},"body":{"type":"string"}}},{"type":"null"}]},"steps":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"required":["stepNumber","caption","body","sectionHeading","sectionBody"],"properties":{"stepNumber":{"type":"integer"},"caption":{"type":"string"},"body":{"type":"string"},"sectionHeading":{"anyOf":[{"type":"string"},{"type":"null"}]},"sectionBody":{"anyOf":[{"type":"string"},{"type":"null"}]}}}}}}"#)
+        let sent = String(decoding: try RequestJSON.data(sopEditJSONSchema(blockCount: 3)), as: UTF8.self)
+        XCTAssertEqual(sent, #"{"type":"object","additionalProperties":false,"required":["title","intro","steps"],"properties":{"title":{"type":"string"},"intro":{"anyOf":[{"type":"object","additionalProperties":false,"required":["heading","body"],"properties":{"heading":{"type":"string"},"body":{"type":"string"}}},{"type":"null"}]},"steps":{"type":"array","minItems":1,"items":{"type":"object","additionalProperties":false,"required":["stepNumber","kind","caption","body","sectionHeading","sectionBody"],"properties":{"stepNumber":{"type":"integer","enum":[1,2,3]},"kind":{"type":"string","enum":["screenshot","text"]},"caption":{"type":"string"},"body":{"type":"string"},"sectionHeading":{"anyOf":[{"type":"string"},{"type":"null"}]},"sectionBody":{"anyOf":[{"type":"string"},{"type":"null"}]}}}}}}"#)
     }
 
     /// The reason the order matters, stated as the property rather than the bytes:
     /// the model commits to WHICH screenshot before it writes the text for it.
     func testEachStepNamesItsScreenshotBeforeItsText() throws {
-        let sent = String(decoding: try RequestJSON.data(sopEditJSONSchema()), as: UTF8.self)
-        let props = try XCTUnwrap(sent.range(of: #""stepNumber":{"type":"integer"}"#))
-        let caption = try XCTUnwrap(sent.range(of: #""caption":{"type":"string"}"#, range: props.upperBound..<sent.endIndex))
-        XCTAssertLessThan(props.lowerBound, caption.lowerBound)
+        let sent = String(decoding: try RequestJSON.data(sopEditJSONSchema(blockCount: 3)), as: UTF8.self)
+        let number = try XCTUnwrap(sent.range(of: #""stepNumber":{"type":"integer","enum":"#))
+        let kind = try XCTUnwrap(sent.range(of: #""kind":{"type":"string""#, range: number.upperBound..<sent.endIndex))
+        let caption = try XCTUnwrap(sent.range(of: #""caption":{"type":"string"}"#, range: kind.upperBound..<sent.endIndex))
+        XCTAssertLessThan(number.lowerBound, kind.lowerBound, "the number comes first")
+        XCTAssertLessThan(kind.lowerBound, caption.lowerBound, "then what kind of block it is, then the text")
     }
 
     /// The pinned bytes above test the encoder. This tests that the encoder is what
@@ -44,7 +46,7 @@ final class RequestOrderTests: XCTestCase {
             keyStore: StubKeyStore())
         _ = try await svc.generate(dir: dir, manifest: manifest, settings: SopSettings(), onProgress: { _ in })
         let sent = String(decoding: try XCTUnwrap(box.body), as: UTF8.self)
-        let schema = String(decoding: try RequestJSON.data(sopEditJSONSchema()), as: UTF8.self)
+        let schema = String(decoding: try RequestJSON.data(sopEditJSONSchema(blockCount: 1)), as: UTF8.self)
         XCTAssertTrue(sent.contains(schema), "the request must carry the schema in its declared order")
     }
 

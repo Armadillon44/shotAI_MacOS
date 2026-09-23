@@ -20,6 +20,12 @@ struct PlanReview: Equatable {
     let invalidNumbers: [Int]
     /// Screenshot numbers with more than one entry.
     let duplicateNumbers: [Int]
+    /// Entries whose declared `kind` is not the kind of the block at that number:
+    /// screenshot text aimed at a text block, or the reverse.
+    let kindMismatches: [Int]
+    /// Every block number the request showed, in order — screenshots and author
+    /// blocks alike, since the whole SOP is written.
+    let blockNumbers: [Int]
     /// Per screenshot, the fields that cannot be used. A screenshot with no entry
     /// has both. Absent means the step is fine.
     let faults: [Int: Set<StepField>]
@@ -34,7 +40,12 @@ struct PlanReview: Equatable {
     /// A repeated number is NOT treated this way. It is weak evidence about the
     /// other steps, and rejecting a whole run because step 2 was written twice is
     /// worse than resolving that one step (see `resolvedEdits`).
-    var misnumbered: Bool { !invalidNumbers.isEmpty }
+    ///
+    /// With every block's number writable, an invalid number can no longer be
+    /// emitted at all; the signal is a KIND mismatch instead. A model that counted
+    /// screenshots 1, 2, 3 around a text block writes screenshot text at that
+    /// block's number and declares it a screenshot.
+    var misnumbered: Bool { !invalidNumbers.isEmpty || !kindMismatches.isEmpty }
     var faultedNumbers: [Int] { shotNumbers.filter { faults[$0] != nil } }
     var cleanCount: Int { shotNumbers.count - faultedNumbers.count }
     /// At least one screenshot has at least one usable field.
@@ -45,6 +56,9 @@ func reviewPlan(_ plan: SopEditPlan, against manifest: ProjectManifest) -> PlanR
     let numbered = numberedBase(manifest)
     let shots = numbered.filter { $0.step.kind != .text }.map(\.number)
     let shotSet = Set(shots)
+    let blockSet = Set(numbered.map(\.number))
+    let kindAt = Dictionary(numbered.map { ($0.number, $0.step.kind == .text ? "text" : "screenshot") },
+                            uniquingKeysWith: { a, _ in a })
     let counts = Dictionary(plan.steps.map { ($0.stepNumber, 1) }, uniquingKeysWith: +)
     let effective = resolvedEdits(plan)
 
@@ -58,8 +72,13 @@ func reviewPlan(_ plan: SopEditPlan, against manifest: ProjectManifest) -> PlanR
     }
     return PlanReview(
         shotNumbers: shots,
-        invalidNumbers: counts.keys.filter { !shotSet.contains($0) }.sorted(),
-        duplicateNumbers: counts.filter { shotSet.contains($0.key) && $0.value > 1 }.map(\.key).sorted(),
+        invalidNumbers: counts.keys.filter { !blockSet.contains($0) }.sorted(),
+        duplicateNumbers: counts.filter { blockSet.contains($0.key) && $0.value > 1 }.map(\.key).sorted(),
+        kindMismatches: Set(plan.steps.compactMap { e -> Int? in
+            guard let declared = e.kind, let actual = kindAt[e.stepNumber] else { return nil }
+            return declared == actual ? nil : e.stepNumber
+        }).sorted(),
+        blockNumbers: numbered.map(\.number),
         faults: faults,
         titleUsable: plan.title.map { !isFiller($0) } ?? false,
         introUsable: plan.intro.map { !isFiller($0.body) } ?? false)
@@ -71,20 +90,27 @@ func reviewPlan(_ plan: SopEditPlan, against manifest: ProjectManifest) -> PlanR
 /// is unusable is dropped entirely rather than landing as a heading over nothing.
 func sanitize(_ plan: SopEditPlan, _ review: PlanReview) -> SopEditPlan {
     let resolved = resolvedEdits(plan)
+    let shotSet = Set(review.shotNumbers)
     var out = SopEditPlan(
         title: review.titleUsable ? plan.title : nil,
         intro: review.introUsable
             ? plan.intro.map { SopIntro(heading: isFiller($0.heading) ? "" : $0.heading, body: $0.body) }
             : nil,
-        steps: review.shotNumbers.compactMap { resolved[$0] }.map { e in
-            let bad = review.faults[e.stepNumber] ?? []
+        // One resolved entry per block, screenshots and author blocks alike. A text
+        // block's unusable field is withheld the same way — emptied, so apply keeps
+        // the author's own words — but it is not a fault to repair or report: the
+        // author's text standing is a good outcome, not a failure.
+        steps: review.blockNumbers.compactMap { resolved[$0] }.map { e in
+            let bad = review.faults[e.stepNumber]
+                ?? (shotSet.contains(e.stepNumber) ? [] : textFillerFields(e))
             let heading = e.sectionHeading.flatMap { isFiller($0) ? nil : $0 }
             return SopStepEdit(
                 stepNumber: e.stepNumber,
                 caption: bad.contains(.caption) ? "" : e.caption,
                 body: bad.contains(.body) ? "" : e.body,
                 sectionHeading: heading,
-                sectionBody: heading == nil ? nil : e.sectionBody.flatMap { isFiller($0) ? nil : $0 })
+                sectionBody: heading == nil ? nil : e.sectionBody.flatMap { isFiller($0) ? nil : $0 },
+                kind: e.kind)
         })
     out.boundStepIds = plan.boundStepIds
     return out
@@ -139,7 +165,8 @@ func mergeRepairs(into plan: SopEditPlan, from repair: SopEditPlan, steps: [Int]
             caption: pick(old?.caption, new?.caption),
             body: pick(old?.body, new?.body),
             sectionHeading: old?.sectionHeading,
-            sectionBody: old?.sectionBody))
+            sectionBody: old?.sectionBody,
+            kind: old?.kind ?? new?.kind))
     }
     var out = SopEditPlan(title: plan.title, intro: plan.intro, steps: edits)
     out.boundStepIds = plan.boundStepIds
@@ -179,4 +206,16 @@ public func incompleteNotice(_ ids: [String], in steps: [ProjectStep]) -> String
     }
     return "Wrote \(written) of \(total) screenshot steps. \(which) incomplete; whatever Claude couldn't "
         + "write kept its previous text. Regenerate to try again."
+}
+
+/// A text entry's fields that hold filler. An EMPTY field is not one of them: for an
+/// author block, empty means "leave that part as the author wrote it" (a callout
+/// with no heading, a section heading with no body), and apply already keeps it.
+private func textFillerFields(_ e: SopStepEdit) -> Set<StepField> {
+    var out: Set<StepField> = []
+    let c = e.caption.trimmingCharacters(in: .whitespacesAndNewlines)
+    let b = e.body.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !c.isEmpty, isFiller(c) { out.insert(.caption) }
+    if !b.isEmpty, isFiller(b) { out.insert(.body) }
+    return out
 }
