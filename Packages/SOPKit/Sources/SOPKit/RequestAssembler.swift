@@ -190,11 +190,6 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
         guard let bytes = try? Data(contentsOf: URL(fileURLWithPath: render.abs)) else {
             throw ClaudeError.api(status: 0, failure: ApiFailure(message: "Step \(n)'s image could not be read."))
         }
-        content.append([
-            "type": "image",
-            "source": ["type": "base64", "media_type": render.mediaType.rawValue, "data": bytes.base64EncodedString()],
-        ])
-
         let orig = originalById[step.id]
         // Prefer the pre-AI original so Claude is never fed its own prior
         // rewrites (successive regenerations would compound). The exception is a
@@ -213,7 +208,15 @@ func assembleRequest(dir: String, manifest: ProjectManifest, settings: SopSettin
         }
         if !caption.isEmpty { meta.append("Auto-caption: \(caption)") }
         if !note.isEmpty { meta.append("User note: \(note)") }
+        // The label goes BEFORE its image. The instructions call it a "heading",
+        // and the vision docs label each image ahead of it; with the label after,
+        // a heading-first reader pairs "Screenshot step N" with the NEXT image,
+        // which is every step one late. (Windows still sends image-then-label.)
         content.append(["type": "text", "text": meta.joined(separator: "\n")])
+        content.append([
+            "type": "image",
+            "source": ["type": "base64", "media_type": render.mediaType.rawValue, "data": bytes.base64EncodedString()],
+        ])
     }
 
     // Cache breakpoint on the last block → caches system + all images + metadata

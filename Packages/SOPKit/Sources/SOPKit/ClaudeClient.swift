@@ -6,6 +6,10 @@ public enum SopProgress: Sendable, Equatable {
     case preparing
     case thinking
     case writing(chars: Int)
+    /// The numbering could not be trusted; the whole request is running again.
+    case retrying
+    /// Asking again for just these steps.
+    case repairing(steps: Int)
     case done
 }
 
@@ -126,7 +130,7 @@ public struct ClaudeClient: Sendable {
         req.setValue(Self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         if let jsonBody {
-            req.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
+            req.httpBody = try RequestJSON.data(jsonBody)  // deterministic; see OrderedObject
         }
         return req
     }
