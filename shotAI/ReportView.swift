@@ -22,6 +22,7 @@ struct ReportView: View {
     /// The id of the field currently being edited — a single shared focus across
     /// all inline fields so a background click can dismiss whichever is active.
     @FocusState private var focus: String?
+    @State private var confirmRevert = false
     /// The step pending a delete confirmation, if any.
     @State private var deleteStepTarget: ProjectStep?
     /// Bumped to force the title field to re-seed from the store — used when an
@@ -81,18 +82,19 @@ struct ReportView: View {
         GeometryReader { geo in
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                header
+                header.disabled(model.sopBusy)
                 sopPanel
-                if model.canUndoMerge { undoMergeBanner }
-                intro
+                if model.canUndoMerge { undoMergeBanner.disabled(model.sopBusy) }
+                intro.disabled(model.sopBusy)
                 ForEach(Array(steps.enumerated()), id: \.element.id) { pair in
-                    InsertZone { choice in handleInsert(choice, at: pair.offset) }
+                    InsertZone { choice in handleInsert(choice, at: pair.offset) }.disabled(model.sopBusy)
                     StepRow(
                         step: pair.element, number: numbers[pair.element.id], projectDir: opened.dir,
                         focus: $focus, index: pair.offset, total: steps.count,
                         canMergeNext: canMergeNext(at: pair.offset), autoScroller: autoScroller,
                         onEdit: onEdit, onRequestDelete: { deleteStepTarget = pair.element }
                     )
+                    .disabled(model.sopBusy)
                 }
                 if steps.isEmpty {
                     VStack(spacing: 12) {
@@ -112,7 +114,7 @@ struct ReportView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 44)
                 }
-                InsertZone { choice in handleInsert(choice, at: steps.count) } // append
+                InsertZone { choice in handleInsert(choice, at: steps.count) }.disabled(model.sopBusy) // append
                     .dropDestination(for: String.self) { ids, _ in
                         guard let dragged = ids.first else { return false }
                         autoScroller.reset()
@@ -152,6 +154,21 @@ struct ReportView: View {
             .onChange(of: orderedFieldIDs) { _, v in tabNav.order = v }
             .onChange(of: focus) { _, v in tabNav.focused = v }
             .onChange(of: tabNav.move) { _, m in if let m { focus = m.id } }
+            // Leave no field mid-edit while Claude writes. A field that still had
+            // focus when the new text landed kept its pre-AI draft (a field only
+            // accepts store updates while inactive), then committed that draft on
+            // the next click away: the old auto-caption overwrote Claude's text and
+            // was flagged as the user's own, so the step looked skipped. Clearing
+            // focus here commits whatever was being typed before the run starts.
+            .onChange(of: model.sopBusy) { _, busy in if busy { focus = nil } }
+            .confirmationDialog("Revert to the original text?", isPresented: $confirmRevert, titleVisibility: .visible) {
+                Button("Revert to original", role: .destructive) { Task { await model.revertSop() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Every caption and description, the title and the overview go back to how they were "
+                     + "before AI generation. Changes you made to that text since will be lost. Screenshots, "
+                     + "annotations, crops and step order are kept.")
+            }
             // Resolve the backing NSScrollView so a step drag near the top/bottom
             // edge can auto-scroll (driven per-row via autoScroller.noteHover).
             .background(ScrollProbe { autoScroller.scrollView = $0 })
@@ -247,8 +264,13 @@ struct ReportView: View {
                         ProgressView().controlSize(.small)
                         Button("Cancel") { model.cancelSop() }
                     } else {
+                        if model.canUndoSopRun {
+                            Button("Undo this generation") { Task { await model.undoSopRun() } }
+                        }
                         if model.canRevertSop {
-                            Button("Revert AI edits") { Task { await model.revertSop() } }
+                            // Confirmed: it reaches past every generation, and it
+                            // discards hand edits to the text since the first one.
+                            Button("Revert to original…") { confirmRevert = true }
                         }
                         if model.hasCredential {
                             Button {
@@ -283,6 +305,19 @@ struct ReportView: View {
                         .font(palette.font(11)).foregroundStyle(palette.ink3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // A partial success. Not an alert: most of the run landed, and
+                // this names what did not so the user can check those steps.
+                if let notice = model.sopNotice, !model.sopBusy {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "exclamationmark.circle").foregroundStyle(palette.ink2)
+                        Text(notice)
+                            .font(palette.font(11)).foregroundStyle(palette.ink2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Button { model.sopIncompleteIds = [] } label: { Image(systemName: "xmark") }
+                            .buttonStyle(.borderless).help("Dismiss")
+                    }
+                }
             }
             .padding(14)
             .background(palette.surface)
@@ -308,6 +343,9 @@ struct ReportView: View {
     /// action — the menu's event loop swallows it). Area captures right away;
     /// window/screen open a target picker; "Capture steps" starts a recording.
     private func handleInsert(_ choice: InsertChoice, at index: Int) {
+        // The capture branches below go to the coordinator directly, not through
+        // AppModel's structural guard, so they are refused here while generating.
+        guard !model.sopBusy else { return }
         switch choice {
         case .text: Task { await model.addTextStep(atIndex: index) }
         case .callout(let kind): Task { await model.addTextStep(callout: kind, atIndex: index) }
@@ -1013,6 +1051,15 @@ struct InlineEditable: View {
     var onCommit: (String) -> Void
 
     @State private var draft = ""
+    /// The value the field held when it gained focus. A blur commits only if the
+    /// user actually changed the text from this — never merely because the store
+    /// moved underneath an idle focused field.
+    ///
+    /// Without it, a field that kept focus while generation (or an undo) rewrote
+    /// its text kept the OLD draft, since a focused field ignores store updates,
+    /// and committed that draft on the next click away: the stale value replaced
+    /// the new one and, for a caption, was flagged as the user's own.
+    @State private var atFocus = ""
 
     private var active: Bool { focus.wrappedValue == id }
 
@@ -1045,17 +1092,23 @@ struct InlineEditable: View {
             return .handled
         }
         .onExitCommand { draft = text; focus.wrappedValue = nil }  // Esc discards edits
-        .onChange(of: focus.wrappedValue) { _, current in
-            if current != id { commit() }  // lost focus (blur / another field / Tab / Esc) → save
+        .onChange(of: focus.wrappedValue) { old, current in
+            if current == id { atFocus = draft }        // gained focus: remember what it held
+            else if old == id { commit() }              // lost focus (blur / another field / Tab / Esc) → save
         }
         .onChange(of: text) { _, newText in
-            if !active { draft = newText }  // reflect store updates while not being edited
+            // Reflect store updates while not being edited — and while focused but
+            // untouched, so a focused field can never hold a value that is out of
+            // date. Once the user has typed, their text stands.
+            if !active || draft == atFocus { draft = newText; atFocus = newText }
         }
-        .onAppear { draft = text }
+        .onAppear { draft = text; atFocus = text }
     }
 
     private func commit() {
-        if draft != text { onCommit(draft) } // skip a write when nothing changed
+        // Only a real edit writes: the user changed the text since focusing, and it
+        // differs from what is stored now.
+        if draft != atFocus && draft != text { onCommit(draft) }
     }
 }
 

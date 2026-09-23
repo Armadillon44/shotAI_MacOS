@@ -21,8 +21,10 @@ public let MODEL_PARAMS: [SopModelId: ModelParams] = [
     .sonnet5: ModelParams(
         adaptiveThinking: true,
         supportsEffort: true,
-        inputPerMTok: 3,
-        outputPerMTok: 15,
+        // Claude Sonnet 5 list price (Anthropic API reference, 2026-06). It was
+        // $3/$15, Sonnet 4.6's price, which overstated every estimate by half.
+        inputPerMTok: 2,
+        outputPerMTok: 10,
         // Generous cap (streamed) so long SOPs don't truncate.
         maxTokens: 32000),
 ]
