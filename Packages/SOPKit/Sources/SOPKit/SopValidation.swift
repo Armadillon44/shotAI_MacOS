@@ -84,7 +84,7 @@ func sanitize(_ plan: SopEditPlan, _ review: PlanReview) -> SopEditPlan {
                 caption: bad.contains(.caption) ? "" : e.caption,
                 body: bad.contains(.body) ? "" : e.body,
                 sectionHeading: heading,
-                sectionBody: heading == nil ? nil : e.sectionBody)
+                sectionBody: heading == nil ? nil : e.sectionBody.flatMap { isFiller($0) ? nil : $0 })
         })
     out.boundStepIds = plan.boundStepIds
     return out
@@ -101,8 +101,11 @@ func isFiller(_ raw: String) -> Bool {
     let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     if s.isEmpty { return true }
     if !s.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) { return true }
-    let pairs: [(Character, Character)] = [("[", "]"), ("<", ">"), ("{", "}")]
-    if let f = s.first, let l = s.last, pairs.contains(where: { $0 == (f, l) }) { return true }
+    // A single bracketed slot — "[caption]", "<body>", "{text}" — with nothing
+    // outside it and no bracket inside it. Matching on the first and last
+    // characters alone also discarded "[Optional] Enter the PO number [if required]"
+    // and "<Ctrl> + <S>".
+    if s.range(of: #"^[\[<{][^\[\]<>{}]*[\]>}]$"#, options: .regularExpression) != nil { return true }
     let norm = s.lowercased()
         .trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.whitespaces))
     if norm.hasPrefix("lorem ipsum") { return true }
@@ -118,8 +121,8 @@ private let FILLER_WORDS: Set<String> = [
 
 /// Fold a repair turn's answer into the plan, for the listed steps only, one field
 /// at a time: a repaired field replaces the original only where the repaired value
-/// is usable, so a repair can improve a step but never make it worse. Entries the
-/// repair wrote for any other step are ignored — it was asked for these alone.
+/// is usable, so a repair can improve a step but never make it worse. The caller
+/// has already rejected a repair whose numbers stray outside `steps`.
 func mergeRepairs(into plan: SopEditPlan, from repair: SopEditPlan, steps: [Int]) -> SopEditPlan {
     let wanted = Set(steps)
     let fixed = resolvedEdits(repair)
