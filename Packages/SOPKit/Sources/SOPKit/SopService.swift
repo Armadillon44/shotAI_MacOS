@@ -98,7 +98,7 @@ public struct SopService: Sendable {
         if p.adaptiveThinking { body["thinking"] = ["type": "adaptive"] }
 
         let raw = try await client.streamEditPlan(credential: cred, body: body, onProgress: onProgress)
-        let plan = SopEditPlan(
+        var plan = SopEditPlan(
             title: raw.title,
             intro: raw.intro.map { SopIntro(heading: $0.heading, body: $0.body) },
             steps: raw.steps.map {
@@ -119,8 +119,7 @@ public struct SopService: Sendable {
         // The numbers must line up with `applySopEdits`, which indexes the
         // non-AI-inserted steps and counts author text blocks — so the only
         // screenshot in a two-item project is "Screenshot step 2", not 1.
-        let base = manifest.steps.filter { $0.aiInserted != true }
-        let shotNumbers = Set(base.enumerated().compactMap { i, s in s.kind == .text ? nil : i + 1 })
+        let shotNumbers = Set(numberedBase(manifest).compactMap { $0.step.kind == .text ? nil : $0.number })
         // Reduced the way applySopEdits reduces it — LAST WINS per stepNumber —
         // because the question is what will LAND, not what was written. Scanning
         // the raw plan passed a pair like [{2, "Click Save"}, {2, ""}]: the good
@@ -149,6 +148,10 @@ public struct SopService: Sendable {
             throw ClaudeError.incomplete(wroteNothing: !wroteSomething)
         }
         onProgress(.done)
+        // Bound AFTER the guard, against the same manifest the request was
+        // assembled from, so apply can find each edit's step by id even if the
+        // project changed while the request was in flight.
+        plan.boundStepIds = stepNumberBinding(manifest)
         return plan
     }
 }

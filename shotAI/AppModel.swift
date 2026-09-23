@@ -803,6 +803,10 @@ final class AppModel {
                 let plan = try await self.sopService.generate(dir: dir, manifest: manifest, settings: settings) { p in
                     Task { @MainActor in self.sopProgress = Self.progressText(p) }
                 }
+                // A Cancel that lands after the response has fully arrived used to
+                // apply it anyway: the stream had finished, so nothing threw.
+                // Cancel means nothing lands.
+                try Task.checkCancellation()
                 _ = try await SOPKit.applySopEdits(
                     store: self.store, projectPath: path, plan: plan, model: settings.model, tone: settings.tone)
                 await self.reloadOpened()
@@ -1207,8 +1211,26 @@ final class AppModel {
     }
 
     /// Add a text step or note/caution/warning callout (append when atIndex nil).
+
+    /// True while a generation or revert owns the open project's step structure.
+    ///
+    /// Structural edits refuse while it is set. Since edits bind to step ids they
+    /// can no longer misplace text, but a step dragged or deleted mid-generation
+    /// still produces a result the user did not ask for, and Windows blocks the UI
+    /// for the same window. The report disables its controls for this state; these
+    /// guards exist for the paths that bypass the view — menu commands and keyboard
+    /// shortcuts.
+    ///
+    /// Text edits are deliberately NOT gated: clearing focus when generation
+    /// starts commits the field being typed in, and that commit runs after
+    /// `sopBusy` flips, so a gate here would silently discard it.
+    private var structureLocked: Bool {
+        if sopBusy { Log.store.notice("structural edit refused: a generation is running") }
+        return sopBusy
+    }
+
     func addTextStep(heading: String = "", body: String = "", callout: CalloutKind? = nil, atIndex: Int? = nil) async {
-        guard let dir = opened?.dir else { return }
+        guard !structureLocked, let dir = opened?.dir else { return }
         do { try await store.addTextStep(at: dir, atIndex: atIndex, heading: heading, body: body, callout: callout); await afterEdit() }
         catch {
             errorMessage = error.localizedDescription
@@ -1282,7 +1304,7 @@ final class AppModel {
 
     /// Delete one step (and its screenshot/render), then re-render + re-list.
     func deleteStep(id: String) async {
-        guard let dir = opened?.dir else { return }
+        guard !structureLocked, let dir = opened?.dir else { return }
         do { try await store.deleteSteps(at: dir, ids: [id]); await afterEdit() }
         catch {
             errorMessage = error.localizedDescription
@@ -1292,7 +1314,7 @@ final class AppModel {
 
     /// Move a step up (-1) or down (+1) among the steps, clamped at the ends.
     func moveStep(id: String, by offset: Int) async {
-        guard let opened else { return }
+        guard !structureLocked, let opened else { return }
         var ids = opened.manifest.steps.map(\.id)
         guard let i = ids.firstIndex(of: id) else { return }
         let j = i + offset
@@ -1310,7 +1332,7 @@ final class AppModel {
     /// step currently at that position; everything renumbers in turn. Callout
     /// steps (unnumbered) keep their place.
     func moveStep(id: String, toPosition position: Int) async {
-        guard let opened else { return }
+        guard !structureLocked, let opened else { return }
         let steps = opened.manifest.steps
         let numbered = steps.filter { !ReportPresentation.isCalloutStep($0) }.map(\.id)
         guard let cur = numbered.firstIndex(of: id) else { return } // only numbered steps have a position
@@ -1332,7 +1354,7 @@ final class AppModel {
     /// Drag-and-drop reorder: move `draggedId` to just before `targetId`
     /// (any step kind — callouts included). `targetId == nil` moves it to the end.
     func dropStep(_ draggedId: String, before targetId: String?) async {
-        guard let opened, draggedId != targetId else { return }
+        guard !structureLocked, let opened, draggedId != targetId else { return }
         var order = opened.manifest.steps.map(\.id)
         guard let from = order.firstIndex(of: draggedId) else { return }
         order.remove(at: from)
@@ -1350,7 +1372,7 @@ final class AppModel {
 
     /// Import an image file as a new step at `atIndex` (nil → append).
     func importImageStep(data: Data, atIndex: Int?) async {
-        guard let dir = opened?.dir else { return }
+        guard !structureLocked, let dir = opened?.dir else { return }
         do { try await store.importImageStep(at: dir, atIndex: atIndex, imageData: data); await afterEdit() }
         catch {
             errorMessage = error.localizedDescription
@@ -1362,7 +1384,7 @@ final class AppModel {
     /// fold): keep the NEXT step's screenshot, bake this step's click marker onto
     /// it (so both clicks show), drop this step. Shot→shot only.
     func mergeIntoNext(id: String) async {
-        guard let opened else { return }
+        guard !structureLocked, let opened else { return }
         let steps = opened.manifest.steps
         guard let i = steps.firstIndex(where: { $0.id == id }), i + 1 < steps.count else { return }
         let current = steps[i], next = steps[i + 1]

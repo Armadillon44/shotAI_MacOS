@@ -81,18 +81,19 @@ struct ReportView: View {
         GeometryReader { geo in
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                header
+                header.disabled(model.sopBusy)
                 sopPanel
-                if model.canUndoMerge { undoMergeBanner }
-                intro
+                if model.canUndoMerge { undoMergeBanner.disabled(model.sopBusy) }
+                intro.disabled(model.sopBusy)
                 ForEach(Array(steps.enumerated()), id: \.element.id) { pair in
-                    InsertZone { choice in handleInsert(choice, at: pair.offset) }
+                    InsertZone { choice in handleInsert(choice, at: pair.offset) }.disabled(model.sopBusy)
                     StepRow(
                         step: pair.element, number: numbers[pair.element.id], projectDir: opened.dir,
                         focus: $focus, index: pair.offset, total: steps.count,
                         canMergeNext: canMergeNext(at: pair.offset), autoScroller: autoScroller,
                         onEdit: onEdit, onRequestDelete: { deleteStepTarget = pair.element }
                     )
+                    .disabled(model.sopBusy)
                 }
                 if steps.isEmpty {
                     VStack(spacing: 12) {
@@ -152,6 +153,13 @@ struct ReportView: View {
             .onChange(of: orderedFieldIDs) { _, v in tabNav.order = v }
             .onChange(of: focus) { _, v in tabNav.focused = v }
             .onChange(of: tabNav.move) { _, m in if let m { focus = m.id } }
+            // Leave no field mid-edit while Claude writes. A field that still had
+            // focus when the new text landed kept its pre-AI draft (a field only
+            // accepts store updates while inactive), then committed that draft on
+            // the next click away: the old auto-caption overwrote Claude's text and
+            // was flagged as the user's own, so the step looked skipped. Clearing
+            // focus here commits whatever was being typed before the run starts.
+            .onChange(of: model.sopBusy) { _, busy in if busy { focus = nil } }
             // Resolve the backing NSScrollView so a step drag near the top/bottom
             // edge can auto-scroll (driven per-row via autoScroller.noteHover).
             .background(ScrollProbe { autoScroller.scrollView = $0 })
