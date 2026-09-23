@@ -147,6 +147,9 @@ private func applyPlan(_ plan: SopEditPlan, to manifest: inout ProjectManifest, 
         manifest.intro = nil
     }
 
+    // Records made stale by an edit on any build (Windows never prunes) are
+    // dropped first; see pruneStaleSopRewrite.
+    for i in manifest.steps.indices { manifest.steps[i].pruneStaleSopRewrite() }
     // Rebuild from the non-AI base (drop a prior run's inserts).
     let base = manifest.steps.filter { $0.aiInserted != true }
     let editByNum = effectiveEdits(plan)
@@ -190,8 +193,11 @@ private func applyPlan(_ plan: SopEditPlan, to manifest: inout ProjectManifest, 
             let srcH = step.authorHeading, srcB = step.authorBody
             let h = e.caption.trimmingCharacters(in: .whitespacesAndNewlines)
             let b = e.body.trimmingCharacters(in: .whitespacesAndNewlines)
-            let writeH = !h.isEmpty && !(srcH ?? "").isEmpty
-            let writeB = !b.isEmpty && !(srcB ?? "").isEmpty
+            // Trimmed: a heading that is only a space (a click into the field and out
+            // again commits one) is empty, not something the author wrote.
+            let blank = { (s: String?) in (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            let writeH = !h.isEmpty && !blank(srcH)
+            let writeB = !b.isEmpty && !blank(srcB)
             if let sh = e.sectionHeading, !sh.isEmpty, step.callout != .section {
                 next.append(makeAISectionStep(heading: sh, body: e.sectionBody ?? ""))
             }

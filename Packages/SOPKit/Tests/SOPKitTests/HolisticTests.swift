@@ -249,6 +249,76 @@ final class HolisticTests: XCTestCase {
         XCTAssertEqual(back?.heading, "Stop first", "the heading Claude wrote goes back to the author's")
     }
 
+    // MARK: A block Claude inserted becomes the author's once they write in it
+
+    private func withAISection(_ store: ProjectStore, _ path: String) async throws -> String {
+        try await apply(store, path, SopEditPlan(title: "T", intro: nil, steps: [
+            SopStepEdit(stepNumber: 1, caption: "Open", body: "Click.", sectionHeading: "Prepare",
+                        sectionBody: nil, kind: "screenshot")]))
+        let steps = try await store.openProject(at: path).manifest.steps
+        return try XCTUnwrap(steps.first { $0.aiInserted == true }?.id)
+    }
+
+    /// The review's reproduction, which predates whole-SOP generation and exists on
+    /// Windows too: an AI section the author wrote in stayed flagged aiInserted, so
+    /// the next regeneration dropped it, Revert dropped it, and Claude never saw it.
+    func testWritingInAnAISectionMakesItTheAuthorsAndItSurvives() async throws {
+        let (store, path, dir) = try await makeProject(shots: 1)
+        let id = try await withAISection(store, path)
+        _ = try await store.editStepText(at: path, stepId: id, body: "WEAR GLOVES: the housing is 300 C.")
+        let adopted = try await step(store, path, id)
+        XCTAssertNil(adopted?.aiInserted, "the block is the author's now")
+
+        let request = try await sent(store, path, dir)
+        XCTAssertTrue(request.contains("WEAR GLOVES: the housing is 300 C."), "Claude sees it")
+
+        try await apply(store, path, SopEditPlan(title: "T", intro: nil, steps: [
+            SopStepEdit(stepNumber: 2, caption: "Open", body: "Click.", sectionHeading: nil, sectionBody: nil, kind: "screenshot")]))
+        let afterRegen = try await step(store, path, id)
+        XCTAssertNotNil(afterRegen, "a regeneration keeps it")
+
+        try await revertSop(store: store, projectPath: path)
+        let afterRevert = try await step(store, path, id)
+        XCTAssertEqual(afterRevert?.body, "WEAR GLOVES: the housing is 300 C.", "and so does Revert")
+    }
+
+    /// Converting Claude's section into a warning is a deliberate author act too.
+    func testConvertingAnAISectionIntoAWarningAdoptsIt() async throws {
+        let (store, path, _) = try await makeProject(shots: 1)
+        let id = try await withAISection(store, path)
+        _ = try await store.setStepCallout(at: path, stepId: id, callout: .warning)
+        let converted = try await step(store, path, id)
+        XCTAssertNil(converted?.aiInserted)
+        XCTAssertEqual(converted?.callout, .warning)
+    }
+
+    // MARK: Record hygiene
+
+    /// Once the author changes a field, what generation wrote there and what it wrote
+    /// from are dead and are dropped, so deleted wording does not linger in the file.
+    func testAnEditDropsTheDeadPartOfTheRecord() async throws {
+        let (store, path, _) = try await project()
+        let id = try await store.openProject(at: path).manifest.steps[0].id
+        _ = try await store.editStepText(at: path, stepId: id, body: "Get the key from Bob, desk phone x5512.")
+        try await rewrite(store, path, 1, "Get the key", "Collect the key from Bob (desk phone x5512).")
+        _ = try await store.editStepText(at: path, stepId: id, body: "Get the key from the shift lead.")
+        let found = try await step(store, path, id)
+        let after = try XCTUnwrap(found)
+        let json = String(decoding: try JSONEncoder().encode(after), as: UTF8.self)
+        XCTAssertFalse(json.contains("x5512"), "the phone number the author removed is gone from the step")
+        XCTAssertEqual(after.sopRewrite?.heading, "Get the key", "the heading Claude wrote is still live, so it stays")
+    }
+
+    /// A heading that is only a space is empty, not something the author wrote.
+    func testAWhitespaceOnlyAuthorHeadingIsNotFilledIn() async throws {
+        let (store, path, _) = try await project()
+        let id = try await store.openProject(at: path).manifest.steps[0].id
+        _ = try await store.editStepText(at: path, stepId: id, heading: " ")
+        try await rewrite(store, path, 1, "An invented heading", "Power the unit off.")
+        let after = try await step(store, path, id)
+        XCTAssertEqual(after?.heading, " ")
+    }
+
     // MARK: The record itself
 
     func testTheRecordRoundTripsAndIsOmittedWhenAbsent() throws {

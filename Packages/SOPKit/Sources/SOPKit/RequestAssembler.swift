@@ -204,8 +204,9 @@ func assembleRequest(
             // Decided per field from `sopRewrite`, not from a flag, so an edit made on
             // any build (Windows never flags text edits) is recognised as the author's.
             var parts = ["--- \(AssembledRequest.authorBlockLabel(step.callout)) \(n) (author-written) ---"]
-            if let h = step.authorHeading, !h.isEmpty { parts.append("Heading: \(h)") }
-            if let b = step.authorBody, !b.isEmpty { parts.append("Body: \(b)") }
+            let trim = { (s: String?) in (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+            if !trim(step.authorHeading).isEmpty { parts.append("Heading: \(trim(step.authorHeading))") }
+            if !trim(step.authorBody).isEmpty { parts.append("Body: \(trim(step.authorBody))") }
             if let guidance = AssembledRequest.authorBlockGuidance(step.callout) { parts.append(guidance) }
             content.append(["type": "text", "text": parts.joined(separator: "\n")])
             continue

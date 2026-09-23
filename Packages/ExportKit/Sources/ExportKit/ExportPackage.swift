@@ -67,9 +67,12 @@ public func exportPackage(dir: String, manifest: ProjectManifest, includeOrigina
     guard !manifest.steps.isEmpty else { throw PackageError.nothingToExport }
 
     var entries: [(name: String, data: Data)] = []
-    // Work on a clone; never share the sender's local revert history.
+    // Work on a clone; never share the sender's local revert history — sopBackup, or
+    // the per-block records of what generation wrote and what it wrote from, which
+    // can hold wording the sender has since changed or deleted.
     var out = manifest
     out.sopBackup = nil
+    for i in out.steps.indices { out.steps[i].sopRewrite = nil }
 
     if includeOriginals {
         // Full fidelity: ship exactly the files the manifest references.

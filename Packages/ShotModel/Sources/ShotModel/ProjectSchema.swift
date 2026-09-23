@@ -847,3 +847,18 @@ public struct ProjectSummary: Equatable, Sendable {
         self.searchText = searchText
     }
 }
+
+extension ProjectStep {
+    /// Drop the parts of `sopRewrite` that no longer describe this block. A field the
+    /// author changed after generation no longer shows what generation wrote, so its
+    /// recorded words — both what was written and the source it was written from —
+    /// will never be used again. Keeping them anyway kept text the author DELETED in
+    /// the file, and shipped it in exported packages (a phone number removed after
+    /// generating was still there). The record goes entirely once neither field is live.
+    public mutating func pruneStaleSopRewrite() {
+        guard var r = sopRewrite else { return }
+        if let wrote = r.heading, (heading ?? "") != wrote { r.heading = nil; r.sourceHeading = nil }
+        if let wrote = r.body, (body ?? "") != wrote { r.body = nil; r.sourceBody = nil }
+        sopRewrite = (r.heading == nil && r.body == nil) ? nil : r
+    }
+}
