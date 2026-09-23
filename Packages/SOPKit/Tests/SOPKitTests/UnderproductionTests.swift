@@ -149,29 +149,17 @@ final class UnderproductionTests: XCTestCase {
 
     // MARK: The guard must judge the plan the way the apply reduces it
 
-    /// The fourth way through, found by the Windows port while implementing its
-    /// own version of this guard.
+    /// A step written twice, good text first and an empty entry after it.
     ///
-    /// `applySopEdits` reduces the plan to one edit per `stepNumber` and LAST
-    /// WINS. A plan carrying two entries for the same step — a good one followed
-    /// by an empty one — satisfied a guard that scanned the raw array (the good
-    /// entry is right there), and then the empty entry overwrote it before
-    /// anything landed. Success reported, nothing changed: the exact silent
-    /// no-op the guard exists to prevent, through a door it wasn't watching.
-    ///
-    /// Reproduced end to end before the fix, through this same path:
-    ///     guard let it through: 2 plan entries
-    ///     caption after apply: EMPTY — nothing landed
-    ///
-    /// The fix is not a second copy of the reduction inside the guard — that is
-    /// what drifts. Both sides call `effectiveEdits`. This test fails if anyone
-    /// gives the guard its own reasoning about the plan again.
-    func testAPlanWhoseDuplicateOverwritesTheOnlyContentIsRejected() async throws {
+    /// Under #120 the empty entry won (strict last-wins) and the run was rejected
+    /// as "wrote nothing": the guard correctly refused to report success for text
+    /// that would not land. The text WAS there, though. Duplicates now resolve to
+    /// the last USABLE entry (`resolvedEdits`), so "Click Save" lands. #120's
+    /// invariant is unchanged: review and apply judge the same thing, because the
+    /// plan apply receives has exactly one resolved entry per screenshot.
+    func testADuplicateKeepsItsUsableEntryRatherThanTheEmptyOneAfterIt() async throws {
         let (store, path, dir) = try await makeProject(shots: 1)
         let manifest = try await store.openProject(at: path).manifest
-
-        // Both entries are step 1 (no leading text block here, so the shot IS 1).
-        // The first would land; the second is the one that actually survives.
         let json = ##"{"title":"A Real Title","intro":null,"steps":[{"stepNumber":1,"caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null},{"stepNumber":1,"caption":"","body":"","sectionHeading":null,"sectionBody":null}]}"##
         let svc = SopService(
             client: ClaudeClient(transport: MockTransport(streamHandler: { _ in
@@ -179,17 +167,14 @@ final class UnderproductionTests: XCTestCase {
             })),
             keyStore: StubKeyStore())
 
-        do {
-            _ = try await svc.generate(dir: dir, manifest: manifest,
-                                       settings: SopSettings(), onProgress: { _ in })
-            XCTFail("a plan whose surviving edit is empty must not be returned as a success")
-        } catch let e as ClaudeError {
-            // Not `wroteNothing: false`. The numbers were fine; what the user
-            // experienced is a generation that wrote nothing usable, and the
-            // advice attached to that message is the advice that helps.
-            XCTAssertEqual(e, .incomplete(wroteNothing: true),
-                           "expected the wrote-nothing failure, got \(e)")
-        }
+        let plan = try await svc.generate(dir: dir, manifest: manifest, settings: SopSettings(), onProgress: { _ in })
+        XCTAssertEqual(plan.steps.count, 1, "apply must receive exactly one entry per screenshot")
+        XCTAssertEqual(effectiveEdits(plan)[1]?.caption, "Click Save")
+        XCTAssertTrue(plan.incompleteStepIds.isEmpty)
+
+        try await applySopEdits(store: store, projectPath: path, plan: plan, model: .sonnet5, tone: .professional)
+        let landed = try await store.openProject(at: path).manifest.steps.first?.caption
+        XCTAssertEqual(landed, "Click Save")
     }
 
     /// Pinning the discriminator is only worth anything because it picks between

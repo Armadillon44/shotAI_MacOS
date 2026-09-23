@@ -291,6 +291,19 @@ struct ReportView: View {
                         .font(palette.font(11)).foregroundStyle(palette.ink3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // A partial success. Not an alert: most of the run landed, and
+                // this names what did not so the user can check those steps.
+                if let notice = model.sopNotice, !model.sopBusy {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "exclamationmark.circle").foregroundStyle(palette.ink2)
+                        Text(notice)
+                            .font(palette.font(11)).foregroundStyle(palette.ink2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Button { model.sopNotice = nil } label: { Image(systemName: "xmark") }
+                            .buttonStyle(.borderless).help("Dismiss")
+                    }
+                }
             }
             .padding(14)
             .background(palette.surface)

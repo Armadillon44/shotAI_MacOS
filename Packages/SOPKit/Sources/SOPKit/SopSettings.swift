@@ -152,4 +152,8 @@ public struct SopEditPlan: Sendable, Equatable {
     /// built directly (tests) and for a manifest whose step ids are not unique, where
     /// an id cannot name one step.
     public var boundStepIds: [Int: String]? = nil
+    /// Screenshot steps (by id) that did not come back fully usable even after a
+    /// repair turn. Whatever could not be used was withheld, so those fields keep
+    /// their previous text; the caller tells the user which steps they are.
+    public var incompleteStepIds: [String] = []
 }
