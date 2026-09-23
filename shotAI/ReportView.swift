@@ -300,7 +300,7 @@ struct ReportView: View {
                             .font(palette.font(11)).foregroundStyle(palette.ink2)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
-                        Button { model.sopNotice = nil } label: { Image(systemName: "xmark") }
+                        Button { model.sopIncompleteIds = [] } label: { Image(systemName: "xmark") }
                             .buttonStyle(.borderless).help("Dismiss")
                     }
                 }

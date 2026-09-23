@@ -133,9 +133,19 @@ public struct SopService: Sendable {
                 let fixed = Self.plan(from: try await client.streamEditPlan(
                     credential: cred, body: Self.repairBody(body, previous: plan, steps: needRepair),
                     onProgress: onProgress))
-                plan = mergeRepairs(into: plan, from: fixed, steps: needRepair)
-                review = reviewPlan(plan, against: manifest)
-                repaired = true
+                // The repair's numbering is checked the way the first answer's is.
+                // A repair that renumbered — answering [1, 2] for "steps 2 and 5"
+                // — would put step 5's text on step 2 and report step 2 complete.
+                // Any number it was not asked for, or any repeat, discards the
+                // whole repair: none of its numbers can be trusted.
+                let got = fixed.steps.map(\.stepNumber)
+                if Set(got).isSubset(of: Set(needRepair)), Set(got).count == got.count {
+                    plan = mergeRepairs(into: plan, from: fixed, steps: needRepair)
+                    review = reviewPlan(plan, against: manifest)
+                    repaired = true
+                } else {
+                    Log.sop.error("repair misnumbered — asked \(needRepair, privacy: .public), got \(got, privacy: .public); discarded")
+                }
             } catch {
                 if Task.isCancelled { throw error }
                 Log.sop.error("repair failed [\(String(describing: (error as? ClaudeError)?.kind), privacy: .public)]; applying what passed")

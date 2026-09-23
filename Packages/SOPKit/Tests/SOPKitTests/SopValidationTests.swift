@@ -85,6 +85,25 @@ final class SopValidationTests: XCTestCase {
         XCTAssertEqual(steps.map(\.caption), ["Open Settings", "Choose Privacy", "Save"])
     }
 
+    /// The reviewer's reproduction: steps 2 and 5 come back as filler, and the
+    /// repair answers with its own numbering, [1, 2]. Trusting it put step 5's text
+    /// on step 2 and reported step 2 complete. A repair whose numbers stray outside
+    /// what it was asked for is discarded whole.
+    func testARepairThatRenumbersIsDiscardedNotMerged() async throws {
+        let script = Script([
+            ok([(1, "Open A", "a."), (2, "Placeholder", "TBD"), (3, "Open C", "c."),
+                (4, "Open D", "d."), (5, "Placeholder", "TBD")]),
+            ok([(1, "Text written for step 2", "x."), (2, "Text written for step 5", "y.")]),
+        ])
+        let r = try await run(5, script)
+        let before = r.before.steps.map(\.caption)
+        let steps = try await applied(r)
+        XCTAssertEqual(steps[1].caption, before[1], "step 2 must not receive step 5's text")
+        XCTAssertEqual(steps[4].caption, before[4])
+        XCTAssertEqual(Set(r.plan.incompleteStepIds), [r.before.steps[1].id, r.before.steps[4].id],
+                       "both steps are reported incomplete, not one of them as done")
+    }
+
     // MARK: Apply what passed
 
     func testAStepThatStaysBadAfterRepairKeepsItsTextAndTheRestLands() async throws {
@@ -169,6 +188,18 @@ final class SopValidationTests: XCTestCase {
         XCTAssertEqual(r.plan.incompleteStepIds.count, 1)
     }
 
+    func testAFillerSectionBodyIsWithheld() async throws {
+        let raw: [[String: Any]] = [["stepNumber": 1, "caption": "Open Settings", "body": "Click the gear.",
+                                     "sectionHeading": "Configure the account", "sectionBody": "Placeholder"]]
+        let d = try JSONSerialization.data(withJSONObject: ["title": "A Real Title", "intro": NSNull(), "steps": raw])
+        let script = Script([(sseLines(json: String(decoding: d, as: UTF8.self)), ResponseHead(status: 200))])
+        let r = try await run(1, script)
+        try await applySopEdits(store: r.store, projectPath: r.path, plan: r.plan, model: .sonnet5, tone: .professional)
+        let section = try await r.store.openProject(at: r.path).manifest.steps.first { $0.aiInserted == true }
+        XCTAssertEqual(section?.heading, "Configure the account", "a good heading still lands")
+        XCTAssertEqual(section?.body ?? "", "", "its filler body does not")
+    }
+
     // MARK: Title and overview
 
     func testAFillerTitleKeepsTheCurrentName() async throws {
@@ -224,7 +255,8 @@ final class SopValidationTests: XCTestCase {
         }
         for s in ["Open Settings", "Click Save", "Enter the title", "Select None from the list",
                   "Step into the Billing tab", "Type N/A in the Notes field", "Review the description",
-                  "OK", "Go"] {
+                  "OK", "Go", "[Optional] Enter the PO number [if required]", "<Ctrl> + <S>",
+                  "{Vendor} and {Site}", "Press <Enter>"] {
             XCTAssertFalse(isFiller(s), "real instruction flagged as filler: \(s.debugDescription)")
         }
     }

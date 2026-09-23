@@ -206,25 +206,21 @@ final class UnderproductionTests: XCTestCase {
                       "the bad-numbering message must rule Effort out, not suggest it")
     }
 
-    /// The control for the case above: the same duplicate pair in the other
-    /// order. Here the GOOD entry is the survivor, so this must succeed — which
-    /// is also what proves the test above is about last-wins and not merely
-    /// about the plan containing an empty entry somewhere.
-    func testADuplicateWhoseSurvivingEntryHasContentIsAccepted() async throws {
+    /// The companion to the case above, and the rule stated directly: of two
+    /// USABLE entries for one step, the later one wins. (This test used to be the
+    /// empty-then-good control, which the usable-entry rule made indistinguishable
+    /// from the case above, so nothing pinned what happens between two good ones.)
+    func testOfTwoUsableEntriesForOneStepTheLaterOneLands() async throws {
         let (store, path, dir) = try await makeProject(shots: 1)
         let manifest = try await store.openProject(at: path).manifest
-
-        let json = ##"{"title":"A Real Title","intro":null,"steps":[{"stepNumber":1,"caption":"","body":"","sectionHeading":null,"sectionBody":null},{"stepNumber":1,"caption":"Click Save","body":"Press it.","sectionHeading":null,"sectionBody":null}]}"##
+        let json = ##"{"title":"A Real Title","intro":null,"steps":[{"stepNumber":1,"caption":"First wording","body":"a.","sectionHeading":null,"sectionBody":null},{"stepNumber":1,"caption":"Second wording","body":"b.","sectionHeading":null,"sectionBody":null}]}"##
         let svc = SopService(
             client: ClaudeClient(transport: MockTransport(streamHandler: { _ in
                 (sseLines(json: json), ResponseHead(status: 200))
             })),
             keyStore: StubKeyStore())
-
-        let plan = try await svc.generate(dir: dir, manifest: manifest,
-                                          settings: SopSettings(), onProgress: { _ in })
-        let landed = effectiveEdits(plan)[1]
-        XCTAssertEqual(landed?.caption, "Click Save",
-                       "the surviving edit carries content, so this plan is usable")
+        let plan = try await svc.generate(dir: dir, manifest: manifest, settings: SopSettings(), onProgress: { _ in })
+        XCTAssertEqual(plan.steps.count, 1)
+        XCTAssertEqual(effectiveEdits(plan)[1]?.caption, "Second wording")
     }
 }
