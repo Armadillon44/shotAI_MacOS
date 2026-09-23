@@ -115,19 +115,20 @@ public struct SopService: Sendable {
         var review = reviewPlan(plan, against: manifest)
         var retried = false, repaired = false
 
-        // 1. Numbering. An invalid or repeated number means none of the numbers
-        //    can be trusted, so nothing is applied partially: run it again once.
+        // 1. Numbering. An entry whose declared kind is not its block's kind (or,
+        //    defensively, a number naming no block) means none of the numbers can
+        //    be trusted, so nothing is applied partially: run it again once.
         if review.misnumbered {
             Log.sop.error("""
-                generation misnumbered — invalid \(review.invalidNumbers, privacy: .public), \
-                duplicate \(review.duplicateNumbers, privacy: .public), expected \(review.shotNumbers, privacy: .public); retrying
+                generation misnumbered — kind mismatch at \(review.kindMismatches, privacy: .public), \
+                invalid \(review.invalidNumbers, privacy: .public), blocks \(review.blockNumbers.count, privacy: .public); retrying
                 """)
             onProgress(.retrying)
             plan = Self.plan(from: try await streamWithRetry(body, onProgress))
             review = reviewPlan(plan, against: manifest)
             retried = true
             if review.misnumbered {
-                Log.sop.error("generation misnumbered twice — nothing applied")
+                Log.sop.error("generation misnumbered twice — kind mismatch at \(review.kindMismatches, privacy: .public); nothing applied")
                 throw ClaudeError.incomplete(wroteNothing: false)
             }
         }
@@ -148,7 +149,8 @@ public struct SopService: Sendable {
                 // Any number it was not asked for, or any repeat, discards the
                 // whole repair: none of its numbers can be trusted.
                 let got = fixed.steps.map(\.stepNumber)
-                if Set(got).isSubset(of: Set(needRepair)), Set(got).count == got.count {
+                let allScreenshots = fixed.steps.allSatisfy { ($0.kind ?? "screenshot") == "screenshot" }
+                if Set(got).isSubset(of: Set(needRepair)), Set(got).count == got.count, allScreenshots {
                     plan = mergeRepairs(into: plan, from: fixed, steps: needRepair)
                     review = reviewPlan(plan, against: manifest)
                     repaired = true

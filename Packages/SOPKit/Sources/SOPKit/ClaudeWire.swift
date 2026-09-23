@@ -67,7 +67,7 @@ func sopEditJSONSchema(blockCount: Int) -> OrderedObject { OrderedObject([
                 "required": ["stepNumber", "kind", "caption", "body", "sectionHeading", "sectionBody"],
                 "properties": OrderedObject([
                     "stepNumber": OrderedObject(["type": "integer", "enum": Array(1...max(1, blockCount))]),
-                    "kind": OrderedObject(["type": "string", "enum": ["screenshot", "text"]]),
+                    "kind": OrderedObject(["type": "string", "enum": SopBlockKind.all]),
                     "caption": OrderedObject(["type": "string"]),
                     "body": OrderedObject(["type": "string"]),
                     "sectionHeading": nullable(OrderedObject(["type": "string"])),
@@ -336,4 +336,5 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         }
     }
 }
+
 

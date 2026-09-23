@@ -109,6 +109,23 @@ final class SopValidationTests: XCTestCase {
                        "both steps are reported incomplete, not one of them as done")
     }
 
+    /// Every repair target is a screenshot, so a repair entry declaring any other kind
+    /// misread which block it was writing for, and is discarded with the rest of the
+    /// repair — author-block text must not land on a screenshot.
+    func testARepairEntryDeclaringAnAuthorKindIsDiscarded() async throws {
+        let bad: [[String: Any]] = [["stepNumber": 2, "kind": "note", "caption": "Heads up", "body": "Watch out.",
+                                     "sectionHeading": NSNull(), "sectionBody": NSNull()]]
+        let d = try JSONSerialization.data(withJSONObject: ["title": "A Real Title", "intro": NSNull(), "steps": bad])
+        let script = Script([
+            ok([(1, "Open Settings", "Click the gear."), (2, "Placeholder", "TBD")]),
+            (sseLines(json: String(decoding: d, as: UTF8.self)), ResponseHead(status: 200)),
+        ])
+        let r = try await run(2, script)
+        let steps = try await applied(r)
+        XCTAssertNotEqual(steps[1].caption, "Heads up")
+        XCTAssertEqual(r.plan.incompleteStepIds, [r.before.steps[1].id])
+    }
+
     // MARK: Apply what passed
 
     func testAStepThatStaysBadAfterRepairKeepsItsTextAndTheRestLands() async throws {

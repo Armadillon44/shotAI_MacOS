@@ -344,6 +344,20 @@ public struct SopBackup: Codable, Equatable, Sendable {
 
 // MARK: - Step
 
+/// See `ProjectStep.sopRewrite`.
+public struct SopTextRewrite: Codable, Equatable, Sendable {
+    /// What generation wrote. nil means it left that field alone.
+    public var heading: String?
+    public var body: String?
+    /// The author's words each field was written from.
+    public var sourceHeading: String?
+    public var sourceBody: String?
+    public init(heading: String?, body: String?, sourceHeading: String?, sourceBody: String?) {
+        self.heading = heading; self.body = body
+        self.sourceHeading = sourceHeading; self.sourceBody = sourceBody
+    }
+}
+
 public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var order: Int
@@ -381,13 +395,25 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
     /// matters because it is also what a client that does not yet set this field
     /// produces, so a mixed-version fleet degrades to today rather than to
     /// feeding Claude its own output.
-    ///
-    /// On a TEXT step it means the same thing for the block's heading and body: the
-    /// author edited them after a generation rewrote them (macOS writes author blocks
-    /// too since 2026-09-23). Reused rather than added as a new key so project.json
-    /// gains no field the Windows build would have to agree on; Windows sets and reads
-    /// it only on screenshot steps, and carries it through untouched on a text step.
     public var captionEditedByUser: Bool?
+    /// What SOP generation last wrote into this AUTHOR block, and the author's own
+    /// words it was written from. Absent on screenshot steps and on blocks generation
+    /// has never rewritten.
+    ///
+    /// The author's words are what an author block is rewritten FROM, so a
+    /// regeneration must never be fed Claude's previous rewrite as if the author wrote
+    /// it. This record is how that is told apart, field by field, without trusting
+    /// any flag: if a field still shows exactly what generation wrote there, the
+    /// author's words for it are `source…`; if it shows anything else, someone changed
+    /// it — on any build, including Windows, which never flags text edits — and what it
+    /// shows IS the author's. A flag-based version of this lost an author's edit made
+    /// on Windows, and a warning's added requirement with it.
+    ///
+    /// macOS-only. Windows carries it through untouched (its normalizeSteps spreads
+    /// unknown step keys and its edits use Object.assign), so a Windows edit leaves the
+    /// record stale, the text stops matching it, and the edit is correctly read as the
+    /// author's. Omitted when nil, so a project generation never touched is unchanged.
+    public var sopRewrite: SopTextRewrite?
     /// Optional crop rect, in image px.
     public var crop: Rect?
     /// Click-register marker color; defaults to the accent when unset.
@@ -420,7 +446,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
     private static let knownKeys: [String] = [
         "id", "order", "kind", "screenshot", "trigger", "click", "monitor",
         "window", "element", "caption", "note", "heading", "body", "callout",
-        "aiInserted", "captionEditedByUser", "crop", "markerColor", "annotations", "flattened",
+        "aiInserted", "captionEditedByUser", "sopRewrite", "crop", "markerColor", "annotations", "flattened",
         "renderRev", "markerBaked", "reportZoom", "reportPanX", "reportPanY",
     ]
 
@@ -441,6 +467,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         callout: CalloutKind? = nil,
         aiInserted: Bool? = nil,
         captionEditedByUser: Bool? = nil,
+        sopRewrite: SopTextRewrite? = nil,
         crop: Rect? = nil,
         markerColor: String? = nil,
         annotations: [Annotation] = [],
@@ -468,6 +495,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         self.callout = callout
         self.aiInserted = aiInserted
         self.captionEditedByUser = captionEditedByUser
+        self.sopRewrite = sopRewrite
         self.crop = crop
         self.markerColor = markerColor
         self.annotations = annotations
@@ -510,6 +538,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         callout = try? c.decodeIfPresent(CalloutKind.self, forKey: key("callout"))
         aiInserted = try? c.decodeIfPresent(Bool.self, forKey: key("aiInserted"))
         captionEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: key("captionEditedByUser"))
+        sopRewrite = try? c.decodeIfPresent(SopTextRewrite.self, forKey: key("sopRewrite"))
         crop = try? c.decodeIfPresent(Rect.self, forKey: key("crop"))
         markerColor = try? c.decodeIfPresent(String.self, forKey: key("markerColor"))
         annotations = (try? c.decodeIfPresent([Annotation].self, forKey: key("annotations"))) ?? []
@@ -547,6 +576,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         try c.encodeIfPresent(callout, forKey: key("callout"))
         try c.encodeIfPresent(aiInserted, forKey: key("aiInserted"))
         try c.encodeIfPresent(captionEditedByUser, forKey: key("captionEditedByUser"))
+        try c.encodeIfPresent(sopRewrite, forKey: key("sopRewrite"))
         try c.encode(crop, forKey: key("crop"))
         try c.encodeIfPresent(markerColor, forKey: key("markerColor"))
         try c.encode(annotations, forKey: key("annotations"))

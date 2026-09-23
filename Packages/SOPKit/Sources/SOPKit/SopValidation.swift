@@ -57,8 +57,7 @@ func reviewPlan(_ plan: SopEditPlan, against manifest: ProjectManifest) -> PlanR
     let shots = numbered.filter { $0.step.kind != .text }.map(\.number)
     let shotSet = Set(shots)
     let blockSet = Set(numbered.map(\.number))
-    let kindAt = Dictionary(numbered.map { ($0.number, $0.step.kind == .text ? "text" : "screenshot") },
-                            uniquingKeysWith: { a, _ in a })
+    let kindAt = Dictionary(numbered.map { ($0.number, SopBlockKind.of($0.step)) }, uniquingKeysWith: { a, _ in a })
     let counts = Dictionary(plan.steps.map { ($0.stepNumber, 1) }, uniquingKeysWith: +)
     let effective = resolvedEdits(plan)
 
@@ -218,4 +217,23 @@ private func textFillerFields(_ e: SopStepEdit) -> Set<StepField> {
     if !c.isEmpty, isFiller(c) { out.insert(.caption) }
     if !b.isEmpty, isFiller(b) { out.insert(.body) }
     return out
+}
+
+/// The `kind` an entry declares, naming the block's actual type — the same word its
+/// "--- … N ---" heading uses. Not just screenshot-versus-text: with every block
+/// writable, a shift BETWEEN author blocks (a warning's text landing on the section
+/// heading after it) must be catchable too. Two adjacent blocks of the same kind
+/// remain indistinguishable by this check.
+enum SopBlockKind {
+    static let all = ["screenshot", "text", "note", "caution", "warning", "section"]
+    static func of(_ step: ProjectStep) -> String {
+        guard step.kind == .text else { return "screenshot" }
+        switch step.callout {
+        case .note: return "note"
+        case .caution: return "caution"
+        case .warning: return "warning"
+        case .section: return "section"
+        case nil: return "text"
+        }
+    }
 }

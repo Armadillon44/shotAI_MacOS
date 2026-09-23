@@ -491,14 +491,6 @@ public actor ProjectStore {
             if let note { m.steps[i].note = note }
             if let heading { m.steps[i].heading = heading }
             if let body { m.steps[i].body = body }
-            // A text block's words are now rewritten by generation as a caption is, so
-            // the author editing them afterwards is the same deliberate correction and
-            // is flagged the same way: the next generation rewrites from THEIR text,
-            // not from the pre-AI original. Shot steps are unchanged — their body is
-            // not fed back to Claude, so flagging it would mean nothing.
-            if m.steps[i].kind == .text, heading != nil || body != nil {
-                m.steps[i].captionEditedByUser = true
-            }
             if let callout { m.steps[i].callout = callout }
         }
     }
