@@ -53,7 +53,8 @@ public struct SopService: Sendable {
     static let estOutputTokens = 2500
 
     private func params(_ model: SopModelId) -> ModelParams {
-        MODEL_PARAMS[model] ?? ModelParams(adaptiveThinking: true, supportsEffort: true, inputPerMTok: 3, outputPerMTok: 15, maxTokens: 32000)
+        MODEL_PARAMS[model] ?? ModelParams(adaptiveThinking: true, supportsEffort: true, inputPerMTok: 2, outputPerMTok: 10,
+                                           maxTokens: 64000, serverSideFallback: false)
     }
 
     /// Validate the configured key + model with a cheap Models API call. Returns
@@ -107,6 +108,7 @@ public struct SopService: Sendable {
             "stream": true,
         ]
         if p.adaptiveThinking { body["thinking"] = ["type": "adaptive"] }
+        if p.serverSideFallback { body["fallbacks"] = "default" }
 
         // Review before anything lands, then recover: at most one full retry for
         // a numbering fault and one repair turn for content faults, so a run is
@@ -248,7 +250,8 @@ public struct SopService: Sendable {
         while true {
             do {
                 let cred = try await credential()
-                return try await client.streamEditPlan(credential: cred, body: body, onProgress: onProgress)
+                return try await client.streamEditPlan(credential: cred, body: body,
+                                                       betas: Self.betas(for: body), onProgress: onProgress)
             } catch let e as ClaudeError {
                 guard !Task.isCancelled, attempt < retryDelays.count,
                       let wait = Self.retryWait(e, backoff: retryDelays[attempt]) else { throw e }
@@ -270,5 +273,14 @@ public struct SopService: Sendable {
         case .api(let status, let f) where status >= 500 && f.shouldRetry != false: return backoff
         default: return nil
         }
+    }
+
+    static let fallbackBeta = "server-side-fallback-2026-07-01"
+
+    /// The beta headers a generation body needs, derived from the body itself so the
+    /// `fallbacks` parameter and the header that enables it cannot drift apart: the
+    /// parameter without the header is a 400 on every request.
+    static func betas(for body: [String: Any]) -> [String] {
+        body["fallbacks"] == nil ? [] : [fallbackBeta]
     }
 }

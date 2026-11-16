@@ -81,7 +81,7 @@ final class ApplyRevertTests: XCTestCase {
 
     func testApplyRewritesAndSnapshots() async throws {
         let (store, path, _) = try await makeProject(shots: 2)
-        let m = try await applySopEdits(store: store, projectPath: path, plan: plan(), model: .sonnet5, tone: .professional)
+        let m = try await applySopEdits(store: store, projectPath: path, plan: plan(), model: .sonnet55, tone: .professional)
 
         XCTAssertEqual(m.title, "Refined Title")
         XCTAssertEqual(m.intro?.heading, "Overview")
@@ -111,17 +111,17 @@ final class ApplyRevertTests: XCTestCase {
 
     func testRegenerateKeepsFirstBackupAndDropsPriorInserts() async throws {
         let (store, path, _) = try await makeProject(shots: 2)
-        _ = try await applySopEdits(store: store, projectPath: path, plan: plan(), model: .sonnet5, tone: .professional)
+        _ = try await applySopEdits(store: store, projectPath: path, plan: plan(), model: .sonnet55, tone: .professional)
         // Second pass: the base rebuild drops the prior AI insert, so still 3 steps,
         // and the backup remains the ORIGINAL 2-shot snapshot.
-        let m2 = try await applySopEdits(store: store, projectPath: path, plan: plan(), model: .sonnet5, tone: .professional)
+        let m2 = try await applySopEdits(store: store, projectPath: path, plan: plan(), model: .sonnet55, tone: .professional)
         XCTAssertEqual(m2.steps.count, 3)
         XCTAssertEqual(m2.sopBackup?.steps.count, 2)
     }
 
     func testRevertRestoresAndClears() async throws {
         let (store, path, _) = try await makeProject(shots: 2)
-        _ = try await applySopEdits(store: store, projectPath: path, plan: plan(), model: .sonnet5, tone: .professional)
+        _ = try await applySopEdits(store: store, projectPath: path, plan: plan(), model: .sonnet55, tone: .professional)
         let reverted = try await revertSop(store: store, projectPath: path)
         XCTAssertEqual(reverted.steps.count, 2)                 // section insert gone
         XCTAssertEqual(reverted.title, "Test SOP")              // title restored
@@ -136,7 +136,7 @@ final class ApplyRevertTests: XCTestCase {
 
     func testRevertPreservesManualAdditionsAfterGeneration() async throws {
         let (store, path, _) = try await makeProject(shots: 2)
-        _ = try await applySopEdits(store: store, projectPath: path, plan: plan(), model: .sonnet5, tone: .professional)
+        _ = try await applySopEdits(store: store, projectPath: path, plan: plan(), model: .sonnet55, tone: .professional)
         // The user adds a callout AFTER generation (a manual, non-AI step).
         let added = try await store.addTextStep(at: path, atIndex: nil,
                                                 heading: "Heads up", body: "keep me", callout: .warning)
@@ -287,7 +287,7 @@ final class AuthorCaptionEditTests: XCTestCase {
                                steps: [SopStepEdit(stepNumber: 1, caption: "AI wording",
                                                    body: "b", sectionHeading: nil, sectionBody: nil)])
         _ = try await SOPKit.applySopEdits(store: store, projectPath: path, plan: plan,
-                                           model: .sonnet5, tone: .professional)
+                                           model: .sonnet55, tone: .professional)
         let after = try await store.openProject(at: path).manifest
         XCTAssertEqual(after.steps[0].caption, "AI wording")
         XCTAssertNil(after.steps[0].captionEditedByUser, "AI overwrote it — flag must clear")
@@ -428,7 +428,7 @@ final class IntroAuthorshipTests: XCTestCase {
                                steps: [SopStepEdit(stepNumber: 1, caption: "c", body: "b",
                                                    sectionHeading: nil, sectionBody: nil)])
         _ = try await SOPKit.applySopEdits(store: store, projectPath: path, plan: plan,
-                                           model: .sonnet5, tone: .professional)
+                                           model: .sonnet55, tone: .professional)
         let after = try await store.openProject(at: path).manifest
         XCTAssertEqual(after.intro?.heading, "Before you begin", "author's heading pinned in code")
         XCTAssertEqual(after.intro?.body, "Model reword.", "body accepted as a reword")
@@ -443,7 +443,7 @@ final class IntroAuthorshipTests: XCTestCase {
                                steps: [SopStepEdit(stepNumber: 1, caption: "c", body: "b",
                                                    sectionHeading: nil, sectionBody: nil)])
         _ = try await SOPKit.applySopEdits(store: store, projectPath: path, plan: plan,
-                                           model: .sonnet5, tone: .professional)
+                                           model: .sonnet55, tone: .professional)
         let after = try await store.openProject(at: path).manifest
         XCTAssertEqual(after.intro?.heading, "Overview")
         XCTAssertNil(after.introEditedByUser)
@@ -458,7 +458,7 @@ final class IntroAuthorshipTests: XCTestCase {
                                steps: [SopStepEdit(stepNumber: 1, caption: "c", body: "b",
                                                    sectionHeading: nil, sectionBody: nil)])
         _ = try await SOPKit.applySopEdits(store: store, projectPath: path, plan: plan,
-                                           model: .sonnet5, tone: .professional)
+                                           model: .sonnet55, tone: .professional)
         _ = try await SOPKit.revertSop(store: store, projectPath: path)
         let after = try await store.openProject(at: path).manifest
         XCTAssertEqual(after.intro?.body, "Author text.")
@@ -474,7 +474,7 @@ final class IntroAuthorshipTests: XCTestCase {
                                steps: [SopStepEdit(stepNumber: 1, caption: "c", body: "b",
                                                    sectionHeading: nil, sectionBody: nil)])
         _ = try await SOPKit.applySopEdits(store: store, projectPath: path, plan: plan,
-                                           model: .sonnet5, tone: .professional)
+                                           model: .sonnet55, tone: .professional)
         let after = try await store.openProject(at: path).manifest
         XCTAssertEqual(after.intro?.body, "Author text.", "blank plan intro must not wipe it")
         XCTAssertEqual(after.introEditedByUser, true, "so the flag must survive too")
