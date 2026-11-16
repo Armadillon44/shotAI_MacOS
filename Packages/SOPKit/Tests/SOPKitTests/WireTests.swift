@@ -20,8 +20,10 @@ final class SettingsAndPromptTests: XCTestCase {
     }
 
     func testCoerceAcceptsValid() {
-        let s = coerceSopSettings(["model": "claude-sonnet-5", "tone": "friendly", "effort": "high"])
-        XCTAssertEqual(s.model, .sonnet5)
+        let s = coerceSopSettings(["model": "claude-sonnet-5-5", "tone": "friendly", "effort": "high"])
+        XCTAssertEqual(s.model, .sonnet55)
+        // A retired model falls back to the default rather than being kept.
+        XCTAssertEqual(coerceSopSettings(["model": "claude-sonnet-5"]).model, DEFAULT_SOP_MODEL)
         XCTAssertEqual(s.tone, .friendly)
         XCTAssertEqual(s.effort, .high)
     }
@@ -37,7 +39,7 @@ final class SettingsAndPromptTests: XCTestCase {
     }
 
     func testSchemaSerializesAndRawDecodes() throws {
-        XCTAssertTrue(JSONSerialization.isValidJSONObject(sopEditJSONSchema()))
+        XCTAssertTrue(JSONSerialization.isValidJSONObject(plainJSON(sopEditJSONSchema(blockCount: 3))))
         let json = #"{"title":"T","intro":{"heading":"H","body":"B"},"steps":[{"stepNumber":1,"caption":"C","body":"Bd","sectionHeading":"S","sectionBody":"SB"}]}"#
         let raw = try JSONDecoder().decode(SopEditRaw.self, from: Data(json.utf8))
         XCTAssertEqual(raw.title, "T")
@@ -50,12 +52,12 @@ final class SettingsAndPromptTests: XCTestCase {
 final class ClaudeClientTests: XCTestCase {
     func testCheckModelOkAndError() async throws {
         let ok = ClaudeClient(transport: MockTransport(dataHandler: { _ in (Data("{}".utf8), ResponseHead(status: 200)) }))
-        try await ok.checkModel(credential: .apiKey("sk-ant-test"), model: .sonnet5)  // no throw
+        try await ok.checkModel(credential: .apiKey("sk-ant-test"), model: .sonnet55)  // no throw
 
         let bad = ClaudeClient(transport: MockTransport(dataHandler: { _ in
             (Data(#"{"error":{"message":"nope"}}"#.utf8), ResponseHead(status: 401))
         }))
-        do { try await bad.checkModel(credential: .apiKey("sk-ant-test"), model: .sonnet5); XCTFail("expected throw") }
+        do { try await bad.checkModel(credential: .apiKey("sk-ant-test"), model: .sonnet55); XCTFail("expected throw") }
         catch {
             XCTAssertEqual((error as? ClaudeError)?.kind, .invalidKey)
             // The server's own text is kept, not discarded for a canned string.
@@ -67,14 +69,14 @@ final class ClaudeClientTests: XCTestCase {
         let c = ClaudeClient(transport: MockTransport(dataHandler: { _ in
             (Data(#"{"input_tokens":1234}"#.utf8), ResponseHead(status: 200))
         }))
-        let n = try await c.countTokens(credential: .apiKey("sk-ant-test"), model: .sonnet5, system: [], messages: [])
+        let n = try await c.countTokens(credential: .apiKey("sk-ant-test"), model: .sonnet55, system: [], messages: [])
         XCTAssertEqual(n, 1234)
 
         // 429 WITH a small retry-after: a real throttle, worth retrying.
         let limited = ClaudeClient(transport: MockTransport(dataHandler: { _ in
             (Data("{}".utf8), ResponseHead(status: 429, headers: ["Retry-After": "12"]))
         }))
-        do { _ = try await limited.countTokens(credential: .apiKey("sk-ant-test"), model: .sonnet5, system: [], messages: []); XCTFail() }
+        do { _ = try await limited.countTokens(credential: .apiKey("sk-ant-test"), model: .sonnet55, system: [], messages: []); XCTFail() }
         catch { XCTAssertEqual((error as? ClaudeError)?.kind, .rateLimited) }
     }
 
@@ -342,8 +344,8 @@ final class SopServiceTests: XCTestCase {
             keyStore: StubKeyStore())
         let est = try await svc.estimate(dir: dir, manifest: m, settings: SopSettings())
         XCTAssertEqual(est.inputTokens, 1_000_000)
-        // 1M input @ $3/MTok = $3.00; + 2500 output @ $15/MTok ≈ $0.0375.
-        XCTAssertEqual(est.estCostUsd, 3.0 + 2500.0 / 1e6 * 15, accuracy: 0.0001)
+        // Sonnet 5.5 list price (same as Sonnet 5): 1M input @ $2/MTok = $2.00; + 2500 output @ $10/MTok = $0.025.
+        XCTAssertEqual(est.estCostUsd, 2.0 + 2500.0 / 1e6 * 10, accuracy: 0.0001)
     }
 
     func testGenerateRejectsUnderProducedPlan() async throws {
