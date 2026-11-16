@@ -117,6 +117,9 @@ struct ContentView: View {
                     try? await Task.sleep(for: .seconds(5))
                     await model.checkForUpdatesAtLaunch(
                         recording: capture.state.status != .idle)
+                    // Daily read of Anthropic's model list, for the newer-model
+                    // offer. Silent and free; skipped when AI is off or signed out.
+                    await model.checkModelsIfDue(busy: capture.state.status != .idle)
                 }
             }
     }

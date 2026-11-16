@@ -74,11 +74,17 @@ private struct AISettings: View {
 
             Section("Generation") {
                 VStack(alignment: .leading, spacing: 3) {
-                    Picker("Model", selection: $model.sopSettings.model) {
-                        ForEach(SOP_MODELS, id: \.id) { Text($0.label).tag($0.id) }
+                    // Switching goes through the model so a discovered model is
+                    // stored with the profile its requests are built from.
+                    Picker("Model", selection: Binding(
+                        get: { model.sopSettings.model },
+                        set: { model.chooseModel(id: $0) })) {
+                        ForEach(model.modelChoices, id: \.id) { Text(modelLabel($0)).tag($0.id) }
                     }
-                    if let b = SOP_MODELS.first(where: { $0.id == model.sopSettings.model })?.blurb {
-                        Text(b).font(.caption).foregroundStyle(.secondary)
+                    Text(modelBlurb).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let offer = model.modelOffer {
+                        ModelOfferNotice(offer: offer).padding(.top, 2)
                     }
                 }
                 VStack(alignment: .leading, spacing: 3) {
@@ -175,7 +181,27 @@ private struct AISettings: View {
             model.saveSopSettings()
         }
         .onAppear { model.refreshApiKeyStatus() }
-        .task { await model.refreshAuthStatus() }
+        .task {
+            await model.refreshAuthStatus()
+            await model.checkModelsIfDue()
+        }
+        // Signing in, adding a key, or turning AI on is the first moment the
+        // model list can be read; the daily throttle keeps this to one call.
+        .onChange(of: model.hasCredential) { Task { await model.checkModelsIfDue() } }
+        .onChange(of: model.sopSettings.enabled) { Task { await model.checkModelsIfDue() } }
+    }
+
+    private func modelLabel(_ c: ModelChoice) -> String {
+        switch c {
+        case .builtIn(let id): SOP_MODELS.first { $0.id == id }?.label ?? id.rawValue
+        case .discovered(let p): "\(p.displayName) — from Anthropic's list"
+        }
+    }
+
+    private var modelBlurb: String {
+        if let b = SOP_MODELS.first(where: { $0.id == model.sopSettings.model })?.blurb { return b }
+        return "Chosen from Anthropic's model list after this version of shotAI was released. "
+            + "shotAI has no price for it, so the check before generating shows tokens but no cost."
     }
 }
 

@@ -5,8 +5,9 @@ import ShotModel
 public struct SopEstimate: Sendable, Equatable {
     public let inputTokens: Int
     public let model: SopModelId
-    /// Estimated total USD (exact input + a rough output allowance).
-    public let estCostUsd: Double
+    /// Estimated total USD (exact input + a rough output allowance). nil for a
+    /// model shotAI has no price for — one chosen from Anthropic's model list.
+    public let estCostUsd: Double?
 }
 
 /// High-level SOP operations: validate access, estimate cost, and generate the
@@ -52,9 +53,24 @@ public struct SopService: Sendable {
     /// Rough output-token allowance for the estimate (input dominates anyway).
     static let estOutputTokens = 2500
 
-    private func params(_ model: SopModelId) -> ModelParams {
-        MODEL_PARAMS[model] ?? ModelParams(adaptiveThinking: true, supportsEffort: true, inputPerMTok: 2, outputPerMTok: 10,
-                                           maxTokens: 64000, serverSideFallback: false)
+    /// The model a request goes to and the shape it takes, resolved together so the
+    /// two cannot disagree. `SopSettings` only ever holds a built-in model or a
+    /// discovered one with its profile, so the last line is unreachable through
+    /// it; if it were reached, the request would go to the default model with the
+    /// default model's shape, never to an id with someone else's.
+    static func resolvedModel(_ settings: SopSettings) -> (id: SopModelId, params: ModelParams) {
+        if let p = MODEL_PARAMS[settings.model] { return (settings.model, p) }
+        if let d = settings.discoveredModel, d.id == settings.model.rawValue, d.isUsable { return (settings.model, d.params) }
+        return (DEFAULT_SOP_MODEL, MODEL_PARAMS[DEFAULT_SOP_MODEL]!)
+    }
+
+    /// The model a request made with `settings` goes to.
+    public static func requestModel(_ settings: SopSettings) -> SopModelId { resolvedModel(settings).id }
+
+    /// This account's model list, for discovery. Nothing is sent when SOP is off.
+    public func listModels(settings: SopSettings) async throws -> (models: [ListedModel], complete: Bool) {
+        guard settings.enabled else { throw ClaudeError.disabled }
+        return try await client.listModels(credential: try await credential())
     }
 
     /// Validate the configured key + model with a cheap Models API call. Returns
@@ -62,8 +78,9 @@ public struct SopService: Sendable {
     @discardableResult
     public func testKey(settings: SopSettings) async throws -> SopModelId {
         guard settings.enabled else { throw ClaudeError.disabled }
-        try await client.checkModel(credential: try await credential(), model: settings.model)
-        return settings.model
+        let model = Self.resolvedModel(settings).id
+        try await client.checkModel(credential: try await credential(), model: model)
+        return model
     }
 
     /// Estimate input tokens + cost for generating this project's SOP.
@@ -71,12 +88,14 @@ public struct SopService: Sendable {
         guard settings.enabled else { throw ClaudeError.disabled }
         let cred = try await credential()
         let assembled = try assembleRequest(dir: dir, manifest: manifest, settings: settings)
+        let (model, p) = Self.resolvedModel(settings)
         let inputTokens = try await client.countTokens(
-            credential: cred, model: settings.model, system: assembled.system, messages: assembled.messages)
-        let p = params(settings.model)
-        let cost = Double(inputTokens) / 1e6 * p.inputPerMTok
-            + Double(Self.estOutputTokens) / 1e6 * p.outputPerMTok
-        return SopEstimate(inputTokens: inputTokens, model: settings.model, estCostUsd: cost)
+            credential: cred, model: model, system: assembled.system, messages: assembled.messages)
+        var cost: Double?
+        if let i = p.inputPerMTok, let o = p.outputPerMTok {
+            cost = Double(inputTokens) / 1e6 * i + Double(Self.estOutputTokens) / 1e6 * o
+        }
+        return SopEstimate(inputTokens: inputTokens, model: model, estCostUsd: cost)
     }
 
     /// Generate the SOP: stream a vision + structured-output request and return the
@@ -93,14 +112,14 @@ public struct SopService: Sendable {
         _ = try await credential()
         onProgress(.preparing)
         let assembled = try assembleRequest(dir: dir, manifest: manifest, settings: settings)
-        let p = params(settings.model)
+        let (model, p) = Self.resolvedModel(settings)
 
         var outputConfig: [String: Any] = [
             "format": ["type": "json_schema", "schema": sopEditJSONSchema(blockCount: numberedBase(manifest).count)],
         ]
         if p.supportsEffort { outputConfig["effort"] = settings.effort.rawValue }
         var body: [String: Any] = [
-            "model": settings.model.rawValue,
+            "model": model.rawValue,
             "max_tokens": p.maxTokens,
             "system": assembled.system,
             "messages": assembled.messages,

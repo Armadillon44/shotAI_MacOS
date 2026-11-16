@@ -345,7 +345,7 @@ final class SopServiceTests: XCTestCase {
         let est = try await svc.estimate(dir: dir, manifest: m, settings: SopSettings())
         XCTAssertEqual(est.inputTokens, 1_000_000)
         // Sonnet 5.5 list price (same as Sonnet 5): 1M input @ $2/MTok = $2.00; + 2500 output @ $10/MTok = $0.025.
-        XCTAssertEqual(est.estCostUsd, 2.0 + 2500.0 / 1e6 * 10, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(est.estCostUsd), 2.0 + 2500.0 / 1e6 * 10, accuracy: 0.0001)
     }
 
     func testGenerateRejectsUnderProducedPlan() async throws {

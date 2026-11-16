@@ -218,6 +218,19 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         }
     }
 
+    /// True when the model itself could be why this failed, so another model might
+    /// work: it is not available to this account (404), the account may not use it
+    /// (403), or it would not accept the request (400). A 400 counts only for a
+    /// model shotAI was not built with — for a built-in one the request shape is
+    /// known good, so a 400 points at the project, and another model would not help.
+    public func isModelFault(builtInModel: Bool) -> Bool {
+        switch self {
+        case .modelUnavailable, .permissionDenied: true
+        case .api(let status, _): status == 400 && !builtInModel
+        default: false
+        }
+    }
+
     /// True when retrying the same request could plausibly succeed.
     public var isRetryable: Bool {
         switch self {

@@ -124,9 +124,17 @@ public struct ClaudeClient: Sendable {
     let transport: ClaudeTransport
     public init(transport: ClaudeTransport = URLSessionTransport()) { self.transport = transport }
 
-    private func makeRequest(path: String, credential: ClaudeCredential, method: String, jsonBody: [String: Any]?,
-                             betas: [String] = []) throws -> URLRequest {
-        var req = URLRequest(url: Self.baseURL.appendingPathComponent(path))
+    private func makeRequest(path: String, query: [URLQueryItem] = [], credential: ClaudeCredential, method: String,
+                             jsonBody: [String: Any]?, betas: [String] = []) throws -> URLRequest {
+        var url = Self.baseURL.appendingPathComponent(path)
+        if !query.isEmpty {
+            // URLComponents encodes the values; the host stays the pinned one.
+            var c = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            c?.queryItems = query
+            guard let withQuery = c?.url, withQuery.host == Self.baseURL.host else { throw ClaudeError.malformed }
+            url = withQuery
+        }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         // The single place an Anthropic auth header is written. `apply` picks
         // x-api-key or Authorization: Bearer; the secret is never visible here.
@@ -153,6 +161,38 @@ public struct ClaudeClient: Sendable {
         let req = try makeRequest(path: "/v1/models/\(model.rawValue)", credential: credential, method: "GET", jsonBody: nil)
         let (data, head) = try await transport.data(for: req)
         guard head.status == 200 else { throw ClaudeError.from(head: head, message: Self.apiMessage(data), kind: credential.kind) }
+    }
+
+    // MARK: Model list (GET /v1/models — discovery)
+
+    /// More pages than any account has had; a listing still unfinished after this
+    /// many is returned as incomplete rather than followed forever.
+    static let maxModelPages = 5
+
+    /// Every page of this account's model list. Free: no tokens are used. Sent with
+    /// the server-side-fallback beta, which is what makes each entry carry
+    /// `allowed_fallback_models`. `complete` is false when the page cap cut it short.
+    public func listModels(credential: ClaudeCredential) async throws -> (models: [ListedModel], complete: Bool) {
+        var models: [ListedModel] = []
+        var after: String?
+        for _ in 0..<Self.maxModelPages {
+            var query = [URLQueryItem(name: "limit", value: "100")]
+            if let after { query.append(URLQueryItem(name: "after_id", value: after)) }
+            let req = try makeRequest(path: "/v1/models", query: query, credential: credential, method: "GET",
+                                      jsonBody: nil, betas: [SopService.fallbackBeta])
+            let (data, head) = try await transport.data(for: req)
+            guard head.status == 200 else {
+                throw ClaudeError.from(head: head, message: Self.apiMessage(data), kind: credential.kind)
+            }
+            let page = try ModelList.parsePage(data)
+            models += page.models
+            guard page.hasMore else { return (models, true) }
+            // More pages, but no cursor that moves: stop rather than loop, and do
+            // not call the listing complete, since it is not.
+            guard let last = page.lastId, last != after else { return (models, false) }
+            after = last
+        }
+        return (models, false)
     }
 
     // MARK: Token count (POST /v1/messages/count_tokens)
