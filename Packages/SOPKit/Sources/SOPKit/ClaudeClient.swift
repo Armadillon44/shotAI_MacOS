@@ -61,8 +61,55 @@ public protocol ClaudeTransport: Sendable {
 /// Default transport backed by URLSession. A URLError (offline, DNS, TLS) is
 /// surfaced as `ClaudeError.connection`.
 public struct URLSessionTransport: ClaudeTransport {
-    private let session: URLSession
-    public init(session: URLSession = .shared) { self.session = session }
+    let session: URLSession
+    public init(session: URLSession? = nil) { self.session = session ?? Self.pinnedSession }
+
+    /// The session every Claude request uses: ephemeral, with no URLCache, no
+    /// cookies and no stored credentials, and no redirect off the host a request
+    /// was sent to. Same posture as UpdateKit and EntraKit: nothing a request
+    /// carries is kept on disk. A cache policy on the request is not enough for
+    /// that; the session must have no cache.
+    static let pinnedSession = makeSession(configuration: pinnedConfiguration())
+
+    static func pinnedConfiguration() -> URLSessionConfiguration {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.urlCache = nil
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        cfg.httpCookieStorage = nil
+        cfg.httpCookieAcceptPolicy = .never
+        cfg.httpShouldSetCookies = false
+        cfg.urlCredentialStorage = nil
+        return cfg
+    }
+
+    static func makeSession(configuration: URLSessionConfiguration) -> URLSession {
+        URLSession(configuration: configuration, delegate: SameHostRedirectsOnly(), delegateQueue: nil)
+    }
+
+    /// The URLCache files earlier builds, which used `URLSession.shared`, left in
+    /// `directory` (the app's own Caches/<bundle id> folder). Nothing uses them
+    /// now, so they are removed rather than left to age out. A symlink at one of
+    /// these names is removed itself, never followed. Returns the names it removed.
+    @discardableResult
+    public static func removeLegacyDiskCache(in directory: URL) -> [String] {
+        let fm = FileManager.default
+        var removed: [String] = []
+        for name in ["Cache.db", "Cache.db-wal", "Cache.db-shm", "fsCachedData"] {
+            let item = directory.appendingPathComponent(name)
+            // attributesOfItem does not follow a final symlink, unlike fileExists.
+            guard (try? fm.attributesOfItem(atPath: item.path)) != nil else { continue }
+            if (try? fm.removeItem(at: item)) != nil { removed.append(name) }
+        }
+        return removed
+    }
+
+    /// Defense in depth behind the redirect rule: a response that did not come
+    /// from the host its request was sent to is never read.
+    private static func checkHost(_ response: URLResponse, for request: URLRequest) throws {
+        guard let sent = request.url?.host?.lowercased(), response.url?.host?.lowercased() == sent else {
+            throw ClaudeError.malformed
+        }
+    }
 
     private static func head(_ response: URLResponse?) -> ResponseHead {
         guard let http = response as? HTTPURLResponse else { return ResponseHead(status: 0) }
@@ -76,6 +123,7 @@ public struct URLSessionTransport: ClaudeTransport {
     public func data(for request: URLRequest) async throws -> (Data, ResponseHead) {
         do {
             let (data, response) = try await session.data(for: request)
+            try Self.checkHost(response, for: request)
             return (data, Self.head(response))
         } catch is URLError {
             throw ClaudeError.connection
@@ -90,6 +138,7 @@ public struct URLSessionTransport: ClaudeTransport {
         } catch is URLError {
             throw ClaudeError.connection
         }
+        try Self.checkHost(response, for: request)
         let head = Self.head(response)
         let stream = AsyncThrowingStream<String, Error> { continuation in
             let task = Task {
@@ -103,6 +152,24 @@ public struct URLSessionTransport: ClaudeTransport {
             continuation.onTermination = { _ in task.cancel() }
         }
         return (stream, head)
+    }
+}
+
+/// Follows a redirect only when it stays on https and on the host the request was
+/// sent to. The Anthropic API does not redirect, and following one elsewhere would
+/// carry `x-api-key` (URLSession drops only `Authorization` on a host change) and
+/// the request body to whatever host the redirect named. A refused redirect ends
+/// the task with the 3xx response, which the caller reports as a failure.
+final class SameHostRedirectsOnly: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        let sent = task.originalRequest?.url?.host?.lowercased()
+        let stays = sent != nil && request.url?.scheme == "https" && request.url?.host?.lowercased() == sent
+        completionHandler(stays ? request : nil)
     }
 }
 
