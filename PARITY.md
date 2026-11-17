@@ -146,6 +146,20 @@ The only hard ship gate is **distribution** — Developer ID + notarization
 ### The one Windows-ahead feature
 - **Native `.docx` / `.pptx` export** — [#53](https://github.com/Armadillon44/shotAI_MacOS/issues/53). Windows now ships both; macOS defers. Feasible dependency-free via the existing DEFLATE zip writer (OOXML is zip-of-XML) — do **not** import an Office library. "HTML for Word/Docs" is the interim path.
 
+### macOS-ahead: SOP generation (Windows to catch up)
+Built on macOS in the 2026-11 SOP hardening stack (shotAI_MacOS #129–#137); none is in Windows v1.3.0.
+- **Whole-SOP generation** — Claude rewrites author text blocks and callouts as well as screenshot
+  steps, one numbered entry per block with a declared kind, checked before anything lands
+  (`sopRewrite` records what generation wrote, so author edits are never mistaken for Claude's).
+- **Review, repair, undo** — misnumbered plans rerun once, filler/missing steps get one repair turn,
+  good steps apply when others fail, and "Undo this generation" sits beside Revert.
+- **Request shape** — labels before images, deterministic request bytes, retries on transient failures.
+- **Sonnet 5.5** with server-side fallback to Sonnet 5 (Windows still on Sonnet 5).
+- **Model discovery** — a daily read of Anthropic's model list offers a newer compatible Sonnet with one click.
+- **Wording + per-SOP instructions** — Specific/General wording and one-off instructions, remembered per
+  project in the additive `sopRunOptions` key. Windows keeps that key through its unknown-key passthrough
+  (#95) and ignores it, so nothing breaks in a mixed fleet; it just has no dialog to use it.
+
 ### Settled, no action
 - **Step `note` field** — Windows deleted it in v1.1.0; macOS keeps an inert copy (no UI creates one, capture writes `""`, every reader is empty-guarded). **Decided 2026-07-28: leave as-is** — removing it would only strand legacy notes from pre-v1.1.0 Windows projects. See "Step `note` field" in the Verdict; not a gap, don't re-open it.
 
