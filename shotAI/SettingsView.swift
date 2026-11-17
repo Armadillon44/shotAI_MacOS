@@ -74,11 +74,17 @@ private struct AISettings: View {
 
             Section("Generation") {
                 VStack(alignment: .leading, spacing: 3) {
-                    Picker("Model", selection: $model.sopSettings.model) {
-                        ForEach(SOP_MODELS, id: \.id) { Text($0.label).tag($0.id) }
+                    // Switching goes through the model so a discovered model is
+                    // stored with the profile its requests are built from.
+                    Picker("Model", selection: Binding(
+                        get: { model.sopSettings.model },
+                        set: { model.chooseModel(id: $0) })) {
+                        ForEach(model.modelChoices, id: \.id) { Text(modelLabel($0)).tag($0.id) }
                     }
-                    if let b = SOP_MODELS.first(where: { $0.id == model.sopSettings.model })?.blurb {
-                        Text(b).font(.caption).foregroundStyle(.secondary)
+                    Text(modelBlurb).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let offer = model.modelOffer {
+                        ModelOfferNotice(offer: offer).padding(.top, 2)
                     }
                 }
                 VStack(alignment: .leading, spacing: 3) {
@@ -88,6 +94,15 @@ private struct AISettings: View {
                     if let b = SOP_TONES.first(where: { $0.id == model.sopSettings.tone })?.blurb {
                         Text(b).font(.caption).foregroundStyle(.secondary)
                     }
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Picker("Wording", selection: $model.sopSettings.wording) {
+                        ForEach(SOP_WORDINGS, id: \.id) { Text($0.label).tag($0.id) }
+                    }
+                    Text((SOP_WORDINGS.first { $0.id == model.sopSettings.wording }?.blurb ?? "")
+                         + " The Generate dialog starts here; each project then remembers its own choice.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Picker("Effort", selection: $model.sopSettings.effort) {
@@ -167,15 +182,35 @@ private struct AISettings: View {
             .disabled(!model.sopSettings.enabled)
         }
         .formStyle(.grouped)
-        .onChange(of: model.sopSettings) {
-            // Cap custom instructions, then persist any change.
-            if model.sopSettings.customInstructions.count > SOP_CUSTOM_INSTRUCTIONS_MAX {
-                model.sopSettings.customInstructions = String(model.sopSettings.customInstructions.prefix(SOP_CUSTOM_INSTRUCTIONS_MAX))
-            }
+        .onChange(of: model.sopSettings) { old, new in
+            // Cap custom instructions at the edit, not the end of the text, then
+            // persist any change.
+            let capped = capTextEdit(old: old.customInstructions, new: new.customInstructions,
+                                     limit: SOP_CUSTOM_INSTRUCTIONS_MAX)
+            if capped != new.customInstructions { model.sopSettings.customInstructions = capped; NSSound.beep() }
             model.saveSopSettings()
         }
         .onAppear { model.refreshApiKeyStatus() }
-        .task { await model.refreshAuthStatus() }
+        // Signing in or out, a key added or cleared, and AI turned on each start a
+        // check from AppModel, whichever window they happen in; this covers a
+        // check that came due while the app ran.
+        .task {
+            await model.refreshAuthStatus()
+            await model.checkModelsIfDue()
+        }
+    }
+
+    private func modelLabel(_ c: ModelChoice) -> String {
+        switch c {
+        case .builtIn(let id): SOP_MODELS.first { $0.id == id }?.label ?? id.rawValue
+        case .discovered(let p): "\(p.displayName) — from Anthropic's list"
+        }
+    }
+
+    private var modelBlurb: String {
+        if let b = SOP_MODELS.first(where: { $0.id == model.sopSettings.model })?.blurb { return b }
+        return "Chosen from Anthropic's model list; not one this version of shotAI was built and tested with. "
+            + "shotAI has no price for it, so the check before generating shows tokens but no cost."
     }
 }
 
@@ -202,7 +237,7 @@ private struct AccountRows: View {
         case .signedOut:
             LabeledContent("Status") { Text("Not signed in").foregroundStyle(.secondary) }
             HStack {
-                Button("Sign In…") { Task { await model.auth.signIn() } }
+                Button("Sign In…") { Task { await model.signIn() } }
                     .disabled(model.auth.busy)
                 if model.auth.busy { ProgressView().controlSize(.small) }
             }
@@ -223,9 +258,9 @@ private struct AccountRows: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {
-                Button("Check Again") { Task { await model.auth.signIn(forceLogin: true) } }
+                Button("Check Again") { Task { await model.signIn(forceLogin: true) } }
                     .disabled(model.auth.busy)
-                Button("Sign Out") { Task { await model.auth.signOut() } }
+                Button("Sign Out") { Task { await model.signOut() } }
                     .disabled(model.auth.busy)
                 if model.auth.busy { ProgressView().controlSize(.small) }
             }

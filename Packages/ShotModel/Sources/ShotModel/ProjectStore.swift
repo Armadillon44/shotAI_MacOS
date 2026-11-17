@@ -383,6 +383,14 @@ public actor ProjectStore {
         if out.createdAt.isEmpty { out.createdAt = now }
         out.updatedAt = now
         out.sopBackup = nil
+        // Records of what generation wrote, and the words it wrote from, are the
+        // sender's local history like sopBackup, and are dropped for the same reason.
+        // The recipient's starting point is the text they were sent.
+        for i in out.steps.indices { out.steps[i].sopRewrite = nil }
+        out.sopTitleRewrite = nil
+        // The sender's remembered Generate choices are theirs, and a package from a
+        // build that shipped them should not prefill the recipient's dialog.
+        out.sopRunOptions = nil
         // An imported project is materialized live (files extracted), never archived.
         out.archived = false
         out.archivedAt = nil
@@ -491,6 +499,13 @@ public actor ProjectStore {
             if let note { m.steps[i].note = note }
             if let heading { m.steps[i].heading = heading }
             if let body { m.steps[i].body = body }
+            if heading != nil || body != nil {
+                // Writing in a block Claude inserted makes it the author's. Left
+                // flagged aiInserted, it was dropped by the next regeneration and by
+                // Revert — the author's words with it, never sent to Claude.
+                if m.steps[i].aiInserted == true { m.steps[i].aiInserted = nil }
+                m.steps[i].pruneStaleSopRewrite()
+            }
             if let callout { m.steps[i].callout = callout }
         }
     }
@@ -514,6 +529,20 @@ public actor ProjectStore {
         return try mutate(at: projectPath) {
             $0.displayScale = snapped == DocScale.default ? nil : snapped
         }
+    }
+
+    /// Remember the Generate dialog's choices for this project, so the next Generate
+    /// starts from them. Empty options remove the key.
+    ///
+    /// Guarded like `setTheme`: `mutate` re-dates the project, so an unchanged
+    /// choice writes nothing and does not jump the project to the top of Home.
+    /// Returns nil when nothing was written.
+    @discardableResult
+    public func setSopRunOptions(at projectPath: String, _ options: SopRunOptions?) throws -> ProjectManifest? {
+        let next = (options?.isEmpty ?? true) ? nil : options
+        let current = try openProject(at: projectPath).manifest.sopRunOptions
+        guard next != current else { return nil }
+        return try mutate(at: projectPath) { $0.sopRunOptions = next }
     }
 
     /// Pin this project to a brand, or clear the pin so it follows the app.
@@ -555,6 +584,10 @@ public actor ProjectStore {
             }
             guard m.steps[i].kind == .text else { return }  // only text steps can be callouts
             m.steps[i].callout = callout
+            // Changing what kind of block Claude's inserted section is — into a warning,
+            // say — is a deliberate author act, so the block becomes the author's and
+            // survives regeneration and Revert. See editStepText.
+            if m.steps[i].aiInserted == true { m.steps[i].aiInserted = nil }
             ProjectStore.renumber(&m.steps)
         }
     }

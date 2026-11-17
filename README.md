@@ -254,7 +254,36 @@ It sits under **Advanced** because sign-in is the normal route where it exists, 
 the key path is deprecated. It stays available precisely so it can be used when sign-in
 itself is what's broken. If you have both, the signed-in session wins.
 
-shotAI uses **Claude Sonnet 5** (`claude-sonnet-5`) by default. The **tone**
+shotAI uses **Claude Sonnet 5.5** (`claude-sonnet-5-5`) by default. Settings saved by an
+earlier version that named Sonnet 5 move to Sonnet 5.5 on their own; nothing else in them
+changes. If Sonnet 5.5's safety screening declines a request as cybersecurity-related, which
+can happen with legitimate IT procedures, it is rerun on Sonnet 5 automatically.
+
+**Newer models.** Once a day, while AI is on and you're signed in (or have a key), shotAI
+reads Anthropic's model list, and again right after you sign in, sign out, or change the key,
+since another account can see other models. That call is free and sends nothing about your projects. When a
+newer Sonnet appears that supports everything shotAI's request uses (screenshots, structured
+output, adaptive thinking, and the Low/Medium/High effort levels), Settings ▸ AI and the AI SOP
+panel offer it with a **Switch** button. Nothing changes until someone clicks it, and you can
+switch back in Settings ▸ AI, which keeps each model you chose for as long as Anthropic lists it. The same check warns when the model in use is being retired or is
+no longer available to your account. A model chosen this way has no price in shotAI, so the
+check before generating shows the token count but no cost. If it fails in a way another model
+could avoid, the error offers to go back to Sonnet 5.5, or, when the list shows Sonnet 5.5 is no
+longer available, to another compatible Sonnet. It never offers a model that already failed
+since shotAI was opened.
+
+**Wording and per-SOP instructions.** Clicking Generate opens a sheet showing what will be sent
+and its estimated cost, with two choices for this SOP. **Wording** is *Specific* (names the apps,
+buttons and values in the screenshots) or *General* (describes each action in general terms, like
+"open the app" or "choose the appropriate setting"). General applies to the text Claude writes:
+the steps, a title that replaces an app-generated name (or the title an earlier generation wrote
+for it), and the overview. Text blocks and callouts you wrote, an overview you wrote, and a project
+name you chose keep their specifics. **Instructions for this SOP** is optional free text for this
+project only. The project remembers both and fills them in next time; **Forget saved
+instructions** in the sheet removes them without generating. The Wording setting in Settings ▸ AI
+is where a project with no choice of its own starts. A project package shared from this version of
+shotAI for Mac leaves the remembered instructions out. One shared from shotAI for Windows, or from
+an earlier Mac version, still carries them in its `project.json` until that app is updated. The **tone**
 (Professional / Friendly / Concise / Detailed — Professional by default) and **effort**
 (Low / Medium / High — Medium by default) are configurable, plus optional free-text custom
 instructions. With no key, capture, editing, redaction, and export all still work — only

@@ -279,6 +279,98 @@ public enum SopTone: String, Codable, Sendable {
     case professional, friendly, concise, detailed
 }
 
+/// How specific generated SOP text is. `specific` names what the screenshots show
+/// (the app, the button, the value); `general` describes the same actions in
+/// general terms ("open the app", "choose the appropriate setting"), for guides
+/// that must read correctly for anyone doing the same kind of task.
+public enum SopWording: String, Codable, Sendable, CaseIterable {
+    case specific, general
+}
+
+/// Cap on the one-off instructions remembered per project.
+public let SOP_RUN_INSTRUCTIONS_MAX = 2000
+
+/// A text-field edit that would go over `limit` characters, applied as far as it
+/// fits: what was inserted is cut, never what was already there. Trimming the end
+/// instead silently deleted the last words of a full field when the author typed
+/// or pasted earlier in it. An edit that only shortens, or stays in bounds, is
+/// returned as is; a field already over the limit is cut to it.
+public func capTextEdit(old: String, new: String, limit: Int) -> String {
+    guard new.count > limit else { return new }
+    guard old.count <= limit else { return String(new.prefix(limit)) }
+    let o = Array(old), n = Array(new)
+    var head = 0
+    while head < o.count, head < n.count, o[head] == n[head] { head += 1 }
+    var tail = 0
+    while tail < o.count - head, tail < n.count - head, o[o.count - 1 - tail] == n[n.count - 1 - tail] { tail += 1 }
+    // new = head + inserted + tail, and head + tail <= old.count <= limit.
+    let room = limit - head - tail
+    let inserted = n[head..<(n.count - tail)]
+    return String(n[..<head]) + String(inserted.prefix(max(0, room))) + String(n[(n.count - tail)...])
+}
+
+/// What the author chose in the Generate dialog last time, offered again next time.
+///
+/// A macOS-only, additive key: `sopRunOptions`. Windows has no such dialog; it keeps
+/// the key untouched through its unknown-key passthrough (Windows v1.3.0, #95) and
+/// ignores it. Absent means "never chosen": the dialog starts from Settings.
+///
+/// Packages exported by this macOS build leave it out. Windows v1.3.0 and earlier
+/// macOS builds keep unknown keys in the packages they export, so a project that
+/// passes through one of them can still carry it (a Windows-parity TODO).
+///
+/// Raw, like `theme`: a wording this build does not recognise (written by a newer
+/// build) and any field it does not know survive a read/write cycle rather than
+/// being erased. Read the wording through `wordingChoice`.
+public struct SopRunOptions: Codable, Equatable, Sendable {
+    /// As written. An explicit choice is always stored, the default included:
+    /// "never chosen" and "chose the default" are different states (the lesson of
+    /// `theme`, Armadillon44/shotAI#77).
+    public var wording: String?
+    /// One-off instructions for this project's SOP. Read as stored and capped at
+    /// SOP_RUN_INSTRUCTIONS_MAX only where it is typed or used (this init, the
+    /// Generate sheet, the prompt): capping on read would let any unrelated save of
+    /// the manifest (a rename, the launch auto-archive) cut text a later build with
+    /// a higher cap wrote.
+    public var instructions: String
+    /// Fields this build does not know, preserved for round-trip.
+    public var extra: [String: JSONValue]
+
+    public init(wording: SopWording? = nil, instructions: String = "", extra: [String: JSONValue] = [:]) {
+        self.wording = wording?.rawValue
+        self.instructions = String(instructions.prefix(SOP_RUN_INSTRUCTIONS_MAX))
+        self.extra = extra
+    }
+
+    /// The stored wording, or nil when none was chosen or this build does not know it.
+    public var wordingChoice: SopWording? { wording.flatMap(SopWording.init(rawValue:)) }
+
+    /// Nothing worth keeping on disk.
+    public var isEmpty: Bool { wording == nil && instructions.isEmpty && extra.isEmpty }
+
+    private static let knownKeys: Set<String> = ["wording", "instructions"]
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: DynamicKey.self)
+        wording = try? c.decodeIfPresent(String.self, forKey: DynamicKey("wording"))
+        instructions = (try? c.decodeIfPresent(String.self, forKey: DynamicKey("instructions"))) ?? ""
+        var extras: [String: JSONValue] = [:]
+        for k in c.allKeys where !Self.knownKeys.contains(k.stringValue) {
+            extras[k.stringValue] = try? c.decode(JSONValue.self, forKey: k)
+        }
+        extra = extras.compactMapValues { $0 }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: DynamicKey.self)
+        try c.encodeIfPresent(wording, forKey: DynamicKey("wording"))
+        try c.encode(instructions, forKey: DynamicKey("instructions"))
+        for (k, v) in extra.sorted(by: { $0.key < $1.key }) {
+            try c.encode(v, forKey: DynamicKey(k))
+        }
+    }
+}
+
 /// Pre-generation snapshot for one-click revert of Claude's inline SOP edits.
 public struct SopBackup: Codable, Equatable, Sendable {
     public var steps: [ProjectStep]
@@ -344,6 +436,20 @@ public struct SopBackup: Codable, Equatable, Sendable {
 
 // MARK: - Step
 
+/// See `ProjectStep.sopRewrite`.
+public struct SopTextRewrite: Codable, Equatable, Sendable {
+    /// What generation wrote. nil means it left that field alone.
+    public var heading: String?
+    public var body: String?
+    /// The author's words each field was written from.
+    public var sourceHeading: String?
+    public var sourceBody: String?
+    public init(heading: String?, body: String?, sourceHeading: String?, sourceBody: String?) {
+        self.heading = heading; self.body = body
+        self.sourceHeading = sourceHeading; self.sourceBody = sourceBody
+    }
+}
+
 public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var order: Int
@@ -382,6 +488,24 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
     /// produces, so a mixed-version fleet degrades to today rather than to
     /// feeding Claude its own output.
     public var captionEditedByUser: Bool?
+    /// What SOP generation last wrote into this AUTHOR block, and the author's own
+    /// words it was written from. Absent on screenshot steps and on blocks generation
+    /// has never rewritten.
+    ///
+    /// The author's words are what an author block is rewritten FROM, so a
+    /// regeneration must never be fed Claude's previous rewrite as if the author wrote
+    /// it. This record is how that is told apart, field by field, without trusting
+    /// any flag: if a field still shows exactly what generation wrote there, the
+    /// author's words for it are `source…`; if it shows anything else, someone changed
+    /// it — on any build, including Windows, which never flags text edits — and what it
+    /// shows IS the author's. A flag-based version of this lost an author's edit made
+    /// on Windows, and a warning's added requirement with it.
+    ///
+    /// macOS-only. Windows carries it through untouched (its normalizeSteps spreads
+    /// unknown step keys and its edits use Object.assign), so a Windows edit leaves the
+    /// record stale, the text stops matching it, and the edit is correctly read as the
+    /// author's. Omitted when nil, so a project generation never touched is unchanged.
+    public var sopRewrite: SopTextRewrite?
     /// Optional crop rect, in image px.
     public var crop: Rect?
     /// Click-register marker color; defaults to the accent when unset.
@@ -414,7 +538,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
     private static let knownKeys: [String] = [
         "id", "order", "kind", "screenshot", "trigger", "click", "monitor",
         "window", "element", "caption", "note", "heading", "body", "callout",
-        "aiInserted", "captionEditedByUser", "crop", "markerColor", "annotations", "flattened",
+        "aiInserted", "captionEditedByUser", "sopRewrite", "crop", "markerColor", "annotations", "flattened",
         "renderRev", "markerBaked", "reportZoom", "reportPanX", "reportPanY",
     ]
 
@@ -435,6 +559,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         callout: CalloutKind? = nil,
         aiInserted: Bool? = nil,
         captionEditedByUser: Bool? = nil,
+        sopRewrite: SopTextRewrite? = nil,
         crop: Rect? = nil,
         markerColor: String? = nil,
         annotations: [Annotation] = [],
@@ -462,6 +587,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         self.callout = callout
         self.aiInserted = aiInserted
         self.captionEditedByUser = captionEditedByUser
+        self.sopRewrite = sopRewrite
         self.crop = crop
         self.markerColor = markerColor
         self.annotations = annotations
@@ -504,6 +630,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         callout = try? c.decodeIfPresent(CalloutKind.self, forKey: key("callout"))
         aiInserted = try? c.decodeIfPresent(Bool.self, forKey: key("aiInserted"))
         captionEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: key("captionEditedByUser"))
+        sopRewrite = try? c.decodeIfPresent(SopTextRewrite.self, forKey: key("sopRewrite"))
         crop = try? c.decodeIfPresent(Rect.self, forKey: key("crop"))
         markerColor = try? c.decodeIfPresent(String.self, forKey: key("markerColor"))
         annotations = (try? c.decodeIfPresent([Annotation].self, forKey: key("annotations"))) ?? []
@@ -541,6 +668,7 @@ public struct ProjectStep: Codable, Equatable, Sendable, Identifiable {
         try c.encodeIfPresent(callout, forKey: key("callout"))
         try c.encodeIfPresent(aiInserted, forKey: key("aiInserted"))
         try c.encodeIfPresent(captionEditedByUser, forKey: key("captionEditedByUser"))
+        try c.encodeIfPresent(sopRewrite, forKey: key("sopRewrite"))
         try c.encode(crop, forKey: key("crop"))
         try c.encodeIfPresent(markerColor, forKey: key("markerColor"))
         try c.encode(annotations, forKey: key("annotations"))
@@ -638,6 +766,16 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     public var introEditedByUser: Bool?
     /// Pre-edit snapshot enabling revert of Claude's inline SOP edits.
     public var sopBackup: SopBackup?
+    /// The Generate dialog's last choices for this project (macOS-only key; see
+    /// `SopRunOptions`). nil, and absent on disk, until the author generates.
+    public var sopRunOptions: SopRunOptions?
+    /// The title the last generation wrote, exactly (macOS-only additive key).
+    /// While `title` still equals it, the title is Claude's, not a person's; a
+    /// rename on any build, Windows included, breaks the match. Like each step's
+    /// `sopRewrite` it records what generation wrote rather than trusting a flag a
+    /// client must remember to set. Windows keeps it through its unknown-key
+    /// passthrough. Omitted when absent.
+    public var sopTitleRewrite: String?
     /// Archived state (F2): when true, the project's bulk files (shots/, export/)
     /// are compressed into archive.zip and the loose copies removed — the project
     /// stays listed (under the Archive tab) and is auto-restored on open.
@@ -649,7 +787,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
 
     private static let knownKeys: Set<String> = [
         "version", "id", "title", "createdWith", "createdAt", "updatedAt",
-        "captureSettings", "steps", "displayScale", "theme", "intro", "introEditedByUser", "sopBackup", "archived", "archivedAt",
+        "captureSettings", "steps", "displayScale", "theme", "intro", "introEditedByUser", "sopBackup", "sopRunOptions",
+        "sopTitleRewrite", "archived", "archivedAt",
     ]
 
     public init(
@@ -715,6 +854,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         introEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: key("introEditedByUser"))
         intro = (rawIntro?.isEmpty ?? true) ? nil : rawIntro
         sopBackup = try? c.decodeIfPresent(SopBackup.self, forKey: key("sopBackup"))
+        sopRunOptions = try? c.decodeIfPresent(SopRunOptions.self, forKey: key("sopRunOptions"))
+        sopTitleRewrite = try? c.decodeIfPresent(String.self, forKey: key("sopTitleRewrite"))
         // Tolerant like Windows readManifest: any non-`true` (missing/null/other) → false.
         archived = ((try? c.decodeIfPresent(Bool.self, forKey: key("archived"))) ?? false) == true
         archivedAt = (try? c.decodeIfPresent(String.self, forKey: key("archivedAt"))) ?? nil
@@ -742,6 +883,9 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         try c.encode(intro, forKey: key("intro"))
         try c.encodeIfPresent(introEditedByUser, forKey: key("introEditedByUser"))
         try c.encode(sopBackup, forKey: key("sopBackup"))
+        // Omitted until used, so a project that never generated stays byte-identical.
+        if let o = sopRunOptions, !o.isEmpty { try c.encode(o, forKey: key("sopRunOptions")) }
+        try c.encodeIfPresent(sopTitleRewrite, forKey: key("sopTitleRewrite"))
         try c.encode(archived, forKey: key("archived"))
         try c.encode(archivedAt, forKey: key("archivedAt"))  // explicit null when live
         for (k, v) in extra.sorted(by: { $0.key < $1.key }) {
@@ -809,5 +953,20 @@ public struct ProjectSummary: Equatable, Sendable {
         self.hasSop = hasSop
         self.archived = archived
         self.searchText = searchText
+    }
+}
+
+extension ProjectStep {
+    /// Drop the parts of `sopRewrite` that no longer describe this block. A field the
+    /// author changed after generation no longer shows what generation wrote, so its
+    /// recorded words — both what was written and the source it was written from —
+    /// will never be used again. Keeping them anyway kept text the author DELETED in
+    /// the file, and shipped it in exported packages (a phone number removed after
+    /// generating was still there). The record goes entirely once neither field is live.
+    public mutating func pruneStaleSopRewrite() {
+        guard var r = sopRewrite else { return }
+        if let wrote = r.heading, (heading ?? "") != wrote { r.heading = nil; r.sourceHeading = nil }
+        if let wrote = r.body, (body ?? "") != wrote { r.body = nil; r.sourceBody = nil }
+        sopRewrite = (r.heading == nil && r.body == nil) ? nil : r
     }
 }
