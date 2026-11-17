@@ -1057,9 +1057,20 @@ final class AppModel {
         sopRunDraft = nil
         // The tokens and price just approved were for `estimate.model`. Settings is
         // a separate window, usable while the sheet is up; if the model changed
-        // there, estimate again so what runs is what was approved. The sheet comes
-        // back with what the author had set in it, not what was saved.
-        if SopService.requestModel(sopSettings) != estimate.model { prepareSop(draft: run); return }
+        // there, estimate again so what runs is what was approved. The choices are
+        // saved first, as Generate always does, so they are not lost if that
+        // estimate fails or is blocked; the sheet comes back with them.
+        if SopService.requestModel(sopSettings) != estimate.model {
+            let path = selectedPath ?? current.dir
+            let remembered = run.remembered(over: current.manifest.sopRunOptions)
+            Task { [weak self] in
+                guard let self else { return }
+                do { try await self.store.setSopRunOptions(at: path, remembered) }
+                catch { Log.store.error("could not remember the Generate choices: \(error.localizedDescription, privacy: .public)") }
+                self.prepareSop(draft: run)
+            }
+            return
+        }
         lastSopRun = nil
         sopBusy = true; generationInFlight = true; sopError = nil; sopIncompleteIds = []; sopProgress = "Preparing…"
         let dir = current.dir
@@ -1113,8 +1124,12 @@ final class AppModel {
 
     /// Cancel an in-flight generation.
     func cancelSop() { sopTask?.cancel() }
-    /// The Generate sheet's "Forget saved instructions": remove them from the
-    /// project now, without generating. The wording choice stays.
+    /// The project has instructions saved from an earlier Generate.
+    var hasSavedSopInstructions: Bool { !(opened?.manifest.sopRunOptions?.instructions.isEmpty ?? true) }
+
+    /// "Forget saved instructions" (the Generate sheet and the AI SOP panel):
+    /// remove them from the project now, without generating or estimating, so
+    /// they are not sent again. The wording choice stays.
     func forgetSopInstructions() async {
         guard let current = opened, var saved = current.manifest.sopRunOptions, !saved.instructions.isEmpty else { return }
         saved.instructions = ""

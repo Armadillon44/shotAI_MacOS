@@ -72,6 +72,36 @@ final class GeneralRegenerationTests: XCTestCase {
         XCTAssertFalse(general.contains("previous generation"))
     }
 
+    private func applyTitle(_ store: ProjectStore, _ path: String, _ t: String) async throws {
+        _ = try await applySopEdits(store: store, projectPath: path, plan: SopEditPlan(
+            title: t, intro: nil,
+            steps: [SopStepEdit(stepNumber: 1, caption: "Open Okta", body: "Click Okta.", sectionHeading: nil, sectionBody: nil)]),
+            model: .sonnet55, tone: .professional)
+    }
+
+    /// The verification finding: a person's name that the next run returned
+    /// unchanged (as it was told to) was recorded as Claude's, and the run after
+    /// that, in General, replaced it.
+    func testAPersonsNameKeptByARegenerationStaysThePersons() async throws {
+        let (store, path, dir) = try await generatedOnce()
+        _ = try await store.renameProject(at: path, title: "Okta MFA reset for Finance")
+        try await applyTitle(store, path, "Okta MFA reset for Finance")
+        let m = try await store.openProject(at: path).manifest
+        XCTAssertNil(m.sopTitleRewrite)
+        let general = try userText(m, dir, run: SopRun(wording: .general))
+        XCTAssertTrue(general.contains("written by a person"))
+        XCTAssertFalse(general.contains("previous generation"))
+    }
+
+    /// Claude's title replacing Claude's own title stays Claude's, run after run.
+    func testClaudesTitleStaysClaudesAcrossRuns() async throws {
+        let (store, path, dir) = try await generatedOnce()
+        try await applyTitle(store, path, "Resetting MFA for a Finance user in Okta")
+        let m = try await store.openProject(at: path).manifest
+        XCTAssertEqual(m.sopTitleRewrite, "Resetting MFA for a Finance user in Okta")
+        XCTAssertTrue(try userText(m, dir, run: SopRun(wording: .general)).contains("previous generation"))
+    }
+
     /// Only a name the app wrote was Claude's to replace in the first place. A
     /// person's name that Claude improved keeps being treated as the person's.
     func testATitleThatImprovedAPersonsNameIsStillThePersons() async throws {

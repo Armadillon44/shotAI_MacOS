@@ -58,7 +58,7 @@ struct GenerateSopSheet: View {
                     Text("\(instructions.count)/\(SOP_RUN_INSTRUCTIONS_MAX)")
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
-                if hasSavedInstructions {
+                if model.hasSavedSopInstructions {
                     // Cancel discards edits and Generate sends a paid request, so
                     // without this the saved notes could not be removed at all.
                     Button("Forget saved instructions") {
@@ -88,10 +88,6 @@ struct GenerateSopSheet: View {
     /// What is sent and what it costs. The count was taken with the choices this
     /// sheet opened with; changing them moves it by the length of the text, which
     /// is small beside the screenshots, hence "about".
-    private var hasSavedInstructions: Bool {
-        !(model.opened?.manifest.sopRunOptions?.instructions.isEmpty ?? true)
-    }
-
     private var summary: String {
         let cost = estimate.estCostUsd.map { String(format: "Estimated cost ≈ $%.2f.", $0) }
             ?? "No cost estimate: shotAI has no price for \(model.modelName(estimate.model))."

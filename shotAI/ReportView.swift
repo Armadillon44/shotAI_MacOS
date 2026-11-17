@@ -303,6 +303,14 @@ struct ReportView: View {
                         .font(palette.font(11)).foregroundStyle(palette.ink3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // Saved instructions can be removed here without opening the
+                // Generate sheet, which estimates first and so sends them again,
+                // and which is unavailable while signed out or without access.
+                if model.hasSavedSopInstructions, !model.sopBusy {
+                    Button("Forget saved instructions") { Task { await model.forgetSopInstructions() } }
+                        .buttonStyle(.link).font(palette.font(11))
+                        .help("Remove the instructions saved with this project for Generate.")
+                }
                 // A newer model, or the one in use retiring. Hidden while a
                 // generation runs: switching mid-run would not affect it.
                 if let offer = model.panelModelOffer, !model.sopBusy {
