@@ -181,14 +181,13 @@ private struct AISettings: View {
             model.saveSopSettings()
         }
         .onAppear { model.refreshApiKeyStatus() }
+        // Signing in or out, a key added or cleared, and AI turned on each start a
+        // check from AppModel, whichever window they happen in; this covers a
+        // check that came due while the app ran.
         .task {
             await model.refreshAuthStatus()
             await model.checkModelsIfDue()
         }
-        // Signing in, adding a key, or turning AI on is the first moment the
-        // model list can be read; the daily throttle keeps this to one call.
-        .onChange(of: model.hasCredential) { Task { await model.checkModelsIfDue() } }
-        .onChange(of: model.sopSettings.enabled) { Task { await model.checkModelsIfDue() } }
     }
 
     private func modelLabel(_ c: ModelChoice) -> String {
@@ -200,7 +199,7 @@ private struct AISettings: View {
 
     private var modelBlurb: String {
         if let b = SOP_MODELS.first(where: { $0.id == model.sopSettings.model })?.blurb { return b }
-        return "Chosen from Anthropic's model list after this version of shotAI was released. "
+        return "Chosen from Anthropic's model list; not one this version of shotAI was built and tested with. "
             + "shotAI has no price for it, so the check before generating shows tokens but no cost."
     }
 }
@@ -228,7 +227,7 @@ private struct AccountRows: View {
         case .signedOut:
             LabeledContent("Status") { Text("Not signed in").foregroundStyle(.secondary) }
             HStack {
-                Button("Sign In…") { Task { await model.auth.signIn() } }
+                Button("Sign In…") { Task { await model.signIn() } }
                     .disabled(model.auth.busy)
                 if model.auth.busy { ProgressView().controlSize(.small) }
             }
@@ -251,7 +250,7 @@ private struct AccountRows: View {
             HStack {
                 Button("Check Again") { Task { await model.auth.signIn(forceLogin: true) } }
                     .disabled(model.auth.busy)
-                Button("Sign Out") { Task { await model.auth.signOut() } }
+                Button("Sign Out") { Task { await model.signOut() } }
                     .disabled(model.auth.busy)
                 if model.auth.busy { ProgressView().controlSize(.small) }
             }

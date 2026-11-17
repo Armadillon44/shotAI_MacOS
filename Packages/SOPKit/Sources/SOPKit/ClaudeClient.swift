@@ -176,6 +176,7 @@ public struct ClaudeClient: Sendable {
         var models: [ListedModel] = []
         var after: String?
         for _ in 0..<Self.maxModelPages {
+            try Task.checkCancellation()
             var query = [URLQueryItem(name: "limit", value: "100")]
             if let after { query.append(URLQueryItem(name: "after_id", value: after)) }
             let req = try makeRequest(path: "/v1/models", query: query, credential: credential, method: "GET",

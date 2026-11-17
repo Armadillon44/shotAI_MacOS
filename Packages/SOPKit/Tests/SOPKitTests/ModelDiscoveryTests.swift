@@ -17,11 +17,14 @@ final class ModelDiscoveryTests: XCTestCase {
         _ id: String, line: String = "sonnet", created: String = "2026-09-28T00:00:00Z",
         lifecycle: String? = "active", retires: String? = nil, maxTokens: Int = 128000,
         maxInput: Int = 1_000_000, fallbacks: [String] = [], drop: Set<String> = [],
-        displayName: String? = nil
+        unsupported: Set<String> = [], displayName: String? = nil
     ) -> [String: Any] {
+        // `drop` removes the key, `unsupported` keeps it as {"supported": false},
+        // the shape the live list uses for a capability a model lacks. The parser
+        // must read both as missing.
         var effort: [String: Any] = ["supported": true]
         for level in ["low", "medium", "high", "xhigh", "max"] where !drop.contains("effort.\(level)") {
-            effort[level] = ["supported": true]
+            effort[level] = ["supported": !unsupported.contains("effort.\(level)")]
         }
         var caps: [String: Any] = [
             "batch": ["supported": true],
@@ -41,6 +44,7 @@ final class ModelDiscoveryTests: XCTestCase {
                 caps.removeValue(forKey: key)
             }
         }
+        for key in unsupported where !key.hasPrefix("effort.") { caps[key] = ["supported": false] }
         var e: [String: Any] = [
             "type": "model", "id": id, "display_name": displayName ?? id, "created_at": created,
             "line": line, "max_input_tokens": maxInput, "max_tokens": maxTokens,
@@ -136,6 +140,12 @@ final class ModelDiscoveryTests: XCTestCase {
             ("high effort", Self.entry("m", drop: ["effort.high"])),
             ("output length", Self.entry("m", maxTokens: 16000)),
             ("context length", Self.entry("m", maxInput: 100_000)),
+            // The live shape: present, but {"supported": false}.
+            ("image input", Self.entry("m", unsupported: ["image_input"])),
+            ("structured output", Self.entry("m", unsupported: ["structured_outputs"])),
+            ("low effort", Self.entry("m", unsupported: ["effort.low"])),
+            ("medium effort", Self.entry("m", unsupported: ["effort.medium"])),
+            ("high effort", Self.entry("m", unsupported: ["effort.high"])),
         ]
         for (gap, e) in cases {
             let m = try XCTUnwrap(try Self.listed([e]).first)
@@ -419,7 +429,8 @@ final class ModelDiscoveryTests: XCTestCase {
         let f = ApiFailure(message: nil, requestId: nil)
         for builtIn in [true, false] {
             XCTAssertTrue(ClaudeError.modelUnavailable(f).isModelFault(builtInModel: builtIn))
-            XCTAssertTrue(ClaudeError.permissionDenied(f).isModelFault(builtInModel: builtIn))
+            XCTAssertFalse(ClaudeError.federationRefused(f).isModelFault(builtInModel: builtIn),
+                           "a refused token exchange happens before any request names a model")
             for other: ClaudeError in [.overloaded, .connection, .refusal, .cutoff, .malformed, .noContent,
                                        .rateLimited(f), .billing(f), .invalidKey(f), .sessionRejected(f),
                                        .incomplete(wroteNothing: true), .api(status: 500, failure: f)] {
@@ -430,6 +441,10 @@ final class ModelDiscoveryTests: XCTestCase {
                       "a model from the list may not accept a request shaped like shotAI's")
         XCTAssertFalse(ClaudeError.api(status: 400, failure: f).isModelFault(builtInModel: true),
                        "the built-in request shape is known good; a 400 there is the project's")
+        XCTAssertTrue(ClaudeError.permissionDenied(f).isModelFault(builtInModel: false),
+                      "a newly listed model may need an access grant; the built-in default is safe to go back to")
+        XCTAssertFalse(ClaudeError.permissionDenied(f).isModelFault(builtInModel: true),
+                       "a 403 on the built-in model is the account's, and another model would not fix it")
     }
 
     func testTheRequestModelIsTheResolvedOne() {

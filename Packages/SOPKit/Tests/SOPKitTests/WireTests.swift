@@ -481,6 +481,26 @@ final class FederatedAuthTests: XCTestCase {
         }
     }
 
+    /// Any refusal of the exchange, a 400 for a malformed organization or workspace
+    /// id included, is a sign-in problem for IT. It used to surface as `.api(400)`,
+    /// which on a model from the list read as the model's fault and offered a
+    /// switch that could not help: no request had named a model yet.
+    func testEveryRefusedExchangeIsASignInProblem() async {
+        for status in [400, 401, 403, 404, 409, 422] {
+            let c = ClaudeClient(transport: MockTransport(dataHandler: { _ in
+                (Data(#"{"error":{"message":"invalid_request"}}"#.utf8), ResponseHead(status: status))
+            }))
+            do {
+                _ = try await c.exchangeFederatedToken(assertion: "jwt", ids: ids)
+                XCTFail("expected throw for \(status)")
+            } catch {
+                let e = error as? ClaudeError
+                XCTAssertEqual(e?.kind, .federationRefused, "\(status)")
+                XCTAssertEqual(e?.isModelFault(builtInModel: false), false, "\(status)")
+            }
+        }
+    }
+
     /// The local pre-flight case: signed in, but no app role. Must not imply the
     /// sign-in failed, and must not invite a retry.
     func testNotEntitledCopyBlamesAccessNotSignIn() {

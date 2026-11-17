@@ -1,27 +1,6 @@
 import SOPKit
 import SwiftUI
 
-/// A model the user can switch to: one built into shotAI, or one from Anthropic's
-/// model list, carrying what a request for it needs.
-enum ModelChoice: Equatable {
-    case builtIn(SopModelId)
-    case discovered(SopModelProfile)
-
-    /// A model from the list that this build has since learned in code is taken as
-    /// built in, so its known price and request shape win.
-    init(_ profile: SopModelProfile) {
-        let id = SopModelId(rawValue: profile.id)
-        self = id.isBuiltIn ? .builtIn(id) : .discovered(profile)
-    }
-
-    var id: SopModelId {
-        switch self {
-        case .builtIn(let id): id
-        case .discovered(let p): SopModelId(rawValue: p.id)
-        }
-    }
-}
-
 /// The failure alert's offer: switch to `to`, because `from` failed in a way
 /// another model could avoid.
 struct ErrorModelSwitch: Equatable {

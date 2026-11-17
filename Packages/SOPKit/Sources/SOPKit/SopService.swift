@@ -67,7 +67,11 @@ public struct SopService: Sendable {
     /// The model a request made with `settings` goes to.
     public static func requestModel(_ settings: SopSettings) -> SopModelId { resolvedModel(settings).id }
 
-    /// This account's model list, for discovery. Nothing is sent when SOP is off.
+    /// This account's model list, for discovery. Nothing is sent when SOP is off,
+    /// and nothing more once the task is cancelled (the app cancels it when AI is
+    /// turned off or the credential changes): the client checks before every page,
+    /// the first included, and resolving an SSO credential can take two round
+    /// trips, long enough for either to happen.
     public func listModels(settings: SopSettings) async throws -> (models: [ListedModel], complete: Bool) {
         guard settings.enabled else { throw ClaudeError.disabled }
         return try await client.listModels(credential: try await credential())

@@ -226,17 +226,49 @@ public struct ModelOffer: Sendable, Equatable {
     }
 }
 
+/// A model the user can switch to: one built into shotAI, or one from Anthropic's
+/// model list, carrying what a request for it needs.
+public enum ModelChoice: Sendable, Equatable {
+    case builtIn(SopModelId)
+    case discovered(SopModelProfile)
+
+    /// A model from the list that this build has since learned in code is taken as
+    /// built in, so its known price and request shape win.
+    public init(_ profile: SopModelProfile) {
+        let id = SopModelId(rawValue: profile.id)
+        self = id.isBuiltIn ? .builtIn(id) : .discovered(profile)
+    }
+
+    public var id: SopModelId {
+        switch self {
+        case .builtIn(let id): id
+        case .discovered(let p): SopModelId(rawValue: p.id)
+        }
+    }
+}
+
+extension ListedModel {
+    /// A model shotAI would offer: a Sonnet that is active, not on its way out,
+    /// and that accepts everything a generation request uses.
+    var isSopCandidate: Bool { line == SOP_MODEL_LINE && isActive && !isRetiring && sopGaps.isEmpty }
+}
+
+/// Newest first by release date; a model with no date ranks oldest, so it can
+/// never hide a dated one.
+private func newest(_ ms: [ListedModel]) -> ListedModel? {
+    ms.max { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+}
+
 /// Decide the offer from a cached listing; nothing is fetched here.
 ///
 /// `complete` is whether the listing covered every page. Only a complete listing
-/// can say the model in use is missing from it.
-public func modelOffer(listed: [ListedModel], complete: Bool, current: SopModelId) -> ModelOffer? {
+/// can say the model in use is missing from it. Models in `excluding` are never
+/// the candidate: the app passes the ones that already failed this session.
+public func modelOffer(listed: [ListedModel], complete: Bool, current: SopModelId,
+                       excluding: Set<String> = []) -> ModelOffer? {
     // Never checked, or an empty answer: say nothing rather than call everything missing.
     guard !listed.isEmpty else { return nil }
-    let usable = listed.filter { $0.line == SOP_MODEL_LINE && $0.isActive && !$0.isRetiring && $0.sopGaps.isEmpty }
-    func newest(_ ms: [ListedModel]) -> ListedModel? {
-        ms.max { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
-    }
+    let usable = listed.filter { $0.isSopCandidate && !excluding.contains($0.id) }
 
     guard let mine = listed.first(where: { $0.id == current.rawValue }) else {
         guard complete else { return nil }
@@ -253,6 +285,56 @@ public func modelOffer(listed: [ListedModel], complete: Bool, current: SopModelI
     return ModelOffer(reason: .newer, current: current, candidate: best.profile)
 }
 
+/// Where the failure alert offers to go after a request for `failed` failed in a
+/// way another model might avoid (`ClaudeError.isModelFault`). Never `failed`,
+/// never a model in `excluding` (the ones that already failed this session, so the
+/// alert cannot send the user back and forth between two failing models), and
+/// never one the cached listing says is gone.
+///
+/// From a model off the list: back to the model this build was made for, unless
+/// the listing says that one is gone too, then the newest compatible Sonnet the
+/// listing has. From a built-in model: on to the replacement discovery found.
+public func errorSwitchTarget(failed: SopModelId, listed: [ListedModel], complete: Bool,
+                              excluding: Set<String> = [], now: Date) -> ModelChoice? {
+    let skip = excluding.union([failed.rawValue])
+    if failed.isBuiltIn {
+        return modelOffer(listed: listed, complete: complete, current: failed, excluding: skip)?
+            .candidate.map(ModelChoice.init)
+    }
+    let fallback = DEFAULT_SOP_MODEL
+    if !skip.contains(fallback.rawValue), !listingSaysGone(fallback, listed: listed, complete: complete, now: now) {
+        return .builtIn(fallback)
+    }
+    return newest(listed.filter { $0.isSopCandidate && !skip.contains($0.id) }).map { ModelChoice($0.profile) }
+}
+
+/// True when the listing shows `id` cannot be used: missing from a complete
+/// listing, or past its retirement date. A model that is deprecated but not yet
+/// retired still works.
+private func listingSaysGone(_ id: SopModelId, listed: [ListedModel], complete: Bool, now: Date) -> Bool {
+    guard !listed.isEmpty else { return false }
+    guard let entry = listed.first(where: { $0.id == id.rawValue }) else { return complete }
+    if let r = entry.retiresAt, r <= now { return true }
+    return false
+}
+
+/// The Settings model picker: every built-in model, the discovered model in use,
+/// each discovered model the user chose before that the listing still shows as
+/// compatible (newest first), and the candidate on offer. A model the user
+/// switched away from stays choosable, so "you can switch back" holds; one never
+/// chosen is not added just because the list has it.
+public func modelPickerChoices(inUse: SopModelProfile?, offered: SopModelProfile?,
+                               chosen: [String], listed: [ListedModel]) -> [ModelChoice] {
+    var out = SOP_MODELS.map { ModelChoice.builtIn($0.id) }
+    func add(_ c: ModelChoice) { if !out.contains(where: { $0.id == c.id }) { out.append(c) } }
+    if let inUse { add(.discovered(inUse)) }
+    let earlier = listed.filter { chosen.contains($0.id) && $0.isSopCandidate && $0.profile.isUsable }
+        .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+    for m in earlier { add(ModelChoice(m.profile)) }
+    if let offered { add(ModelChoice(offered)) }
+    return out
+}
+
 /// The cached listing plus the daily throttle, persisted by the app between launches.
 public struct ModelDiscoveryState: Codable, Sendable, Equatable {
     public var listed: [ListedModel] = []
@@ -260,12 +342,21 @@ public struct ModelDiscoveryState: Codable, Sendable, Equatable {
     public var complete = false
     public var checkedAt: Date?
     public var nextCheckAt: Date?
+    /// The built-in models of the build that fetched `listed` (`builtInSignature`).
+    /// A listing taken before this build's default model existed would call that
+    /// model missing, so a listing from another set of built-ins is not used.
+    public var listedFor: String?
     /// Offers hidden from the AI SOP panel with "Not now", by `ModelOffer.dismissKey`.
     public var dismissed: [String] = []
+    /// Discovered models the user has chosen, oldest first, at most `chosenLimit`.
+    /// Each stays in the picker while the listing still shows it as compatible.
+    public var chosen: [String] = []
 
     public static let successInterval: TimeInterval = 24 * 3600
     /// A failed check is retried sooner, but not on every launch.
     public static let failureInterval: TimeInterval = 6 * 3600
+    public static let chosenLimit = 5
+    public static var builtInSignature: String { SOP_MODELS.map(\.id.rawValue).joined(separator: ",") }
 
     public init() {}
 
@@ -282,6 +373,24 @@ public struct ModelDiscoveryState: Codable, Sendable, Equatable {
         self.complete = complete
         checkedAt = now
         nextCheckAt = now.addingTimeInterval(Self.successInterval)
+        listedFor = Self.builtInSignature
+    }
+
+    /// Drop the listing and its schedule, so the next trigger lists again. For a
+    /// change of credential: another account can see other models. "Not now"
+    /// choices and the models chosen before are kept.
+    public mutating func forgetListing() {
+        listed = []
+        complete = false
+        checkedAt = nil
+        nextCheckAt = nil
+        listedFor = nil
+    }
+
+    public mutating func noteChosen(_ id: String) {
+        chosen.removeAll { $0 == id }
+        chosen.append(id)
+        if chosen.count > Self.chosenLimit { chosen.removeFirst(chosen.count - Self.chosenLimit) }
     }
 
     /// The cached listing is kept: a failed check says nothing new about the models.
@@ -299,13 +408,22 @@ public struct ModelDiscoveryState: Codable, Sendable, Equatable {
     }
 
     /// Tolerant: a stored state this build cannot read is a fresh one, which costs
-    /// at most one extra check.
+    /// at most one extra check. The listing and its schedule are one unit: a
+    /// listing this build cannot read (a field added or renamed since it was
+    /// stored), or one taken by a build with other built-in models, is read as
+    /// never checked, so the next trigger lists again instead of the old schedule
+    /// keeping it silent or the old listing calling this build's default missing.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        listed = (try? c.decode([ListedModel].self, forKey: .listed)) ?? []
+        dismissed = (try? c.decode([String].self, forKey: .dismissed)) ?? []
+        chosen = (try? c.decode([String].self, forKey: .chosen)) ?? []
+        guard let models = try? c.decode([ListedModel].self, forKey: .listed),
+              let signature = try? c.decode(String.self, forKey: .listedFor),
+              signature == Self.builtInSignature else { return }
+        listed = models
+        listedFor = signature
         complete = (try? c.decode(Bool.self, forKey: .complete)) ?? false
         checkedAt = try? c.decodeIfPresent(Date.self, forKey: .checkedAt)
         nextCheckAt = try? c.decodeIfPresent(Date.self, forKey: .nextCheckAt)
-        dismissed = (try? c.decode([String].self, forKey: .dismissed)) ?? []
     }
 }

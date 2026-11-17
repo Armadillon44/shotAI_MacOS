@@ -122,6 +122,12 @@ struct ContentView: View {
                     await model.checkModelsIfDue(busy: capture.state.status != .idle)
                 }
             }
+            // An app left running for days still reads the list once a day: coming
+            // back to it is the moment to check. The throttle makes this free when
+            // nothing is due.
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                Task { await model.checkModelsIfDue(busy: capture.state.status != .idle) }
+            }
     }
 
     /// The Home ⇄ detail content plus its window chrome (toolbar, overlays,
