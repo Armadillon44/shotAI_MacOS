@@ -397,8 +397,12 @@ final class AppModel {
     private var generationInFlight = false
     /// Human-readable progress line shown while generating.
     private(set) var sopProgress: String?
-    /// Set once a cost estimate is ready → drives the confirm dialog.
+    /// Set once a cost estimate is ready → drives the Generate sheet.
     var sopEstimate: SopEstimate?
+    /// Where the Generate sheet starts: the project's remembered wording and
+    /// instructions, with Settings filling in a wording never chosen. Set with
+    /// `sopEstimate`, which was counted with exactly these choices.
+    private(set) var sopRunDraft: SopRun?
     /// Surfaced by the report's alert.
     var sopError: String?
     /// Steps the last generation could not fully write. Held as IDS, and the notice
@@ -1010,7 +1014,7 @@ final class AppModel {
     /// sets `sopEstimate`, which drives the confirm dialog before any generation.
     /// Runs inside `sopTask` so Cancel works during this phase too (a hung
     /// count_tokens can otherwise leave the panel stuck busy with a dead Cancel).
-    func prepareSop() {
+    func prepareSop(draft: SopRun? = nil) {
         guard let current = opened, !sopBusy else { return }
         if let blocked = sopBlockedError {
             sopErrorKind = blocked.kind
@@ -1028,9 +1032,15 @@ final class AppModel {
                 _ = try await self.ensureFlattened(dir: dir, manifest: manifest)
                 await self.reloadOpened()
                 guard let fresh = self.opened else { self.finishSop(error: nil); return }
-                let est = try await self.sopService.estimate(dir: fresh.dir, manifest: fresh.manifest, settings: settings)
+                // From the manifest just re-read, so choices saved by the last
+                // Generate (even one that then failed) are what the sheet shows,
+                // unless the sheet is being reopened with the author's own edits.
+                let run = draft ?? SopRun(remembered: fresh.manifest.sopRunOptions, settings: settings)
+                let est = try await self.sopService.estimate(dir: fresh.dir, manifest: fresh.manifest,
+                                                             settings: settings, run: run)
                 self.finishSop(error: nil)
-                self.sopEstimate = est   // triggers the confirm dialog
+                self.sopRunDraft = run
+                self.sopEstimate = est   // triggers the Generate sheet
             } catch {
                 self.finishSop(error: Task.isCancelled ? nil : error.localizedDescription,
                                kind: (error as? ClaudeError)?.kind,
@@ -1041,23 +1051,31 @@ final class AppModel {
 
     /// After the user confirms the estimate: stream the generation and apply it
     /// inline (snapshotting for revert). Cancelable via `cancelSop()`.
-    func confirmGenerateSop() {
+    func confirmGenerateSop(run: SopRun) {
         guard let current = opened, let estimate = sopEstimate, !sopBusy else { return }
         sopEstimate = nil
+        sopRunDraft = nil
         // The tokens and price just approved were for `estimate.model`. Settings is
-        // a separate window, usable while the dialog is up; if the model changed
-        // there, estimate again so what runs is what was approved.
-        if SopService.requestModel(sopSettings) != estimate.model { prepareSop(); return }
+        // a separate window, usable while the sheet is up; if the model changed
+        // there, estimate again so what runs is what was approved. The sheet comes
+        // back with what the author had set in it, not what was saved.
+        if SopService.requestModel(sopSettings) != estimate.model { prepareSop(draft: run); return }
         lastSopRun = nil
         sopBusy = true; generationInFlight = true; sopError = nil; sopIncompleteIds = []; sopProgress = "Preparing…"
         let dir = current.dir
         let path = selectedPath ?? current.dir
         let manifest = current.manifest
         let settings = sopSettings
+        let remembered = run.remembered(over: manifest.sopRunOptions)
         sopTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let plan = try await self.sopService.generate(dir: dir, manifest: manifest, settings: settings) { p in
+                // Remembered BEFORE generating, so instructions typed for a run that
+                // then fails are still there next time. Not worth failing the run
+                // over: the choices are a convenience, the generation is the point.
+                do { try await self.store.setSopRunOptions(at: path, remembered) }
+                catch { Log.store.error("could not remember the Generate choices: \(error.localizedDescription, privacy: .public)") }
+                let plan = try await self.sopService.generate(dir: dir, manifest: manifest, settings: settings, run: run) { p in
                     Task { @MainActor in self.sopProgress = Self.progressText(p) }
                 }
                 // A Cancel that lands after the response has fully arrived used to
@@ -1095,8 +1113,8 @@ final class AppModel {
 
     /// Cancel an in-flight generation.
     func cancelSop() { sopTask?.cancel() }
-    /// Dismiss the estimate confirm dialog without generating.
-    func dismissSopEstimate() { sopEstimate = nil }
+    /// Dismiss the Generate sheet without generating. Nothing typed in it is kept.
+    func dismissSopEstimate() { sopEstimate = nil; sopRunDraft = nil }
 
     /// Clear all transient SOP run state (cancelling any in-flight task). Called
     /// on navigation so one project's generation/busy state can't leak onto
@@ -1108,6 +1126,7 @@ final class AppModel {
         generationInFlight = false
         sopProgress = nil
         sopEstimate = nil
+        sopRunDraft = nil
         sopError = nil
         sopErrorModelSwitch = nil
         sopIncompleteIds = []

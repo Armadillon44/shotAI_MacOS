@@ -279,6 +279,72 @@ public enum SopTone: String, Codable, Sendable {
     case professional, friendly, concise, detailed
 }
 
+/// How specific generated SOP text is. `specific` names what the screenshots show
+/// (the app, the button, the value); `general` describes the same actions in
+/// general terms ("open the app", "choose the appropriate setting"), for guides
+/// that must read correctly for anyone doing the same kind of task.
+public enum SopWording: String, Codable, Sendable, CaseIterable {
+    case specific, general
+}
+
+/// Cap on the one-off instructions remembered per project.
+public let SOP_RUN_INSTRUCTIONS_MAX = 2000
+
+/// What the author chose in the Generate dialog last time, offered again next time.
+///
+/// A macOS-only, additive key: `sopRunOptions`. Windows has no such dialog; it keeps
+/// the key untouched through its unknown-key passthrough (Windows v1.3.0, #95) and
+/// ignores it. Absent means "never chosen": the dialog starts from Settings.
+///
+/// Raw, like `theme`: a wording this build does not recognise (written by a newer
+/// build) and any field it does not know survive a read/write cycle rather than
+/// being erased. Read the wording through `wordingChoice`.
+public struct SopRunOptions: Codable, Equatable, Sendable {
+    /// As written. An explicit choice is always stored, the default included:
+    /// "never chosen" and "chose the default" are different states (the lesson of
+    /// `theme`, Armadillon44/shotAI#77).
+    public var wording: String?
+    /// One-off instructions for this project's SOP, capped at SOP_RUN_INSTRUCTIONS_MAX.
+    public var instructions: String
+    /// Fields this build does not know, preserved for round-trip.
+    public var extra: [String: JSONValue]
+
+    public init(wording: SopWording? = nil, instructions: String = "", extra: [String: JSONValue] = [:]) {
+        self.wording = wording?.rawValue
+        self.instructions = String(instructions.prefix(SOP_RUN_INSTRUCTIONS_MAX))
+        self.extra = extra
+    }
+
+    /// The stored wording, or nil when none was chosen or this build does not know it.
+    public var wordingChoice: SopWording? { wording.flatMap(SopWording.init(rawValue:)) }
+
+    /// Nothing worth keeping on disk.
+    public var isEmpty: Bool { wording == nil && instructions.isEmpty && extra.isEmpty }
+
+    private static let knownKeys: Set<String> = ["wording", "instructions"]
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: DynamicKey.self)
+        wording = try? c.decodeIfPresent(String.self, forKey: DynamicKey("wording"))
+        instructions = String(((try? c.decodeIfPresent(String.self, forKey: DynamicKey("instructions"))) ?? "")
+            .prefix(SOP_RUN_INSTRUCTIONS_MAX))
+        var extras: [String: JSONValue] = [:]
+        for k in c.allKeys where !Self.knownKeys.contains(k.stringValue) {
+            extras[k.stringValue] = try? c.decode(JSONValue.self, forKey: k)
+        }
+        extra = extras.compactMapValues { $0 }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: DynamicKey.self)
+        try c.encodeIfPresent(wording, forKey: DynamicKey("wording"))
+        try c.encode(instructions, forKey: DynamicKey("instructions"))
+        for (k, v) in extra.sorted(by: { $0.key < $1.key }) {
+            try c.encode(v, forKey: DynamicKey(k))
+        }
+    }
+}
+
 /// Pre-generation snapshot for one-click revert of Claude's inline SOP edits.
 public struct SopBackup: Codable, Equatable, Sendable {
     public var steps: [ProjectStep]
@@ -674,6 +740,9 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     public var introEditedByUser: Bool?
     /// Pre-edit snapshot enabling revert of Claude's inline SOP edits.
     public var sopBackup: SopBackup?
+    /// The Generate dialog's last choices for this project (macOS-only key; see
+    /// `SopRunOptions`). nil, and absent on disk, until the author generates.
+    public var sopRunOptions: SopRunOptions?
     /// Archived state (F2): when true, the project's bulk files (shots/, export/)
     /// are compressed into archive.zip and the loose copies removed — the project
     /// stays listed (under the Archive tab) and is auto-restored on open.
@@ -685,7 +754,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
 
     private static let knownKeys: Set<String> = [
         "version", "id", "title", "createdWith", "createdAt", "updatedAt",
-        "captureSettings", "steps", "displayScale", "theme", "intro", "introEditedByUser", "sopBackup", "archived", "archivedAt",
+        "captureSettings", "steps", "displayScale", "theme", "intro", "introEditedByUser", "sopBackup", "sopRunOptions",
+        "archived", "archivedAt",
     ]
 
     public init(
@@ -751,6 +821,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         introEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: key("introEditedByUser"))
         intro = (rawIntro?.isEmpty ?? true) ? nil : rawIntro
         sopBackup = try? c.decodeIfPresent(SopBackup.self, forKey: key("sopBackup"))
+        sopRunOptions = try? c.decodeIfPresent(SopRunOptions.self, forKey: key("sopRunOptions"))
         // Tolerant like Windows readManifest: any non-`true` (missing/null/other) → false.
         archived = ((try? c.decodeIfPresent(Bool.self, forKey: key("archived"))) ?? false) == true
         archivedAt = (try? c.decodeIfPresent(String.self, forKey: key("archivedAt"))) ?? nil
@@ -778,6 +849,8 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         try c.encode(intro, forKey: key("intro"))
         try c.encodeIfPresent(introEditedByUser, forKey: key("introEditedByUser"))
         try c.encode(sopBackup, forKey: key("sopBackup"))
+        // Omitted until used, so a project that never generated stays byte-identical.
+        if let o = sopRunOptions, !o.isEmpty { try c.encode(o, forKey: key("sopRunOptions")) }
         try c.encode(archived, forKey: key("archived"))
         try c.encode(archivedAt, forKey: key("archivedAt"))  // explicit null when live
         for (k, v) in extra.sorted(by: { $0.key < $1.key }) {

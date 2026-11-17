@@ -73,6 +73,9 @@ public func exportPackage(dir: String, manifest: ProjectManifest, includeOrigina
     var out = manifest
     out.sopBackup = nil
     for i in out.steps.indices { out.steps[i].sopRewrite = nil }
+    // Nor the Generate dialog's remembered instructions: notes to Claude that appear
+    // nowhere in the SOP, so the sender never sees them when checking what they share.
+    out.sopRunOptions = nil
 
     if includeOriginals {
         // Full fidelity: ship exactly the files the manifest references.

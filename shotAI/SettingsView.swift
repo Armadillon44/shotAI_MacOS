@@ -96,6 +96,15 @@ private struct AISettings: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 3) {
+                    Picker("Wording", selection: $model.sopSettings.wording) {
+                        ForEach(SOP_WORDINGS, id: \.id) { Text($0.label).tag($0.id) }
+                    }
+                    Text((SOP_WORDINGS.first { $0.id == model.sopSettings.wording }?.blurb ?? "")
+                         + " The Generate dialog starts here; each project then remembers its own choice.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                VStack(alignment: .leading, spacing: 3) {
                     Picker("Effort", selection: $model.sopSettings.effort) {
                         ForEach(SOP_EFFORTS, id: \.id) { Text($0.label).tag($0.id) }
                     }

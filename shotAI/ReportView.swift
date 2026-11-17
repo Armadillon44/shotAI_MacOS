@@ -220,18 +220,9 @@ struct ReportView: View {
         .sheet(item: $captureStepsAt) { at in
             RecordSheet(projectPath: opened.dir, coordinator: capture, insertAt: at.value)
         }
-        .confirmationDialog(
-            "Generate this SOP with Claude?",
-            isPresented: Binding(get: { model.sopEstimate != nil }, set: { if !$0 { model.dismissSopEstimate() } }),
-            titleVisibility: .visible
-        ) {
-            Button("Generate") { model.confirmGenerateSop() }
-            Button("Cancel", role: .cancel) { model.dismissSopEstimate() }
-        } message: {
-            if let est = model.sopEstimate {
-                let cost = est.estCostUsd.map { "Estimated cost ≈ \(Self.usd($0))." }
-                    ?? "No cost estimate: shotAI has no price for \(model.modelName(est.model))."
-                Text("Sends your redaction-baked screenshots + text (\(est.inputTokens) input tokens) to Anthropic. \(cost) This rewrites every step's caption and instructions — you can revert.")
+        .sheet(isPresented: Binding(get: { model.sopEstimate != nil }, set: { if !$0 { model.dismissSopEstimate() } })) {
+            if let est = model.sopEstimate, let draft = model.sopRunDraft {
+                GenerateSopSheet(estimate: est, draft: draft)
             }
         }
         .alert(
@@ -338,9 +329,6 @@ struct ReportView: View {
             .cardElevation()
         }
     }
-
-    /// "$0.04" style — the estimate is small; two decimals is enough.
-    private static func usd(_ v: Double) -> String { String(format: "$%.2f", v) }
 
     /// Merge is offered only for a shot step followed by another shot step (the
     /// click of this step is carried onto the next step's screenshot).

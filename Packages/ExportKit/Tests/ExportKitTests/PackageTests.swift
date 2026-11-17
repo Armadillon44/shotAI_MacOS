@@ -138,6 +138,29 @@ final class PackageTests: XCTestCase {
         XCTAssertNil(imported.manifest.steps[0].sopRewrite, "and an import drops one that arrives anyway")
     }
 
+    /// The Generate dialog's remembered instructions are notes to Claude that appear
+    /// nowhere in the SOP, so a sender checking what they share never sees them.
+    /// They do not ship, and an import drops any that arrive anyway.
+    func testAPackageCarriesNoRememberedGenerateInstructions() async throws {
+        let root = tempDir()
+        let store = ProjectStore(settings: InMemorySettings(projectsDir: root))
+        let created = try await store.createProject(title: "Instructions")
+        _ = try await store.importImageStep(at: created.path, atIndex: nil, imageData: pngData(w: 40, h: 30))
+        try await store.setSopRunOptions(at: created.path,
+                                         SopRunOptions(wording: .general, instructions: "Never name Contoso."))
+        let opened = try await store.openProject(at: created.path)
+        XCTAssertNotNil(opened.manifest.sopRunOptions)
+        let result = try exportPackage(dir: opened.dir, manifest: opened.manifest, includeOriginals: false)
+        let entries = try zipRead(Data(contentsOf: URL(fileURLWithPath: result.outputPath)), maxEntryBytes: 10_000_000)
+        let manifestJSON = String(decoding: try XCTUnwrap(entries.first { $0.name == "project.json" }?.data), as: UTF8.self)
+        XCTAssertFalse(manifestJSON.contains("sopRunOptions"))
+        XCTAssertFalse(manifestJSON.contains("Contoso"))
+
+        let summary = try await store.createProjectFromImport(manifest: opened.manifest, files: [])
+        let imported = try await store.openProject(at: summary.path)
+        XCTAssertNil(imported.manifest.sopRunOptions, "and an import drops them if they arrive anyway")
+    }
+
     // MARK: - Untrusted-input rejections
 
     func testRejectsMissingMarker() async throws {
