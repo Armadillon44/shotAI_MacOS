@@ -33,13 +33,16 @@ public struct SopRunUndo: Sendable, Equatable {
         let intro: SopIntro?
         let introEditedByUser: Bool?
         let sopBackup: SopBackup?
+        let sopTitleRewrite: String?
         init(_ m: ProjectManifest) {
             steps = m.steps; title = m.title; intro = m.intro
             introEditedByUser = m.introEditedByUser; sopBackup = m.sopBackup
+            sopTitleRewrite = m.sopTitleRewrite
         }
         func restore(into m: inout ProjectManifest) {
             m.steps = steps; m.title = title; m.intro = intro
             m.introEditedByUser = introEditedByUser; m.sopBackup = sopBackup
+            m.sopTitleRewrite = sopTitleRewrite
         }
     }
     let before: State
@@ -234,6 +237,9 @@ private func applyPlan(_ plan: SopEditPlan, to manifest: inout ProjectManifest, 
     ProjectStore.renumber(&manifest.steps)
     if let t = plan.title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
         manifest.title = t
+        // What generation wrote, so the next run can tell its own title from a
+        // name a person gave the project since. See `sopTitleRewrite`.
+        manifest.sopTitleRewrite = t
     }
     manifest.sopBackup = backup
 }
@@ -290,6 +296,7 @@ public func revertSop(store: ProjectStore, projectPath: String) async throws -> 
         manifest.steps = next
         ProjectStore.renumber(&manifest.steps)
         manifest.title = backup.title
+        manifest.sopTitleRewrite = nil
         manifest.intro = backup.intro
         // Authorship, not just the text: a reverted author overview that comes
         // back unflagged is free to be rewritten by the very next generate (#80).

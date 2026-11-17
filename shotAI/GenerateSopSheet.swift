@@ -1,3 +1,4 @@
+import AppKit
 import SOPKit
 import ShotModel
 import SwiftUI
@@ -43,18 +44,29 @@ struct GenerateSopSheet: View {
                     .font(.callout)
                     .frame(minHeight: 70, maxHeight: 120)
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
-                    .onChange(of: instructions) {
-                        if instructions.count > SOP_RUN_INSTRUCTIONS_MAX {
-                            instructions = String(instructions.prefix(SOP_RUN_INSTRUCTIONS_MAX))
-                        }
+                    .onChange(of: instructions) { old, new in
+                        // Over the cap, keep what was there and as much of the new
+                        // text as fits, never the other way round.
+                        let capped = capTextEdit(old: old, new: new, limit: SOP_RUN_INSTRUCTIONS_MAX)
+                        if capped != new { instructions = capped; NSSound.beep() }
                     }
-                HStack {
+                HStack(alignment: .firstTextBaseline) {
                     Text("Saved with this project and filled in next time. Standing instructions for every SOP are in Settings ▸ AI.")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
                     Text("\(instructions.count)/\(SOP_RUN_INSTRUCTIONS_MAX)")
                         .font(.caption2).foregroundStyle(.tertiary)
+                }
+                if hasSavedInstructions {
+                    // Cancel discards edits and Generate sends a paid request, so
+                    // without this the saved notes could not be removed at all.
+                    Button("Forget saved instructions") {
+                        instructions = ""
+                        Task { await model.forgetSopInstructions() }
+                    }
+                    .buttonStyle(.link).font(.caption)
+                    .help("Remove this project's saved instructions now, without generating.")
                 }
             }
 
@@ -76,6 +88,10 @@ struct GenerateSopSheet: View {
     /// What is sent and what it costs. The count was taken with the choices this
     /// sheet opened with; changing them moves it by the length of the text, which
     /// is small beside the screenshots, hence "about".
+    private var hasSavedInstructions: Bool {
+        !(model.opened?.manifest.sopRunOptions?.instructions.isEmpty ?? true)
+    }
+
     private var summary: String {
         let cost = estimate.estCostUsd.map { String(format: "Estimated cost ≈ $%.2f.", $0) }
             ?? "No cost estimate: shotAI has no price for \(model.modelName(estimate.model))."

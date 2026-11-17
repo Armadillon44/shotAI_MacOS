@@ -37,19 +37,31 @@ enum PromptParagraph {
     static let ringGeneral =
         "Each instruction is about the control inside or directly under the marked ring \u{2014} that ring is exactly where the user clicked, so the step is about THAT element, not some other field on the screen. Describe it in general terms, by what it is and what it does for the reader, never by its on-screen name or label: for example \"open the app\", \"select the appropriate setting\", \"choose the account to use\", \"enter the required value\", \"confirm the change\". If the screenshot does not show the result of the click (e.g. a menu or dropdown that opened only after clicking is not visible), describe the click itself and do not invent the resulting menu or its contents."
     static let elementGeneral =
-        "Some steps include a \"UI element\" line in their metadata \u{2014} the accessibility name and control type (e.g. Button, MenuItem, Hyperlink) of the control under the click, read from the operating system. Use it with the screenshot to understand WHICH control was clicked and what kind of control it is, but do not repeat its name, or any other name from the metadata, in the text you write."
-    static let generalScope =
-        "Wording: GENERAL. Write everything that is yours to write \u{2014} every screenshot step's `caption` and `body`, any `sectionHeading` and `sectionBody` you add, the `intro`, and a `title` that replaces an app-generated name \u{2014} in general terms, so the guide reads correctly for anyone doing the same kind of task in their own setup. Do not name the specific applications, websites, windows, files, folders, accounts, people, products, menu items or values that appear in the screenshots or the metadata; describe their role instead (\"the app\", \"the appropriate setting\", \"the account you use\", \"the required value\"). This does not apply to the author's own words: an author block, an overview the author wrote, and a project name a person wrote keep every name, value and fact they state, exactly as the instructions for them say."
+        "Some steps include a \"UI element\" line in their metadata \u{2014} the accessibility name and control type (e.g. Button, MenuItem, Hyperlink) of the control under the click, read from the operating system. Use it with the screenshot to understand WHICH control was clicked and what kind of control it is, but do not repeat its name, or any other name from the metadata, in a screenshot step's `caption` or `body`, a section heading you add, or a `title` or `intro` that is yours to write."
+    /// What General covers. `authorOverview` is whether this request carries an
+    /// overview the author wrote: then only what the model ADDS to the `intro` is its
+    /// to generalize, decided here in code rather than left for the model to work out.
+    static func generalScope(authorOverview: Bool) -> String {
+        let intro = authorOverview ? "anything you add to the `intro` beyond the overview the author wrote" : "the `intro`"
+        return "Wording: GENERAL. Write everything that is yours to write \u{2014} every screenshot step's `caption` and `body`, any `sectionHeading` and `sectionBody` you add, \(intro), and a `title` that replaces a name the app or an earlier generation wrote \u{2014} in general terms, so the guide reads correctly for anyone doing the same kind of task in their own setup. Do not name the specific applications, websites, windows, files, folders, accounts, people, products, menu items or values that appear in the screenshots or the metadata; describe their role instead (\"the app\", \"the appropriate setting\", \"the account you use\", \"the required value\"). This does not apply to the author's own words: an author block, an overview the author wrote, and a project name a person wrote keep every name, value and fact they state, even though the steps around them are written in general terms. Matching the rest of the SOP is never a reason to remove, replace or generalize a name, label, value or address the author wrote."
+    }
+
+    /// Said under each author block in General, where the per-block guidance's
+    /// "match the rest of the SOP" would otherwise pull it toward general terms.
+    static let authorBlockGeneral =
+        "(The wording is GENERAL, but this block is the author's: keep every name, label, value and address it states.)"
 }
 
-/// The base instructions for one wording.
-func basePrompt(_ wording: SopWording) -> String {
+/// The base instructions for one wording. `authorOverview` matters to General
+/// only; Specific is the same either way.
+func basePrompt(_ wording: SopWording, authorOverview: Bool = false) -> String {
     let p = PromptParagraph.self
     switch wording {
     case .specific:
         return [p.role, p.plan, p.numbering, p.ring, p.element, p.order].joined(separator: "\n\n")
     case .general:
-        return [p.role, p.plan, p.numbering, p.ringGeneral, p.elementGeneral, p.order, p.generalScope]
+        return [p.role, p.plan, p.numbering, p.ringGeneral, p.elementGeneral, p.order,
+                p.generalScope(authorOverview: authorOverview)]
             .joined(separator: "\n\n")
     }
 }
@@ -60,9 +72,9 @@ let BASE_SYSTEM_PROMPT: String = basePrompt(.specific)
 /// tone, the standing custom instructions (Settings), and this run's instructions
 /// (the Generate dialog). With Specific wording and no run instructions it is
 /// exactly the prompt this build sent before the wording choice existed.
-func buildSystemPrompt(settings: SopSettings, run: SopRun? = nil) -> String {
+func buildSystemPrompt(settings: SopSettings, run: SopRun? = nil, authorOverview: Bool = false) -> String {
     let run = run ?? SopRun(settings: settings)
-    var parts = [basePrompt(run.wording)]
+    var parts = [basePrompt(run.wording, authorOverview: authorOverview)]
     if let tone = TONE_PROMPT[settings.tone] { parts.append(tone) }
     let custom = settings.customInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
     if !custom.isEmpty { parts.append("Additional instructions from the user:\n\(custom)") }

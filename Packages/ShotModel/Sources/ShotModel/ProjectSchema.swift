@@ -290,11 +290,34 @@ public enum SopWording: String, Codable, Sendable, CaseIterable {
 /// Cap on the one-off instructions remembered per project.
 public let SOP_RUN_INSTRUCTIONS_MAX = 2000
 
+/// A text-field edit that would go over `limit` characters, applied as far as it
+/// fits: what was inserted is cut, never what was already there. Trimming the end
+/// instead silently deleted the last words of a full field when the author typed
+/// or pasted earlier in it. An edit that only shortens, or stays in bounds, is
+/// returned as is; a field already over the limit is cut to it.
+public func capTextEdit(old: String, new: String, limit: Int) -> String {
+    guard new.count > limit else { return new }
+    guard old.count <= limit else { return String(new.prefix(limit)) }
+    let o = Array(old), n = Array(new)
+    var head = 0
+    while head < o.count, head < n.count, o[head] == n[head] { head += 1 }
+    var tail = 0
+    while tail < o.count - head, tail < n.count - head, o[o.count - 1 - tail] == n[n.count - 1 - tail] { tail += 1 }
+    // new = head + inserted + tail, and head + tail <= old.count <= limit.
+    let room = limit - head - tail
+    let inserted = n[head..<(n.count - tail)]
+    return String(n[..<head]) + String(inserted.prefix(max(0, room))) + String(n[(n.count - tail)...])
+}
+
 /// What the author chose in the Generate dialog last time, offered again next time.
 ///
 /// A macOS-only, additive key: `sopRunOptions`. Windows has no such dialog; it keeps
 /// the key untouched through its unknown-key passthrough (Windows v1.3.0, #95) and
 /// ignores it. Absent means "never chosen": the dialog starts from Settings.
+///
+/// Packages exported by this macOS build leave it out. Windows v1.3.0 and earlier
+/// macOS builds keep unknown keys in the packages they export, so a project that
+/// passes through one of them can still carry it (a Windows-parity TODO).
 ///
 /// Raw, like `theme`: a wording this build does not recognise (written by a newer
 /// build) and any field it does not know survive a read/write cycle rather than
@@ -304,7 +327,11 @@ public struct SopRunOptions: Codable, Equatable, Sendable {
     /// "never chosen" and "chose the default" are different states (the lesson of
     /// `theme`, Armadillon44/shotAI#77).
     public var wording: String?
-    /// One-off instructions for this project's SOP, capped at SOP_RUN_INSTRUCTIONS_MAX.
+    /// One-off instructions for this project's SOP. Read as stored and capped at
+    /// SOP_RUN_INSTRUCTIONS_MAX only where it is typed or used (this init, the
+    /// Generate sheet, the prompt): capping on read would let any unrelated save of
+    /// the manifest (a rename, the launch auto-archive) cut text a later build with
+    /// a higher cap wrote.
     public var instructions: String
     /// Fields this build does not know, preserved for round-trip.
     public var extra: [String: JSONValue]
@@ -326,8 +353,7 @@ public struct SopRunOptions: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: DynamicKey.self)
         wording = try? c.decodeIfPresent(String.self, forKey: DynamicKey("wording"))
-        instructions = String(((try? c.decodeIfPresent(String.self, forKey: DynamicKey("instructions"))) ?? "")
-            .prefix(SOP_RUN_INSTRUCTIONS_MAX))
+        instructions = (try? c.decodeIfPresent(String.self, forKey: DynamicKey("instructions"))) ?? ""
         var extras: [String: JSONValue] = [:]
         for k in c.allKeys where !Self.knownKeys.contains(k.stringValue) {
             extras[k.stringValue] = try? c.decode(JSONValue.self, forKey: k)
@@ -743,6 +769,13 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// The Generate dialog's last choices for this project (macOS-only key; see
     /// `SopRunOptions`). nil, and absent on disk, until the author generates.
     public var sopRunOptions: SopRunOptions?
+    /// The title the last generation wrote, exactly (macOS-only additive key).
+    /// While `title` still equals it, the title is Claude's, not a person's; a
+    /// rename on any build, Windows included, breaks the match. Like each step's
+    /// `sopRewrite` it records what generation wrote rather than trusting a flag a
+    /// client must remember to set. Windows keeps it through its unknown-key
+    /// passthrough. Omitted when absent.
+    public var sopTitleRewrite: String?
     /// Archived state (F2): when true, the project's bulk files (shots/, export/)
     /// are compressed into archive.zip and the loose copies removed — the project
     /// stays listed (under the Archive tab) and is auto-restored on open.
@@ -755,7 +788,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     private static let knownKeys: Set<String> = [
         "version", "id", "title", "createdWith", "createdAt", "updatedAt",
         "captureSettings", "steps", "displayScale", "theme", "intro", "introEditedByUser", "sopBackup", "sopRunOptions",
-        "archived", "archivedAt",
+        "sopTitleRewrite", "archived", "archivedAt",
     ]
 
     public init(
@@ -822,6 +855,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         intro = (rawIntro?.isEmpty ?? true) ? nil : rawIntro
         sopBackup = try? c.decodeIfPresent(SopBackup.self, forKey: key("sopBackup"))
         sopRunOptions = try? c.decodeIfPresent(SopRunOptions.self, forKey: key("sopRunOptions"))
+        sopTitleRewrite = try? c.decodeIfPresent(String.self, forKey: key("sopTitleRewrite"))
         // Tolerant like Windows readManifest: any non-`true` (missing/null/other) → false.
         archived = ((try? c.decodeIfPresent(Bool.self, forKey: key("archived"))) ?? false) == true
         archivedAt = (try? c.decodeIfPresent(String.self, forKey: key("archivedAt"))) ?? nil
@@ -851,6 +885,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         try c.encode(sopBackup, forKey: key("sopBackup"))
         // Omitted until used, so a project that never generated stays byte-identical.
         if let o = sopRunOptions, !o.isEmpty { try c.encode(o, forKey: key("sopRunOptions")) }
+        try c.encodeIfPresent(sopTitleRewrite, forKey: key("sopTitleRewrite"))
         try c.encode(archived, forKey: key("archived"))
         try c.encode(archivedAt, forKey: key("archivedAt"))  // explicit null when live
         for (k, v) in extra.sorted(by: { $0.key < $1.key }) {

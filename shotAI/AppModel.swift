@@ -1113,6 +1113,20 @@ final class AppModel {
 
     /// Cancel an in-flight generation.
     func cancelSop() { sopTask?.cancel() }
+    /// The Generate sheet's "Forget saved instructions": remove them from the
+    /// project now, without generating. The wording choice stays.
+    func forgetSopInstructions() async {
+        guard let current = opened, var saved = current.manifest.sopRunOptions, !saved.instructions.isEmpty else { return }
+        saved.instructions = ""
+        do {
+            try await store.setSopRunOptions(at: selectedPath ?? current.dir, saved)
+            await reloadOpened()
+        } catch {
+            Log.store.error("could not forget the saved instructions: \(error.localizedDescription, privacy: .public)")
+        }
+        sopRunDraft?.instructions = ""
+    }
+
     /// Dismiss the Generate sheet without generating. Nothing typed in it is kept.
     func dismissSopEstimate() { sopEstimate = nil; sopRunDraft = nil }
 

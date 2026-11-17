@@ -55,7 +55,7 @@ final class WordingTests: XCTestCase {
         XCTAssertFalse(general.contains("name the control by what the user actually sees"))
         XCTAssertTrue(general.contains(PromptParagraph.ringGeneral))
         XCTAssertTrue(general.contains(PromptParagraph.elementGeneral))
-        XCTAssertTrue(general.contains(PromptParagraph.generalScope))
+        XCTAssertTrue(general.contains(PromptParagraph.generalScope(authorOverview: false)))
         XCTAssertFalse(specific.contains("Wording: GENERAL"))
     }
 
@@ -71,11 +71,18 @@ final class WordingTests: XCTestCase {
     /// the model writes, never to author blocks, an author overview or a name a
     /// person wrote.
     func testTheAuthorsOwnWordsKeepTheirSpecifics() {
-        let scope = PromptParagraph.generalScope
-        XCTAssertTrue(scope.contains("author block"))
-        XCTAssertTrue(scope.contains("overview the author wrote"))
-        XCTAssertTrue(scope.contains("project name a person wrote"))
-        XCTAssertTrue(scope.contains("keep every name, value and fact"))
+        for overview in [false, true] {
+            let scope = PromptParagraph.generalScope(authorOverview: overview)
+            XCTAssertTrue(scope.contains("author block"))
+            XCTAssertTrue(scope.contains("overview the author wrote"))
+            XCTAssertTrue(scope.contains("project name a person wrote"))
+            XCTAssertTrue(scope.contains("keep every name, value and fact"))
+            XCTAssertTrue(scope.contains("Matching the rest of the SOP is never a reason to remove, replace or generalize"),
+                          "the exception says outright that it wins")
+        }
+        // The ban on metadata names covers what the model writes, not the author's words.
+        XCTAssertFalse(PromptParagraph.elementGeneral.contains("in the text you write"))
+        XCTAssertTrue(PromptParagraph.elementGeneral.contains("a screenshot step's `caption` or `body`"))
     }
 
     func testAnAppGeneratedNameIsReplacedInGeneralTerms() {

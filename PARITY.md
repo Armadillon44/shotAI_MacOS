@@ -159,6 +159,11 @@ Built on macOS in the 2026-11 SOP hardening stack (shotAI_MacOS #129–#137); no
 - **Wording + per-SOP instructions** — Specific/General wording and one-off instructions, remembered per
   project in the additive `sopRunOptions` key. Windows keeps that key through its unknown-key passthrough
   (#95) and ignores it, so nothing breaks in a mixed fleet; it just has no dialog to use it.
+- **Windows-parity TODO: strip generation records from packages.** macOS drops `sopRunOptions`,
+  `sopTitleRewrite` and each step's `sopRewrite` in `exportPackage` and `createProjectFromImport`.
+  Windows v1.3.0 passes unknown keys through, so its packages still carry them (the remembered
+  instructions can hold client details the sender never sees in the SOP). Mirror the strip in
+  `export-package.ts` after `out.sopBackup = null` and in the import path, with a test each.
 
 ### Settled, no action
 - **Step `note` field** — Windows deleted it in v1.1.0; macOS keeps an inert copy (no UI creates one, capture writes `""`, every reader is empty-guarded). **Decided 2026-07-28: leave as-is** — removing it would only strand legacy notes from pre-v1.1.0 Windows projects. See "Step `note` field" in the Verdict; not a gap, don't re-open it.

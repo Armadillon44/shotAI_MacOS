@@ -387,6 +387,7 @@ public actor ProjectStore {
         // sender's local history like sopBackup, and are dropped for the same reason.
         // The recipient's starting point is the text they were sent.
         for i in out.steps.indices { out.steps[i].sopRewrite = nil }
+        out.sopTitleRewrite = nil
         // The sender's remembered Generate choices are theirs, and a package from a
         // build that shipped them should not prefill the recipient's dialog.
         out.sopRunOptions = nil

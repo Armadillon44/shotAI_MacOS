@@ -72,6 +72,7 @@ public func exportPackage(dir: String, manifest: ProjectManifest, includeOrigina
     // can hold wording the sender has since changed or deleted.
     var out = manifest
     out.sopBackup = nil
+    out.sopTitleRewrite = nil
     for i in out.steps.indices { out.steps[i].sopRewrite = nil }
     // Nor the Generate dialog's remembered instructions: notes to Claude that appear
     // nowhere in the SOP, so the sender never sees them when checking what they share.
