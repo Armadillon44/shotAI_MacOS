@@ -6,6 +6,13 @@ public enum SopProgress: Sendable, Equatable {
     case preparing
     case thinking
     case writing(chars: Int)
+    /// The numbering could not be trusted; the whole request is running again.
+    case retrying
+    /// Asking again for just these steps.
+    case repairing(steps: Int)
+    /// A transient failure (overloaded, a short rate limit, a dropped connection);
+    /// retrying after this many seconds.
+    case waiting(seconds: Int)
     case done
 }
 
@@ -117,16 +124,26 @@ public struct ClaudeClient: Sendable {
     let transport: ClaudeTransport
     public init(transport: ClaudeTransport = URLSessionTransport()) { self.transport = transport }
 
-    private func makeRequest(path: String, credential: ClaudeCredential, method: String, jsonBody: [String: Any]?) throws -> URLRequest {
-        var req = URLRequest(url: Self.baseURL.appendingPathComponent(path))
+    private func makeRequest(path: String, query: [URLQueryItem] = [], credential: ClaudeCredential, method: String,
+                             jsonBody: [String: Any]?, betas: [String] = []) throws -> URLRequest {
+        var url = Self.baseURL.appendingPathComponent(path)
+        if !query.isEmpty {
+            // URLComponents encodes the values; the host stays the pinned one.
+            var c = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            c?.queryItems = query
+            guard let withQuery = c?.url, withQuery.host == Self.baseURL.host else { throw ClaudeError.malformed }
+            url = withQuery
+        }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         // The single place an Anthropic auth header is written. `apply` picks
         // x-api-key or Authorization: Bearer; the secret is never visible here.
         credential.apply(to: &req)
         req.setValue(Self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
         req.setValue("application/json", forHTTPHeaderField: "content-type")
+        if !betas.isEmpty { req.setValue(betas.joined(separator: ","), forHTTPHeaderField: "anthropic-beta") }
         if let jsonBody {
-            req.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
+            req.httpBody = try RequestJSON.data(jsonBody)  // deterministic; see OrderedObject
         }
         return req
     }
@@ -146,6 +163,39 @@ public struct ClaudeClient: Sendable {
         guard head.status == 200 else { throw ClaudeError.from(head: head, message: Self.apiMessage(data), kind: credential.kind) }
     }
 
+    // MARK: Model list (GET /v1/models — discovery)
+
+    /// More pages than any account has had; a listing still unfinished after this
+    /// many is returned as incomplete rather than followed forever.
+    static let maxModelPages = 5
+
+    /// Every page of this account's model list. Free: no tokens are used. Sent with
+    /// the server-side-fallback beta, which is what makes each entry carry
+    /// `allowed_fallback_models`. `complete` is false when the page cap cut it short.
+    public func listModels(credential: ClaudeCredential) async throws -> (models: [ListedModel], complete: Bool) {
+        var models: [ListedModel] = []
+        var after: String?
+        for _ in 0..<Self.maxModelPages {
+            try Task.checkCancellation()
+            var query = [URLQueryItem(name: "limit", value: "100")]
+            if let after { query.append(URLQueryItem(name: "after_id", value: after)) }
+            let req = try makeRequest(path: "/v1/models", query: query, credential: credential, method: "GET",
+                                      jsonBody: nil, betas: [SopService.fallbackBeta])
+            let (data, head) = try await transport.data(for: req)
+            guard head.status == 200 else {
+                throw ClaudeError.from(head: head, message: Self.apiMessage(data), kind: credential.kind)
+            }
+            let page = try ModelList.parsePage(data)
+            models += page.models
+            guard page.hasMore else { return (models, true) }
+            // More pages, but no cursor that moves: stop rather than loop, and do
+            // not call the listing complete, since it is not.
+            guard let last = page.lastId, last != after else { return (models, false) }
+            after = last
+        }
+        return (models, false)
+    }
+
     // MARK: Token count (POST /v1/messages/count_tokens)
 
     public func countTokens(credential: ClaudeCredential, model: SopModelId, system: [[String: Any]], messages: [[String: Any]]) async throws -> Int {
@@ -163,8 +213,9 @@ public struct ClaudeClient: Sendable {
     /// Stream a vision + structured-output request; accumulate the JSON text,
     /// track the stop reason, and decode the edit plan. Progress is reported via
     /// `onProgress`. Throws a friendly ClaudeError on refusal/cutoff/malformed.
-    func streamEditPlan(credential: ClaudeCredential, body: [String: Any], onProgress: @Sendable (SopProgress) -> Void) async throws -> SopEditRaw {
-        let req = try makeRequest(path: "/v1/messages", credential: credential, method: "POST", jsonBody: body)
+    func streamEditPlan(credential: ClaudeCredential, body: [String: Any], betas: [String] = [],
+                        onProgress: @Sendable (SopProgress) -> Void) async throws -> SopEditRaw {
+        let req = try makeRequest(path: "/v1/messages", credential: credential, method: "POST", jsonBody: body, betas: betas)
         let (lines, head) = try await transport.stream(for: req)
 
         // Non-200: the body is a JSON error, not SSE — drain + surface it.
@@ -181,6 +232,15 @@ public struct ClaudeClient: Sendable {
         var chars = 0
         var lastEmit = Date.distantPast
         var stopReason: String?
+        var sawMessageStop = false
+        // Which model served the stream, and whether a server-side fallback switched
+        // models partway. A fallback continues on the SAME stream: text already
+        // received stays, a `fallback` content block marks the switch, and the
+        // fallback model's text continues after it — so the text deltas are joined
+        // across blocks exactly as before. Recorded for the log only.
+        var servedBy: String?
+        var sawFallback = false
+        let started = Date()
 
         for try await line in lines {
             guard line.hasPrefix("data:") else { continue }  // ignore `event:`/blank lines
@@ -190,8 +250,11 @@ public struct ClaudeClient: Sendable {
                   let type = ev["type"] as? String else { continue }
 
             switch type {
+            case "message_start":
+                servedBy = (ev["message"] as? [String: Any])?["model"] as? String
             case "content_block_start":
                 if let block = ev["content_block"] as? [String: Any], let bt = block["type"] as? String {
+                    if bt == "fallback" { sawFallback = true }
                     if bt == "thinking" { onProgress(.thinking) }
                     else if bt == "text" { onProgress(.writing(chars: chars)) }
                 }
@@ -211,6 +274,8 @@ public struct ClaudeClient: Sendable {
                 if let delta = ev["delta"] as? [String: Any], let sr = delta["stop_reason"] as? String {
                     stopReason = sr
                 }
+            case "message_stop":
+                sawMessageStop = true
             case "error":
                 // Anthropic can emit an error event mid-stream on a 200 connection
                 // (e.g. overloaded_error under load). Surface the real, actionable
@@ -223,12 +288,30 @@ public struct ClaudeClient: Sendable {
                 // on an established 200 is Anthropic shedding load, which IS
                 // transient, and it carries no retry-after to classify with.
                 case "rate_limit_error": throw ClaudeError.rateLimited(f)
+                // Anthropic's internal error, the SSE form of an HTTP 500. Mapped to
+                // 500 so it is retried like one; as status 0 it was the only
+                // transient failure the retry loop could not see.
+                case "api_error": throw ClaudeError.api(status: 500, failure: f)
                 default: throw ClaudeError.api(status: 0, failure: f)
                 }
             default:
                 break
             }
         }
+
+        // One line per request, content-free, so a failure rate is measurable.
+        Log.sop.notice("""
+            stream end — model \(servedBy ?? "-", privacy: .public), fallback \(sawFallback, privacy: .public), \
+            stop \(stopReason ?? "none", privacy: .public), \
+            message_stop \(sawMessageStop, privacy: .public), chars \(chars, privacy: .public), \
+            \(Int(Date().timeIntervalSince(started)), privacy: .public)s, \
+            request \(head.requestId ?? "-", privacy: .public)
+            """)
+        // A stream that simply STOPPED — no error event, no stop reason, no
+        // message_stop — is a dropped connection, not a model failure. It used to
+        // fall through to "Claude returned malformed SOP data", blaming Claude for
+        // a network problem, and was never retried.
+        if stopReason == nil && !sawMessageStop { throw ClaudeError.connection }
 
         if stopReason == "refusal" { throw ClaudeError.refusal }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
