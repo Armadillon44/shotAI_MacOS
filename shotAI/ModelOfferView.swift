@@ -6,6 +6,9 @@ import SwiftUI
 struct ErrorModelSwitch: Equatable {
     let to: ModelChoice
     let from: SopModelId
+    /// Whether accepting it also puts away the panel's offer of `from`. Not after
+    /// a 400: that may be the project's doing, and the model may be fine.
+    var putsAwayItsOffer = true
 }
 
 /// The model offer, in Settings ▸ AI and the AI SOP panel: a newer Sonnet, or a

@@ -248,7 +248,7 @@ private struct AccountRows: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {
-                Button("Check Again") { Task { await model.auth.signIn(forceLogin: true) } }
+                Button("Check Again") { Task { await model.signIn(forceLogin: true) } }
                     .disabled(model.auth.busy)
                 Button("Sign Out") { Task { await model.signOut() } }
                     .disabled(model.auth.busy)

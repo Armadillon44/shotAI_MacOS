@@ -373,9 +373,11 @@ final class AppModel {
     var sopSettings: SopSettings {
         didSet {
             guard oldValue.enabled != sopSettings.enabled else { return }
-            // Off: nothing more goes over the network, including a model-list
-            // check already past its guard. On: the first moment the list can be
-            // read; the daily throttle keeps that to one call.
+            // Off: a model-list check already past its guard is cancelled and
+            // sends no further page; an SSO token mint it already started still
+            // completes (the provider shares one mint between callers). On: the
+            // first moment the list can be read; the daily throttle keeps that to
+            // one call.
             if sopSettings.enabled { Task { await checkModelsIfDue() } } else { modelCheckTask?.cancel() }
         }
     }
@@ -658,7 +660,7 @@ final class AppModel {
     /// The Settings model picker. See `modelPickerChoices`.
     var modelChoices: [ModelChoice] {
         modelPickerChoices(inUse: sopSettings.discoveredModel, offered: modelOffer?.candidate,
-                           chosen: modelDiscovery.chosen, listed: modelDiscovery.listed)
+                           chosen: modelDiscovery.chosen, listed: modelDiscovery.listed, now: Date())
     }
 
     /// Display name for any model shotAI might mention.
@@ -702,7 +704,8 @@ final class AppModel {
     func applyErrorModelSwitch() {
         guard let sw = sopErrorModelSwitch else { return }
         chooseModel(sw.to)
-        if let o = SOPKit.modelOffer(listed: modelDiscovery.listed, complete: modelDiscovery.complete,
+        if sw.putsAwayItsOffer,
+           let o = SOPKit.modelOffer(listed: modelDiscovery.listed, complete: modelDiscovery.complete,
                                      current: sopSettings.model),
            o.candidate?.id == sw.from.rawValue {
             modelDiscovery.dismiss(o)
@@ -742,8 +745,12 @@ final class AppModel {
                 offer \(String(describing: self.modelOffer?.reason), privacy: .public)
                 """)
         } catch let e as ClaudeError where Self.noRequestWasMade(e) {
-            // Nothing went over the network (signed out, no key, AI off), so there
-            // is no failure to back off from; the next trigger tries again.
+            // Nothing went over the network (signed out, no key, AI off, a broken
+            // sign-in configuration), so there is no failure to back off from; the
+            // next trigger tries again. An expired session or a missing app role
+            // is NOT here: finding that out costs an Entra round trip, and with a
+            // check on every app activation it must back off like any failure.
+            // Signing in again clears the backoff (`credentialChanged`).
             return
         } catch {
             // A check stopped on purpose is not a failure: stay due. URLSession
@@ -757,18 +764,22 @@ final class AppModel {
 
     /// The credential in use changed (a key added or cleared, a sign-in or
     /// sign-out). Another account can see other models, so the cached list is
-    /// dropped and read again for this one.
-    private func credentialChanged() async {
+    /// dropped and read again for this one, and a model that failed for the last
+    /// account may work for this one. The check is started, not awaited: the
+    /// caller (a sign-in from the error alert) clears its message at once rather
+    /// than after a network round trip, which could wipe a newer error.
+    private func credentialChanged() {
         modelCheckTask?.cancel()
         modelCheckTask = nil
+        failedModels = []
         modelDiscovery.forgetListing()
         saveModelDiscovery()
-        await checkModelsIfDue()
+        Task { await checkModelsIfDue() }
     }
 
     private static func noRequestWasMade(_ e: ClaudeError) -> Bool {
         switch e.kind {
-        case .disabled, .noKey, .notSignedIn, .signInRequired, .notEntitled, .configInvalid: true
+        case .disabled, .noKey, .notSignedIn, .configInvalid: true
         default: false
         }
     }
@@ -779,9 +790,10 @@ final class AppModel {
     private func modelSwitch(after error: Error, failed: SopModelId) -> ErrorModelSwitch? {
         guard let e = error as? ClaudeError, e.isModelFault(builtInModel: failed.isBuiltIn) else { return nil }
         failedModels.insert(failed.rawValue)
+        let projectsDoing: Bool = { if case .api(400, _) = e { true } else { false } }()
         return errorSwitchTarget(failed: failed, listed: modelDiscovery.listed, complete: modelDiscovery.complete,
                                  excluding: failedModels, now: Date())
-            .map { ErrorModelSwitch(to: $0, from: failed) }
+            .map { ErrorModelSwitch(to: $0, from: failed, putsAwayItsOffer: !projectsDoing) }
     }
 
     // MARK: - App preferences (theme / byline / capture)
@@ -894,19 +906,21 @@ final class AppModel {
 
     /// Sign in or out (Settings ▸ AI, and the sign-in offered where the user hit
     /// the wall). Either can change which account's credential requests use.
-    func signIn() async {
+    func signIn(forceLogin: Bool = false) async {
         let before = credentialStatus
-        await auth.signIn()
+        await auth.signIn(forceLogin: forceLogin)
         await refreshAuthStatus()
-        // The status carries the account, so signing in as someone else counts;
-        // a cancelled sign-in, or the same account again, changes nothing.
-        if credentialStatus != before { await credentialChanged() }
+        // The status carries the account (and whether it has access), so signing
+        // in as someone else, or after IT granted access, counts. A cancelled
+        // sign-in or the same account again changes nothing, but is still a
+        // moment a due check can run.
+        if credentialStatus != before { credentialChanged() } else { Task { await checkModelsIfDue() } }
     }
 
     func signOut() async {
         await auth.signOut()
         await refreshAuthStatus()
-        await credentialChanged()
+        credentialChanged()
     }
 
     /// Store the key (Keychain). Returns an error message, or nil on success. The
@@ -915,7 +929,7 @@ final class AppModel {
         do {
             try apiKeyStore.set(key)
             refreshApiKeyStatus()
-            Task { await refreshAuthStatus(); await credentialChanged() }
+            Task { await refreshAuthStatus(); credentialChanged() }
             return nil
         } catch {
             refreshApiKeyStatus(); Task { await refreshAuthStatus() }
@@ -927,7 +941,7 @@ final class AppModel {
         do {
             try apiKeyStore.clear()
             refreshApiKeyStatus()
-            Task { await refreshAuthStatus(); await credentialChanged() }
+            Task { await refreshAuthStatus(); credentialChanged() }
             return nil
         } catch {
             refreshApiKeyStatus(); Task { await refreshAuthStatus() }

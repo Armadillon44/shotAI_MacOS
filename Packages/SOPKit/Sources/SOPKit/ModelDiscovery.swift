@@ -251,6 +251,14 @@ extension ListedModel {
     /// A model shotAI would offer: a Sonnet that is active, not on its way out,
     /// and that accepts everything a generation request uses.
     var isSopCandidate: Bool { line == SOP_MODEL_LINE && isActive && !isRetiring && sopGaps.isEmpty }
+
+    /// A compatible Sonnet that can still be used now: active, or deprecated with
+    /// its retirement date still ahead (or not given).
+    func stillWorks(at now: Date) -> Bool {
+        guard line == SOP_MODEL_LINE, sopGaps.isEmpty, isActive || isRetiring else { return false }
+        if let r = retiresAt, r <= now { return false }
+        return true
+    }
 }
 
 /// Newest first by release date; a model with no date ranks oldest, so it can
@@ -319,16 +327,17 @@ private func listingSaysGone(_ id: SopModelId, listed: [ListedModel], complete: 
 }
 
 /// The Settings model picker: every built-in model, the discovered model in use,
-/// each discovered model the user chose before that the listing still shows as
-/// compatible (newest first), and the candidate on offer. A model the user
-/// switched away from stays choosable, so "you can switch back" holds; one never
-/// chosen is not added just because the list has it.
+/// each discovered model the user chose before that still works (newest first),
+/// and the candidate on offer. A model the user switched away from stays
+/// choosable until its retirement date, so "you can switch back" holds, also when
+/// they switched because a retiring notice suggested it; one never chosen is not
+/// added just because the list has it.
 public func modelPickerChoices(inUse: SopModelProfile?, offered: SopModelProfile?,
-                               chosen: [String], listed: [ListedModel]) -> [ModelChoice] {
+                               chosen: [String], listed: [ListedModel], now: Date) -> [ModelChoice] {
     var out = SOP_MODELS.map { ModelChoice.builtIn($0.id) }
     func add(_ c: ModelChoice) { if !out.contains(where: { $0.id == c.id }) { out.append(c) } }
     if let inUse { add(.discovered(inUse)) }
-    let earlier = listed.filter { chosen.contains($0.id) && $0.isSopCandidate && $0.profile.isUsable }
+    let earlier = listed.filter { chosen.contains($0.id) && $0.stillWorks(at: now) && $0.profile.isUsable }
         .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
     for m in earlier { add(ModelChoice(m.profile)) }
     if let offered { add(ModelChoice(offered)) }
@@ -417,6 +426,15 @@ public struct ModelDiscoveryState: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         dismissed = (try? c.decode([String].self, forKey: .dismissed)) ?? []
         chosen = (try? c.decode([String].self, forKey: .chosen)) ?? []
+        // No listing held (never succeeded, or forgotten): the schedule is a
+        // failure backoff and nothing can be called missing, so it is kept. A
+        // check that keeps failing must not run again on every launch.
+        let empty = !c.contains(.listed) || ((try? c.decode([ListedModel].self, forKey: .listed))?.isEmpty ?? false)
+        if empty {
+            checkedAt = try? c.decodeIfPresent(Date.self, forKey: .checkedAt)
+            nextCheckAt = try? c.decodeIfPresent(Date.self, forKey: .nextCheckAt)
+            return
+        }
         guard let models = try? c.decode([ListedModel].self, forKey: .listed),
               let signature = try? c.decode(String.self, forKey: .listedFor),
               signature == Self.builtInSignature else { return }

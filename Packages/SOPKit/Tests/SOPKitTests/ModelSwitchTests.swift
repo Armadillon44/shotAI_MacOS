@@ -97,21 +97,35 @@ final class ModelSwitchTests: XCTestCase {
     func testAModelSwitchedAwayFromStaysChoosableWhileItIsListed() throws {
         let l = try D.listed(D.today + [D.sonnet6, sonnet65])
         let ids = modelPickerChoices(inUse: try profile("claude-sonnet-6-5"), offered: nil,
-                                     chosen: ["claude-sonnet-6", "claude-sonnet-6-5"], listed: l).map(\.id.rawValue)
+                                     chosen: ["claude-sonnet-6", "claude-sonnet-6-5"], listed: l, now: now)
+            .map(\.id.rawValue)
         XCTAssertEqual(ids, ["claude-sonnet-5-5", "claude-sonnet-6-5", "claude-sonnet-6"])
         XCTAssertFalse(ids.contains("claude-sonnet-5"), "a model never chosen is not added because the list has it")
+    }
 
-        let deprecated = try D.listed(D.today + [sonnet65,
-            D.entry("claude-sonnet-6", created: "2027-03-01T00:00:00Z", lifecycle: "deprecated")])
-        XCTAssertFalse(modelPickerChoices(inUse: nil, offered: nil, chosen: ["claude-sonnet-6"], listed: deprecated)
-            .map(\.id.rawValue).contains("claude-sonnet-6"), "once it is on its way out, it is not offered back")
+    /// Switching because a retiring notice suggested it must not strand the user:
+    /// the retiring model stays choosable until its date, then drops out.
+    func testARetiringModelSwitchedAwayFromStaysChoosableUntilItsDate() throws {
+        let retiring = try D.listed(D.today + [sonnet65,
+            D.entry("claude-sonnet-6", created: "2027-03-01T00:00:00Z", lifecycle: "deprecated",
+                    retires: "2027-06-01T00:00:00Z")])
+        func ids(at t: Date) -> [String] {
+            modelPickerChoices(inUse: nil, offered: nil, chosen: ["claude-sonnet-6"], listed: retiring, now: t)
+                .map(\.id.rawValue)
+        }
+        XCTAssertTrue(ids(at: now).contains("claude-sonnet-6"), "before its date it still works")
+        XCTAssertFalse(ids(at: ISO8601DateFormatter().date(from: "2027-06-02T00:00:00Z")!).contains("claude-sonnet-6"),
+                       "after its date it is gone")
+        let preview = try D.listed(D.today + [D.entry("claude-sonnet-6", created: "2027-03-01T00:00:00Z", lifecycle: "preview")])
+        XCTAssertFalse(modelPickerChoices(inUse: nil, offered: nil, chosen: ["claude-sonnet-6"], listed: preview, now: now)
+            .map(\.id.rawValue).contains("claude-sonnet-6"), "a lifecycle shotAI does not know is not offered")
     }
 
     func testThePickerHasEachModelOnceBuiltInsFirst() throws {
         let l = try D.listed(D.today + [D.sonnet6])
         let six = try profile("claude-sonnet-6")
         let choices = modelPickerChoices(inUse: six, offered: six, chosen: ["claude-sonnet-6", "claude-sonnet-5-5"],
-                                         listed: l)
+                                         listed: l, now: now)
         XCTAssertEqual(choices, [.builtIn(.sonnet55), .discovered(six)])
     }
 
@@ -179,6 +193,18 @@ final class ModelSwitchTests: XCTestCase {
         XCTAssertNil(read.nextCheckAt)
         XCTAssertTrue(read.isDue(at: now.addingTimeInterval(60)))
         XCTAssertEqual(read.dismissed, ["newer:x"])
+    }
+
+    /// A check that keeps failing (an account without access, an expired session)
+    /// backs off 6 h, and that holds across a relaunch even when no listing was
+    /// ever read. Without it the check ran again on every launch.
+    func testAFailureBackoffSurvivesARelaunchWithNoListing() throws {
+        var s = ModelDiscoveryState()
+        s.recordFailure(at: now)
+        let read = try JSONDecoder().decode(ModelDiscoveryState.self, from: JSONEncoder().encode(s))
+        XCTAssertEqual(read.nextCheckAt, s.nextCheckAt)
+        XCTAssertFalse(read.isDue(at: now.addingTimeInterval(5 * 3600)))
+        XCTAssertTrue(read.isDue(at: now.addingTimeInterval(6 * 3600)))
     }
 
     func testNotNowSurvivesTheNextDailyCheck() throws {
