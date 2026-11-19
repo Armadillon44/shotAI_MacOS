@@ -550,6 +550,47 @@ final class AppModel {
         }
     }
 
+    /// What the report's Frame menu shows as selected. Like `BrandMenuSelection`,
+    /// a stored value this build cannot parse is its own state with no row, so
+    /// nothing is ticked rather than "Original", which it is not on disk.
+    enum FrameMenuSelection: Hashable {
+        case original
+        case frame(ShotFrame)
+        /// A `shotFrame` this build cannot parse. Never offered in the menu.
+        case unrecognised
+    }
+
+    var frameMenuSelection: FrameMenuSelection {
+        guard let raw = opened?.manifest.shotFrame else { return .original }
+        guard let frame = ShotFrame(rawValue: raw) else { return .unrecognised }
+        return .frame(frame)
+    }
+
+    func applyFrameMenuSelection(_ sel: FrameMenuSelection) async {
+        switch sel {
+        case .original: await setShotFrame(nil)
+        case .frame(let f): await setShotFrame(f)
+        case .unrecognised: break
+        }
+    }
+
+    /// Set the open project's screenshot frame, nil for none. Every step keeps
+    /// its zoom and pan; they are read in the new frame (Armadillon44/shotAI#160).
+    /// The store refuses a no-op, so re-choosing the current frame does not
+    /// re-date the project.
+    func setShotFrame(_ frame: ShotFrame?) async {
+        guard let path = opened?.dir else { return }
+        do {
+            guard try await store.setShotFrame(at: path, frame) != nil else { return }
+            guard opened?.dir == path else { return }   // navigated away mid-write
+            await reloadOpened()
+            Log.store.notice("project frame -> \(frame?.rawValue ?? "none", privacy: .public)")
+        } catch {
+            errorMessage = "Couldn't change this project's frame. \(error.localizedDescription)"
+            Log.store.error("setShotFrame failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// Sign-in state. Owns the federation config and provider; never sees a token.
     let auth = AuthModel()
     /// Mirror of the resolved credential path, so views can react.
@@ -1250,22 +1291,44 @@ final class AppModel {
 
     // MARK: - Report display zoom/pan (R3 — per-step, display-only)
 
-    /// Set a step's report zoom (clamped 1…max; 1 = fit). Display-only: the patch
-    /// doesn't touch annotations/crop, so updateStep leaves the baked render alone.
-    func setReportZoom(stepId: String, _ zoom: Double) async {
-        guard let dir = opened?.dir else { return }
+    /// Set a step's report zoom (clamped 1…`maxZoom`; 1 = fit). Display-only: the
+    /// patch doesn't touch annotations/crop, so updateStep leaves the baked render
+    /// alone. The figure passes its own maximum: 4, or in a framed project the
+    /// fill zoom when that is further (`FrameGeometry.maxZoom`), which only it
+    /// can compute because it depends on the image.
+    func setReportZoom(stepId: String, _ zoom: Double, maxZoom: Double = ReportPresentation.zoomMax) async {
+        guard let dir = opened?.dir, zoom.isFinite else { return }
         var patch = StepPatch()
-        patch.reportZoom = min(max(zoom, 1), ReportPresentation.zoomMax)
+        patch.reportZoom = min(max(zoom, 1), max(1, maxZoom))
         await applyDisplayPatch(dir: dir, stepId: stepId, patch: patch, what: "setReportZoom")
     }
 
-    /// Set a step's report pan (fractions 0…1 of the scrollable range; 0.5 = center).
-    func setReportPan(stepId: String, panX: Double, panY: Double) async {
+    /// Set a step's report pan (fractions 0…1 of the scrollable range; 0.5 =
+    /// centre) on the axes given. A nil axis is left as it is: a drag only
+    /// writes the axes it can move, so an axis with nothing to pan keeps
+    /// following its default (in a framed project, the click) instead of being
+    /// pinned to the centre.
+    func setReportPan(stepId: String, panX: Double?, panY: Double?) async {
         guard let dir = opened?.dir else { return }
         var patch = StepPatch()
-        patch.reportPanX = min(max(panX, 0), 1)
-        patch.reportPanY = min(max(panY, 0), 1)
+        if let x = panX, x.isFinite { patch.reportPanX = .set(min(max(x, 0), 1)) }
+        if let y = panY, y.isFinite { patch.reportPanY = .set(min(max(y, 0), 1)) }
+        guard patch.reportPanX.isSet || patch.reportPanY.isSet else { return }
         await applyDisplayPatch(dir: dir, stepId: stepId, patch: patch, what: "setReportPan")
+    }
+
+    /// Reset a step's report view to fit, in one write. With `clearPan` (a
+    /// framed project) the saved pan is removed too, so the step goes back to
+    /// its click (Armadillon44/shotAI#160).
+    func resetReportView(stepId: String, clearPan: Bool) async {
+        guard let dir = opened?.dir else { return }
+        var patch = StepPatch()
+        patch.reportZoom = 1
+        if clearPan {
+            patch.reportPanX = .set(nil)
+            patch.reportPanY = .set(nil)
+        }
+        await applyDisplayPatch(dir: dir, stepId: stepId, patch: patch, what: "resetReportView")
     }
 
     private func applyDisplayPatch(dir: String, stepId: String, patch: StepPatch, what: String) async {

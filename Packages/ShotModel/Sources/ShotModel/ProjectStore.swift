@@ -543,14 +543,19 @@ public actor ProjectStore {
 
     /// Set the project's screenshot frame, or nil for none (which removes the
     /// key). Guarded like `setTheme`: a write re-dates the project, so an
-    /// unchanged value writes nothing. Compares the raw stored string, so
-    /// replacing a value this build cannot parse with a real frame is a change.
+    /// unchanged value writes nothing.
+    ///
+    /// "Unchanged" is the frame, not its spelling: a stored `"10:8"` is the
+    /// `5:4` the Frame menu ticks, so choosing 5:4 again writes nothing. An
+    /// unparseable stored value is not a frame, so replacing it with one, or
+    /// removing it, is a change.
     ///
     /// Returns nil when nothing was written.
     public func setShotFrame(at projectPath: String, _ frame: ShotFrame?) throws -> ProjectManifest? {
         let next = frame?.rawValue
         let current = try openProject(at: projectPath).manifest.shotFrame
         guard next != current else { return nil }
+        if let frame, let current, ShotFrame(rawValue: current) == frame { return nil }
         Log.store.info("setShotFrame -> \(next ?? "none", privacy: .public)")
         return try mutate(at: projectPath) { $0.shotFrame = next }
     }
