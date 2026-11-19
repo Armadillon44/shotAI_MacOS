@@ -70,3 +70,17 @@ in a diff — but a directory of cases has no generated artifact to stamp.
 Until a check sees both trees at once, adding a case means adding it to **both**
 repos in the same change. A case present on one side only still does useful work
 there; it just is not yet a shared assertion.
+
+## Other shared data
+
+`contract/frame-geometry.json` is the shared geometry for the per-project
+screenshot frame (Armadillon44/shotAI#160): frame parsing, the frame box, zoom
+steps, and the view and export layout for a set of images, zooms, pans and
+clicks. Its expected values come from an independent implementation of the
+spec, not from either app. Both platforms test against the same file:
+
+- macOS: `Packages/ShotModel/Tests/ShotModelTests/FrameGeometryTests.swift`
+- Windows: to be added with the port.
+
+The same rule applies as for the cases above: a change to the table goes into
+both repos in the same change.

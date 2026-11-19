@@ -110,6 +110,87 @@ final class PackageTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: abs))
     }
 
+    /// The screenshot frame is an ordinary project setting, not private author
+    /// data: a recipient sees the project framed as the sender did.
+    func testAPackageKeepsTheProjectsFrame() async throws {
+        let root = tempDir()
+        let store = ProjectStore(settings: InMemorySettings(projectsDir: root))
+        let created = try await store.createProject(title: "Framed")
+        _ = try await store.importImageStep(at: created.path, atIndex: nil, imageData: pngData(w: 40, h: 30))
+        _ = try await store.setShotFrame(at: created.path, ShotFrame(rawValue: "5:4"))
+        let opened = try await store.openProject(at: created.path)
+        let result = try exportPackage(dir: opened.dir, manifest: opened.manifest, includeOriginals: false)
+        let entries = try zipRead(Data(contentsOf: URL(fileURLWithPath: result.outputPath)), maxEntryBytes: 10_000_000)
+        let manifestJSON = String(decoding: try XCTUnwrap(entries.first { $0.name == "project.json" }?.data), as: UTF8.self)
+        XCTAssertTrue(manifestJSON.contains("\"shotFrame\":\"5:4\"") || manifestJSON.contains("\"shotFrame\" : \"5:4\""))
+
+        let summary = try await store.createProjectFromImport(manifest: opened.manifest, files: [])
+        let imported = try await store.openProject(at: summary.path)
+        XCTAssertEqual(imported.manifest.shotFrame, "5:4", "and an import keeps it")
+    }
+
+    /// A safe package drops the click (its ring is baked into the image), but a
+    /// framed step with no saved pan is positioned on that click. The package
+    /// writes the pan the click gives, so the recipient sees the same framing.
+    func testASafePackageKeepsAFramedStepCentredOnItsClick() throws {
+        // A 1600x1000 render, 1:1 frame at docScale 1 (box 600x600): fill is 1.6.
+        let render = pngData(w: 1600, h: 1000)
+        var step = ProjectStep(id: "s", order: 1, kind: .shot, screenshot: "shots/1.png", trigger: .hotkey)
+        step.click = StepClick(global: Point(x: 0, y: 0), image: Point(x: 1500, y: 500), button: .left)
+        step.reportZoom = 1.6
+        let frame = try XCTUnwrap(ShotFrame(rawValue: "1:1"))
+
+        var zoomed = step
+        keepClickCentredPan(&zoomed, render: render, frame: frame, docScale: nil)
+        XCTAssertEqual(zoomed.reportPanX, 1, "the click is near the right edge: clamped there")
+        XCTAssertEqual(zoomed.reportPanY, 0.5)
+
+        var atFit = step
+        atFit.reportZoom = nil
+        keepClickCentredPan(&atFit, render: render, frame: frame, docScale: nil)
+        XCTAssertEqual(atFit.reportPanX, 1, "at fit, the pan the first zoom-in (fill) will use")
+
+        var saved = step
+        saved.reportPanX = 0.2; saved.reportPanY = 0.3
+        keepClickCentredPan(&saved, render: render, frame: frame, docScale: nil)
+        XCTAssertEqual([saved.reportPanX, saved.reportPanY], [0.2, 0.3], "a saved pan is the author's")
+        var half = step
+        half.reportPanX = 0.2   // one axis saved (a hand edit, or another build)
+        keepClickCentredPan(&half, render: render, frame: frame, docScale: nil)
+        XCTAssertEqual([half.reportPanX, half.reportPanY], [0.2, 0.5], "only the missing axis is filled in")
+
+        var unframed = step
+        keepClickCentredPan(&unframed, render: render, frame: nil, docScale: nil)
+        XCTAssertNil(unframed.reportPanX, "an unframed project's packages are unchanged")
+
+        var cropped = step
+        cropped.crop = Rect(x: 1000, y: 0, width: 600, height: 600)   // render is the crop
+        cropped.reportZoom = 1
+        keepClickCentredPan(&cropped, render: pngData(w: 600, h: 600), frame: frame, docScale: nil)
+        XCTAssertEqual(cropped.reportPanX, 0.5, "a crop of the frame's shape has nothing to pan: centred")
+    }
+
+    func testTheWholePackageCarriesThePan() async throws {
+        let root = tempDir()
+        let store = ProjectStore(settings: InMemorySettings(projectsDir: root))
+        let created = try await store.createProject(title: "Framed click")
+        _ = try await store.importImageStep(at: created.path, atIndex: nil, imageData: pngData(w: 1600, h: 1000))
+        _ = try await store.setShotFrame(at: created.path, ShotFrame(rawValue: "1:1"))
+        var opened = try await store.openProject(at: created.path)
+        var manifest = opened.manifest
+        manifest.steps[0].click = StepClick(global: Point(x: 0, y: 0), image: Point(x: 100, y: 900), button: .left)
+        manifest.steps[0].reportZoom = 1.6
+        let result = try exportPackage(dir: opened.dir, manifest: manifest, includeOriginals: false)
+        let entries = try zipRead(Data(contentsOf: URL(fileURLWithPath: result.outputPath)), maxEntryBytes: 10_000_000)
+        let json = try XCTUnwrap(entries.first { $0.name == "project.json" }?.data)
+        let shipped = try JSONDecoder().decode(ProjectManifest.self, from: json)
+        XCTAssertNil(shipped.steps[0].click)
+        XCTAssertEqual(shipped.steps[0].reportPanX, 0, "a click at the left edge")
+        XCTAssertEqual(shipped.steps[0].reportPanY, 0.5)
+        opened = try await store.openProject(at: created.path)
+        XCTAssertNil(opened.manifest.steps[0].reportPanX, "the sender's project is not touched")
+    }
+
     // MARK: - Untrusted-input rejections
 
     func testRejectsMissingMarker() async throws {

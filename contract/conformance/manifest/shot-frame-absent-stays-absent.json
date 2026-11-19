@@ -1,0 +1,17 @@
+{
+  "name": "shot-frame-absent-stays-absent",
+  "why": "No frame is the default and is written as nothing, so a project that never picks one stays byte-identical on both platforms.",
+  "status": "agreed",
+  "issue": "Armadillon44/shotAI#160",
+  "input": {
+    "id": "p",
+    "title": "T",
+    "createdWith": "shotAI",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z",
+    "steps": []
+  },
+  "expect": {
+    "shotFrame": { "$absent": true }
+  }
+}
