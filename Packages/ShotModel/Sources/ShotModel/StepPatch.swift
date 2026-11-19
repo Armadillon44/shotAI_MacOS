@@ -20,8 +20,8 @@ public enum PatchField<T: Sendable>: Sendable {
 }
 
 /// Editor/report-mutable fields of a step (the Swift analog of the TS StepPatch).
-/// A nil plain-Optional field means "leave unchanged"; `crop`/`callout` use
-/// PatchField so they can be explicitly cleared.
+/// A nil plain-Optional field means "leave unchanged"; `crop`, `callout` and
+/// the report pan use PatchField so they can be explicitly cleared.
 public struct StepPatch: Sendable {
     public var caption: String?
     public var note: String?
@@ -31,8 +31,10 @@ public struct StepPatch: Sendable {
     public var markerColor: String?
     public var markerBaked: Bool?
     public var reportZoom: Double?
-    public var reportPanX: Double?
-    public var reportPanY: Double?
+    /// .unset = leave; .set(nil) = clear, back to the default position (the
+    /// click in a framed project, the centre otherwise); .set(v) = set.
+    public var reportPanX: PatchField<Double?> = .unset
+    public var reportPanY: PatchField<Double?> = .unset
     /// .unset = leave; .set(nil) = remove the click marker; .set(click) = update it.
     public var click: PatchField<StepClick?> = .unset
     /// nil = leave; non-nil = replace the whole annotation list.
@@ -60,8 +62,8 @@ public func applyPatchAndInvalidate(_ step: inout ProjectStep, _ patch: StepPatc
     if let v = patch.markerColor { step.markerColor = v }
     if let v = patch.markerBaked { step.markerBaked = v }
     if let v = patch.reportZoom { step.reportZoom = v }
-    if let v = patch.reportPanX { step.reportPanX = v }
-    if let v = patch.reportPanY { step.reportPanY = v }
+    if case .set(let v) = patch.reportPanX { step.reportPanX = v }
+    if case .set(let v) = patch.reportPanY { step.reportPanY = v }
     if case .set(let v) = patch.click { step.click = v }
     if let v = patch.annotations { step.annotations = v }
     if case .set(let v) = patch.crop { step.crop = v }
