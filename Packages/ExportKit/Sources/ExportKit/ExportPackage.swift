@@ -63,21 +63,22 @@ private func isPngOrJpeg(_ b: Data) -> Bool {
 /// A framed step with no saved pan is positioned on its click
 /// (`FrameGeometry.defaultPan`), and a safe package drops the click below, since
 /// its ring is baked into the image that travels. Write the pan the click gives
-/// instead, so the recipient sees the step framed as the sender did: at the
-/// step's zoom, or at fit at the fill zoom, where the recipient's first zoom-in
-/// lands. Only for a framed project and only where no pan is saved.
+/// instead, so the recipient sees the step framed as the sender did: the pan
+/// `FrameGeometry.pan(for:)` gives at the step's zoom, the one the sender's own
+/// exports use, or for a step at fit at the fill zoom, where the recipient's
+/// first zoom-in lands. Only for a framed project, only where no pan is saved.
 func keepClickCentredPan(_ step: inout ProjectStep, render: Data, frame: ShotFrame?, docScale: Double?) {
     guard let frame, step.reportPanX == nil || step.reportPanY == nil,
-          let click = step.clickInRender,
+          step.clickInRender != nil,
           let box = FrameGeometry.projectBox(frame: frame, docScale: docScale),
           let (w, h) = imagePixelDimensions(render),
           let view = FrameGeometry.view(imageWidth: Double(w), imageHeight: Double(h), box: box,
                                         zoom: step.reportZoom ?? 1, panX: 0.5, panY: 0.5)
     else { return }
-    let pan = FrameGeometry.defaultPan(click: click, imageWidth: Double(w), imageHeight: Double(h), box: box,
-                                       zoom: max(view.zoom, view.fillZoom))
-    step.reportPanX = step.reportPanX ?? pan.x
-    step.reportPanY = step.reportPanY ?? pan.y
+    let pan = FrameGeometry.pan(for: step, imageWidth: Double(w), imageHeight: Double(h), box: box,
+                                zoom: view.zoom > 1 ? view.zoom : view.fillZoom)
+    step.reportPanX = pan.x
+    step.reportPanY = pan.y
 }
 
 /// Assemble a shareable package for the project at `dir`. The caller is expected

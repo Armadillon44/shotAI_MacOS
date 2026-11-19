@@ -42,7 +42,8 @@ func renderPdf(
             pdf.drawStep(
                 badge: "\(n)", badgeColor: ink.badge,
                 caption: caption.isEmpty ? "Step \(n)" : caption,
-                image: cg, body: body, note: note, separator: separator)
+                image: cg, body: body, note: note, separator: separator,
+                framed: image.frameDisplayWidth != nil)
 
         case .text(let n, let heading, let body):
             pdf.drawStep(
@@ -390,7 +391,10 @@ private final class PdfCanvas {
         CTLineDraw(line, ctx)
     }
 
-    func drawStep(badge: String, badgeColor: NSColor, caption: String, image: CGImage?, body: String, note: String, separator: Bool) {
+    /// `framed`: a framed project's image, drawn at the card's image width even
+    /// when the step flows past a page, so every frame in the PDF is one size.
+    func drawStep(badge: String, badgeColor: NSColor, caption: String, image: CGImage?, body: String, note: String,
+                  separator: Bool, framed: Bool = false) {
         guard let ctx else { return }
         // Layout: a badge in the left gutter + a tinted card holding the content,
         // matching the in-app report. `innerW` is the card's content width.
@@ -449,7 +453,7 @@ private final class PdfCanvas {
             cursorY = cardTop - cardH   // land just below the card
         } else {
             // Taller than a page (big image + long body) → flow it, box-less.
-            let (fImgW, fImgH) = imageDims(mainW)
+            let (fImgW, fImgH) = imageDims(framed ? innerW : mainW)
             let broke = ensureRoom(sepGap + headerH + (fImgH > 0 ? 10 + fImgH : 0))
             if separator && !broke { advance(14); strokeStepRule(); advance(14) }
             let top = cursorY

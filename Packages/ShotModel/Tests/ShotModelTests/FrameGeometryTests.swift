@@ -202,6 +202,20 @@ import Testing
         #expect(pan() == [0.25, 0.1])
     }
 
+    /// A zoom chosen but not yet saved frames the click-default view as it will
+    /// look once saved, so the report does not jump when the save lands.
+    @Test func aZoomOverrideMatchesTheSavedZoom() {
+        var step = ProjectStep(id: "s", order: 1, kind: .shot, screenshot: "shots/1.png", trigger: .hotkey)
+        step.click = StepClick(global: Point(x: 0, y: 0), image: Point(x: 1500, y: 500), button: .left)
+        let box = FrameGeometry.Size(width: 600, height: 600)
+        let pending = FrameGeometry.pan(for: step, imageWidth: 1600, imageHeight: 1000, box: box, zoom: 1.6)
+        var saved = step
+        saved.reportZoom = 1.6
+        let after = FrameGeometry.pan(for: saved, imageWidth: 1600, imageHeight: 1000, box: box)
+        #expect([pending.x, pending.y] == [after.x, after.y])
+        #expect(pending.x == 1, "and it is the clamped click, not the centre")
+    }
+
     @Test func theClickIsMeasuredInTheRender() {
         var step = ProjectStep(id: "s", order: 1, kind: .shot, screenshot: "shots/1.png", trigger: .hotkey)
         #expect(step.clickInRender == nil)

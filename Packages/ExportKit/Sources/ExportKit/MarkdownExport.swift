@@ -91,8 +91,17 @@ func buildMarkdown(
             let heading = collapseHeading(caption.isEmpty ? "Step \(n)" : caption)
             lines.append("## \(n). \(escapeMarkdown(heading))")
             lines.append("")
-            // Angle-bracket the path: the stem may contain spaces/parens.
-            lines.append("![Screenshot for step \(n)](<\(imagesDirName)/\(imgName)>)")
+            if let frameWidth = image.frameDisplayWidth {
+                // A framed image is shown at the frame's width, whatever its pixels
+                // (a zoomed-in small image has fewer), so every frame is the same
+                // size. Markdown image syntax cannot set a size; inline HTML can,
+                // and CommonMark renderers (GitHub, VS Code, Obsidian) accept it.
+                let src = escapeHTML("\(imagesDirName)/\(imgName)")
+                lines.append("<img src=\"\(src)\" width=\"\(Int(frameWidth.rounded()))\" alt=\"Screenshot for step \(n)\">")
+            } else {
+                // Angle-bracket the path: the stem may contain spaces/parens.
+                lines.append("![Screenshot for step \(n)](<\(imagesDirName)/\(imgName)>)")
+            }
             lines.append("")
             if !body.isEmpty { lines.append(body); lines.append("") }
             if !note.isEmpty { lines.append("> \(note.replacingOccurrences(of: "\n", with: "\n> "))"); lines.append("") }
