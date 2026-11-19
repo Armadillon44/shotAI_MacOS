@@ -81,13 +81,19 @@ extension ReportPresentation {
         else { return nil }
         let k = fitWidth.isFinite && fitWidth > 0 ? min(1, fitWidth / box.width) : 1
         let maxZoom = FrameGeometry.maxZoom(fillZoom: v.fillZoom)
+        // An axis pans only when its overflow, as drawn, is worth a drag. Fill
+        // can leave a point or two over on one axis (a small image within a
+        // hair of the frame's shape), and a 2pt drag there would save a pan
+        // stuck at 0 or 1 that then overrides the click at every later zoom.
+        let panX = v.pannableX && (v.imageWidth - box.width) * k > minFramedPanOverflow
+        let panY = v.pannableY && (v.imageHeight - box.height) * k > minFramedPanOverflow
         return FigureLayout(
             framed: true,
             boxWidth: box.width * k, boxHeight: box.height * k,
             imageWidth: v.imageWidth * k, imageHeight: v.imageHeight * k,
             offsetX: v.offsetX * k, offsetY: v.offsetY * k,
             zoom: v.zoom, maxZoom: maxZoom,
-            pannableX: v.pannableX, pannableY: v.pannableY,
+            pannableX: panX, pannableY: panY,
             zoomInTarget: changed(FrameGeometry.zoomIn(from: v.zoom, fillZoom: v.fillZoom), from: v.zoom),
             zoomOutTarget: changed(FrameGeometry.zoomOut(from: v.zoom, fillZoom: v.fillZoom), from: v.zoom),
             canReset: v.zoom != 1 || step.reportPanX != nil || step.reportPanY != nil)
@@ -111,6 +117,10 @@ extension ReportPresentation {
             zoomOutTarget: changed(max(zoom / FrameGeometry.step, zoomMin), from: zoom),
             canReset: zoom != 1)
     }
+
+    /// The least overflow, in display points, that a framed axis needs before
+    /// a drag moves it: twice the drag's 2pt start distance.
+    static let minFramedPanOverflow = 4.0
 
     /// nil when a zoom step lands where it started (at a limit).
     private static func changed(_ target: Double, from zoom: Double) -> Double? {

@@ -79,7 +79,7 @@ import Testing
     @Test func aDragLeavesThePaddedAxisCentred() throws {
         // 1600x1000 in a square at zoom 1.25: overflows across, padded down.
         let l = try layout(shot(zoom: 1.25), 1600, 1000, frame: square)
-        #expect(l.pannableX && !l.pannableY)
+        #expect(l.pannableX && !l.pannableY && l.canPan)
         #expect(l.offsetY > 0, "padded")
         let o = l.draggedOffset(fromX: l.offsetX, fromY: l.offsetY, dx: -40, dy: 120)
         #expect(o.y == l.offsetY)
@@ -87,6 +87,53 @@ import Testing
         let p = l.pan(forOffsetX: o.x, offsetY: o.y)
         #expect(p.y == nil, "the padded axis is not written, so it keeps following the click")
         #expect(p.x.map { near($0, -o.x / (l.imageWidth - l.boxWidth)) } == true)
+    }
+
+    /// The mirror case: a tall image overflows down only.
+    @Test func aTallImagePansDownOnly() throws {
+        let fit = try layout(shot(), 800, 1600, frame: fourThree)
+        let fill = try #require(fit.zoomInTarget)
+        let l = try layout(shot(zoom: fill), 800, 1600, frame: fourThree)
+        #expect(!l.pannableX && l.pannableY && l.canPan)
+        let o = l.draggedOffset(fromX: l.offsetX, fromY: l.offsetY, dx: 30, dy: -30)
+        #expect(o.x == l.offsetX && o.y != l.offsetY)
+        #expect(l.pan(forOffsetX: o.x, offsetY: o.y).x == nil)
+    }
+
+    /// Review finding: fill can leave a point or two of overflow on one axis (a
+    /// small image within a hair of the frame's shape). A drag there saved a
+    /// pan stuck at 0 or 1, which then overrode the click at the next zoom.
+    @Test func aHairOfOverflowIsNotDraggable() throws {
+        // 401x300 in 4:3 (738x553.5): fill covers the height exactly and leaves
+        // 1 image pixel, about 1.8pt, across.
+        let fit = try layout(shot(click: (200, 150)), 401, 300, frame: fourThree)
+        let fill = try #require(fit.zoomInTarget)
+        let l = try layout(shot(zoom: fill, click: (200, 150)), 401, 300, frame: fourThree)
+        #expect(l.imageWidth > l.boxWidth, "it does overflow")
+        #expect(!l.pannableX && !l.canPan)
+        #expect(l.pan(forOffsetX: l.offsetX - 2, offsetY: l.offsetY).x == nil, "and a drag writes nothing")
+        // The same image zoomed further pans.
+        let more = try layout(shot(zoom: fill * 1.25, click: (200, 150)), 401, 300, frame: fourThree)
+        #expect(more.pannableX && more.pannableY)
+    }
+
+    /// The gate is on the overflow as drawn: about 8pt across pans in a wide
+    /// window, and the same view drawn at a quarter size (2pt) does not.
+    @Test func thePanGateIsInDrawnPoints() throws {
+        let fit = try layout(shot(), 1348, 1000, frame: fourThree)
+        let fill = try #require(fit.zoomInTarget)
+        let full = try layout(shot(zoom: fill), 1348, 1000, frame: fourThree)
+        #expect(full.imageWidth - full.boxWidth > 4 && full.imageWidth - full.boxWidth < 16)
+        #expect(full.pannableX && !full.pannableY)
+        let quarter = try layout(shot(zoom: fill), 1348, 1000, frame: fourThree, fitWidth: full.boxWidth / 4)
+        #expect(!quarter.pannableX)
+    }
+
+    /// The pan is a fraction of the overflow, whatever offset it is given.
+    @Test func thePanIsClampedToTheImage() throws {
+        let l = try layout(shot(zoom: 3), 1600, 1000, frame: square)
+        let past = l.pan(forOffsetX: 50, offsetY: -1e6)
+        #expect(past.x == 0 && past.y == 1)
     }
 
     @Test func aDragStopsAtTheImagesEdges() throws {
@@ -126,6 +173,10 @@ import Testing
         #expect(atFill.zoomOutTarget == 1)
         let over = try layout(shot(zoom: 40), 5000, 200, frame: square)
         #expect(over.zoom == 25, "a stored zoom past the maximum is clamped on read")
+        #expect(over.zoomInTarget == nil && over.zoomOutTarget == 1, "and the buttons start from the clamped zoom")
+        // The same zoom in a wider frame needs less to fill: clamped to that.
+        let wider = try layout(shot(zoom: 25), 5000, 200, frame: ShotFrame(width: 16, height: 9)!)
+        #expect(near(wider.zoom, 14.0625) && wider.zoomInTarget == nil)
     }
 
     /// Decision 3: with no saved pan the view centres on the click, clamped at
@@ -149,22 +200,55 @@ import Testing
         #expect(try layout(shot(), 1600, 1000, frame: square).resetClearsPan)
     }
 
+    /// A fill within a few percent of fit is still a real step, not a no-op.
+    @Test func zoomStepsAreNotSwallowedByTheTolerance() throws {
+        // 2880x1800 in 3:2: fill is 16/15 of fit.
+        let l = try layout(shot(), 2880, 1800, frame: ShotFrame(width: 3, height: 2)!)
+        #expect(l.zoomInTarget.map { near($0, 16.0 / 15.0) } == true)
+        #expect(try layout(shot(zoom: 3.814697265625), 1600, 1000, frame: nil).zoomInTarget == 4)
+        #expect(try layout(shot(zoom: 4 * (1 - 1e-12)), 1600, 1000, frame: nil).zoomInTarget == nil)
+    }
+
+    /// A legacy or hand-edited zoom below 1 reads as fit, in both modes.
+    @Test func aZoomBelowOneIsFit() throws {
+        for f in [nil, square] as [ShotFrame?] {
+            let l = try layout(shot(zoom: 0.5), 1600, 1000, frame: f)
+            let one = try layout(shot(), 1600, 1000, frame: f)
+            #expect(l.zoom == 1 && l.zoomInTarget == one.zoomInTarget)
+            #expect(l.zoomOutTarget == nil && !l.canReset)
+        }
+    }
+
     // MARK: unframed
 
     /// No frame: the report is exactly what it was.
     @Test func unframedProjectsAreUnchanged() throws {
         for zoom in [nil, 1.0, 1.5, 2.5, 4.0] {
             for fitWidth in [wide, 400.0] {
-                let step = shot(zoom: zoom, panX: 0.3, panY: 0.8)
-                let l = try layout(step, 1600, 1000, frame: nil, fitWidth: fitWidth)
-                let v = try #require(ReportPresentation.viewport(for: step, imagePixelSize: (1600, 1000), fitWidth: fitWidth))
-                #expect(!l.framed && !l.resetClearsPan)
-                #expect([l.boxWidth, l.boxHeight, l.imageWidth, l.imageHeight, l.offsetX, l.offsetY]
-                        == [v.boxWidth, v.boxHeight, v.imageWidth, v.imageHeight, v.offsetX, v.offsetY])
-                #expect(l.canPan == ((zoom ?? 1) > 1))
-                #expect(l.canReset == ((zoom ?? 1) != 1), "a saved pan alone is not a reset here")
+                for docScale in [0.65, 1.0, 1.25] {
+                    let step = shot(zoom: zoom, panX: 0.3, panY: 0.8)
+                    let l = try layout(step, 1600, 1000, frame: nil, fitWidth: fitWidth, docScale: docScale)
+                    let v = try #require(ReportPresentation.viewport(for: step, imagePixelSize: (1600, 1000),
+                                                                     fitWidth: fitWidth, docScale: docScale))
+                    #expect(!l.framed && !l.resetClearsPan)
+                    #expect([l.boxWidth, l.boxHeight, l.imageWidth, l.imageHeight, l.offsetX, l.offsetY]
+                            == [v.boxWidth, v.boxHeight, v.imageWidth, v.imageHeight, v.offsetX, v.offsetY])
+                    let zoomed = (zoom ?? 1) > 1
+                    #expect(l.pannableX == zoomed && l.pannableY == zoomed && l.canPan == zoomed)
+                    #expect(l.canReset == ((zoom ?? 1) != 1), "a saved pan alone is not a reset here")
+                }
             }
         }
+        // Strips zoomed a little overflow only a few points on their short axis,
+        // and tiny images less still: half a point is the unframed threshold.
+        let strip = try layout(shot(zoom: 1.25), 1600, 200, frame: nil)
+        #expect(strip.pannableX && strip.pannableY)
+        let tall = try layout(shot(zoom: 1.25), 200, 1600, frame: nil)
+        #expect(tall.pannableX && tall.pannableY)
+        let tiny = try layout(shot(zoom: 1.25), 4, 4, frame: nil)
+        #expect(tiny.pannableX && tiny.pannableY, "1pt of overflow")
+        let dot = try layout(shot(zoom: 1.25), 1, 1, frame: nil)
+        #expect(!dot.pannableX && !dot.pannableY, "a quarter point is not")
         let one = try layout(shot(), 1600, 1000, frame: nil)
         #expect(one.zoomInTarget == 1.25 && one.zoomOutTarget == nil && one.maxZoom == 4)
         let four = try layout(shot(zoom: 4), 1600, 1000, frame: nil)

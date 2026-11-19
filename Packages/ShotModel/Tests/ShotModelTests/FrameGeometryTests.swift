@@ -278,4 +278,22 @@ import Testing
         #expect(try await store.setShotFrame(at: path, ShotFrame(rawValue: "1:1")) != nil)
         #expect(try await store.openProject(at: path).manifest.shotFrame == "1:1")
     }
+
+    /// Review finding: the Frame menu ticks by the parsed frame, so the store
+    /// must treat a stored "10:8" as the 5:4 it is. Choosing the ticked row
+    /// again re-dated the project.
+    @Test func anEquivalentSpellingIsUnchanged() async throws {
+        let (store, path) = try await project()
+        let file = (path as NSString).appendingPathComponent("project.json")
+        var json = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: file))) as? [String: Any])
+        json["shotFrame"] = "10:8"
+        try JSONSerialization.data(withJSONObject: json).write(to: URL(fileURLWithPath: file))
+        let before = try await store.openProject(at: path).manifest.updatedAt
+
+        #expect(try await store.setShotFrame(at: path, ShotFrame(width: 5, height: 4)) == nil)
+        let kept = try await store.openProject(at: path).manifest
+        #expect(kept.shotFrame == "10:8" && kept.updatedAt == before, "nothing written")
+        #expect(try await store.setShotFrame(at: path, ShotFrame(width: 4, height: 3)) != nil)
+        #expect(try await store.openProject(at: path).manifest.shotFrame == "4:3")
+    }
 }

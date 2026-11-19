@@ -1215,7 +1215,11 @@ private struct StepFigure: View {
         // the zoom back mid-click-burst).
         .onChange(of: frameKey) {
             livePan = nil
-            pendingPanClear = false
+            // Like pendingZoom, a Reset's pan clear holds until a save shows
+            // it: a reload from a save made before the Reset (rapid clicks on a
+            // slow project list) still carries the old pan and must not bring
+            // it back.
+            if step.reportPanX == nil && step.reportPanY == nil { pendingPanClear = false }
             if let p = pendingZoom, abs((step.reportZoom ?? 1) - p) < 0.0001 { pendingZoom = nil }
         }
         // A new frame (or none) changes what every offset means: drop a drag's
@@ -1239,6 +1243,10 @@ private struct StepFigure: View {
                 }
             }
             .frame(width: l.imageWidth, height: l.imageHeight, alignment: .topLeading)
+            // Cut the click ring at the image's edge, as the baked ring is: in a
+            // framed project the image can sit in padding, and an overlay ring
+            // near its edge would otherwise spill into it.
+            .clipped()
             .offset(x: l.offsetX, y: l.offsetY)
             .frame(width: l.boxWidth, height: l.boxHeight, alignment: .topLeading)
             .clipShape(RoundedRectangle(cornerRadius: palette.figure))
@@ -1310,6 +1318,8 @@ private struct StepFigure: View {
                 let start = l.pan(forOffsetX: anchor.offset.width, offsetY: anchor.offset.height)
                 if pan.x == start.x && pan.y == start.y { livePan = anchor.livePan; return }
                 livePan = pan
+                // A committed drag replaces a pending Reset's clear.
+                pendingPanClear = false
                 onReframe(pan.x, pan.y)
             }
     }
