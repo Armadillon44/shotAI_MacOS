@@ -110,6 +110,25 @@ final class PackageTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: abs))
     }
 
+    /// The screenshot frame is an ordinary project setting, not private author
+    /// data: a recipient sees the project framed as the sender did.
+    func testAPackageKeepsTheProjectsFrame() async throws {
+        let root = tempDir()
+        let store = ProjectStore(settings: InMemorySettings(projectsDir: root))
+        let created = try await store.createProject(title: "Framed")
+        _ = try await store.importImageStep(at: created.path, atIndex: nil, imageData: pngData(w: 40, h: 30))
+        _ = try await store.setShotFrame(at: created.path, ShotFrame(rawValue: "5:4"))
+        let opened = try await store.openProject(at: created.path)
+        let result = try exportPackage(dir: opened.dir, manifest: opened.manifest, includeOriginals: false)
+        let entries = try zipRead(Data(contentsOf: URL(fileURLWithPath: result.outputPath)), maxEntryBytes: 10_000_000)
+        let manifestJSON = String(decoding: try XCTUnwrap(entries.first { $0.name == "project.json" }?.data), as: UTF8.self)
+        XCTAssertTrue(manifestJSON.contains("\"shotFrame\":\"5:4\"") || manifestJSON.contains("\"shotFrame\" : \"5:4\""))
+
+        let summary = try await store.createProjectFromImport(manifest: opened.manifest, files: [])
+        let imported = try await store.openProject(at: summary.path)
+        XCTAssertEqual(imported.manifest.shotFrame, "5:4", "and an import keeps it")
+    }
+
     // MARK: - Untrusted-input rejections
 
     func testRejectsMissingMarker() async throws {

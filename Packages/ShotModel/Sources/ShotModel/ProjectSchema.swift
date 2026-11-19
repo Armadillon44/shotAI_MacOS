@@ -621,6 +621,15 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// is the safe answer for each. The raw `theme` is left untouched either way,
     /// so an unrecognised brand is not destroyed by a build that predates it.
     public var pinnedBrand: BrandPref? { theme.flatMap(BrandPref.init(rawValue:)) }
+    /// The project's screenshot frame, `"W:H"` as written (see `ShotFrame`).
+    /// Absent means no frame, and nothing is written at that default, so a
+    /// project that never picks one stays byte-identical. Raw, like `theme`: a
+    /// value this build cannot parse survives a read/write cycle and is simply
+    /// not applied (`frame` is nil for it). Windows v1.3.0 keeps it as an
+    /// unknown key; its port is Armadillon44/shotAI#160.
+    public var shotFrame: String?
+    /// The frame to apply, or nil for none (absent, or a value this build cannot parse).
+    public var frame: ShotFrame? { shotFrame.flatMap(ShotFrame.init(rawValue:)) }
     public var intro: SopIntro?
     /// The author edited `intro` by hand AFTER an AI generation.
     ///
@@ -649,7 +658,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
 
     private static let knownKeys: Set<String> = [
         "version", "id", "title", "createdWith", "createdAt", "updatedAt",
-        "captureSettings", "steps", "displayScale", "theme", "intro", "introEditedByUser", "sopBackup", "archived", "archivedAt",
+        "captureSettings", "steps", "displayScale", "theme", "shotFrame", "intro", "introEditedByUser", "sopBackup", "archived", "archivedAt",
     ]
 
     public init(
@@ -711,6 +720,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         }
         displayScale = try? c.decodeIfPresent(Double.self, forKey: key("displayScale"))
         theme = try? c.decodeIfPresent(String.self, forKey: key("theme"))
+        shotFrame = try? c.decodeIfPresent(String.self, forKey: key("shotFrame"))
         let rawIntro = try? c.decodeIfPresent(SopIntro.self, forKey: key("intro"))
         introEditedByUser = try? c.decodeIfPresent(Bool.self, forKey: key("introEditedByUser"))
         intro = (rawIntro?.isEmpty ?? true) ? nil : rawIntro
@@ -739,6 +749,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         // Omitted when nil, which is how the default stays off disk.
         try c.encodeIfPresent(displayScale, forKey: key("displayScale"))
         try c.encodeIfPresent(theme, forKey: key("theme"))
+        try c.encodeIfPresent(shotFrame, forKey: key("shotFrame"))
         try c.encode(intro, forKey: key("intro"))
         try c.encodeIfPresent(introEditedByUser, forKey: key("introEditedByUser"))
         try c.encode(sopBackup, forKey: key("sopBackup"))
