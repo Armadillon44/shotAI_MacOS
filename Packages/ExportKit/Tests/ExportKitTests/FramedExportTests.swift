@@ -124,6 +124,14 @@ final class FramedExportTests: XCTestCase {
         XCTAssertNil(framedPNG(path: path, step: shot("shots/a.png"), box: FrameGeometry.Size(width: 60, height: 60)))
     }
 
+    /// Ordinary captures stay pixel for pixel: a 6K display's capture (5114 px
+    /// wide after the 0.85 downscale) padded to 1:1 is inside the budget. The
+    /// verification finding: at 4096² a 5K or 6K shot was resampled.
+    func testTheBudgetFitsA6KCaptureInASquareFrame() {
+        XCTAssertGreaterThanOrEqual(framedCanvasPixelBudget, 5114 * 5114)
+        XCTAssertLessThanOrEqual(framedCanvasPixelBudget, 6144 * 6144, "and stays bounded (about 150 MB)")
+    }
+
     /// A canvas over the budget is drawn scaled down, not allocated in full.
     func testAnOversizedCanvasIsScaledDown() throws {
         let layout = try XCTUnwrap(FrameGeometry.exportLayout(imageWidth: 160, imageHeight: 100,
@@ -188,6 +196,12 @@ final class FramedExportTests: XCTestCase {
             XCTAssertTrue(FileManager.default.fileExists(atPath: out.outputPath), "\(format)")
             if format == .markdown { markdown = out.outputPath }
         }
+        // Markdown sizes each framed image to the frame (738 wide for 5:4 at scale
+        // 1), since its image syntax cannot, so the zoomed one is not drawn
+        // smaller than the other.
+        let md = try String(contentsOfFile: markdown, encoding: .utf8)
+        XCTAssertEqual(md.components(separatedBy: "width=\"738\"").count - 1, 2, md)
+        XCTAssertFalse(md.contains("![Screenshot"), "no unsized images")
         // Markdown writes <stem>/<stem>.md beside images/: the framed images, 5:4.
         let imagesDir = ((markdown as NSString).deletingLastPathComponent as NSString).appendingPathComponent("images")
         let files = try FileManager.default.contentsOfDirectory(atPath: imagesDir).sorted()

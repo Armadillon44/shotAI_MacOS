@@ -154,6 +154,23 @@ final class PackageTests: XCTestCase {
         saved.reportPanX = 0.2; saved.reportPanY = 0.3
         keepClickCentredPan(&saved, render: render, frame: frame, docScale: nil)
         XCTAssertEqual([saved.reportPanX, saved.reportPanY], [0.2, 0.3], "a saved pan is the author's")
+        // Between fit and fill (a zoom kept when the frame changed): the pan at
+        // the step's own zoom, the one the sender's exports use, not the fill
+        // zoom's. The verification finding: the recipient framed it 47 px off.
+        var between = step
+        between.reportZoom = 1.25
+        between.click = StepClick(global: Point(x: 0, y: 0), image: Point(x: 900, y: 500), button: .left)
+        let box = try XCTUnwrap(FrameGeometry.projectBox(frame: frame, docScale: nil))
+        let sender = FrameGeometry.pan(for: between, imageWidth: 1600, imageHeight: 1000, box: box)
+        keepClickCentredPan(&between, render: render, frame: frame, docScale: nil)
+        XCTAssertEqual(between.reportPanX, 0.8125)
+        XCTAssertEqual(between.reportPanX, sender.x)
+        let sent = FrameGeometry.exportLayout(imageWidth: 1600, imageHeight: 1000, box: box, zoom: 1.25,
+                                              panX: sender.x, panY: sender.y)
+        let received = FrameGeometry.exportLayout(imageWidth: 1600, imageHeight: 1000, box: box, zoom: 1.25,
+                                                  panX: between.reportPanX!, panY: between.reportPanY!)
+        XCTAssertEqual(sent, received, "the recipient exports what the sender did")
+
         var half = step
         half.reportPanX = 0.2   // one axis saved (a hand edit, or another build)
         keepClickCentredPan(&half, render: render, frame: frame, docScale: nil)

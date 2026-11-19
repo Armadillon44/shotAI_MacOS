@@ -50,9 +50,10 @@ func zoomCropPNG(path: String, zoom: Double, panX: Double, panY: Double) -> Data
 /// The most pixels a framed export image may have. A very tall image in a wide
 /// frame (or an extreme hand-edited frame) pads to a canvas many times the
 /// image's own area at render resolution; above this budget the framed image is
-/// drawn scaled down instead of allocated in full. 4096² is far more than any
-/// export shows (HTML displays at most 738 px wide at scale 1, PDF ~468 pt).
-let framedCanvasPixelBudget = 4096 * 4096
+/// drawn scaled down instead of allocated in full (about 150 MB at most). Sized
+/// so ordinary captures are copied pixel for pixel: a 6K display's capture
+/// (5114 px wide after the 0.85 downscale) in a 1:1 frame is 5114², inside it.
+let framedCanvasPixelBudget = 6144 * 6144
 
 /// A framed project's image for one step (Armadillon44/shotAI#160): the region
 /// of the render the report shows, on a transparent canvas of the frame's shape,
