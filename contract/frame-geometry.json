@@ -1,0 +1,1689 @@
+{
+  "about": "Shared geometry for the per-project screenshot frame. Both platforms test their implementation against these numbers, so the report, the exports and the two apps cannot drift. Spec: Armadillon44/shotAI#160. Expected values were computed by an independent implementation of the spec, not by either app.",
+  "units": "image/crop/canvas in render pixels; box, display and offset in display units; pan and zoom unitless. Compare floats to 1e-6.",
+  "rules": "projectBox: s = displayScale normalised as both apps already do (non-finite or absent -> 1; percent rounded half up, clamped to 65..125, rounded to a multiple of 5); budget = (round(816 s) - 78, 600 s). fillZoom = (max(Bw/w, Bh/h) / fit), or 1 when that is within 1% of 1. Zoom snapping compares with a relative tolerance of 1e-9. Export: cropW = round(visibleW) clamped to [1, w]; cropX = round((w - cropW) * panX) clamped; canvas = max(crop, round(B / scale)); origin = floor((canvas - crop) / 2). round = half up.",
+  "parse": [
+    {
+      "raw": "5:4",
+      "frame": "5:4"
+    },
+    {
+      "raw": "10:8",
+      "frame": "5:4"
+    },
+    {
+      "raw": "1:1",
+      "frame": "1:1"
+    },
+    {
+      "raw": "16:9",
+      "frame": "16:9"
+    },
+    {
+      "raw": "64:1",
+      "frame": "64:1"
+    },
+    {
+      "raw": "128:2",
+      "frame": "64:1"
+    },
+    {
+      "raw": "999999:999999",
+      "frame": "1:1"
+    },
+    {
+      "raw": "65:1",
+      "frame": null
+    },
+    {
+      "raw": "0:1",
+      "frame": null
+    },
+    {
+      "raw": "5:0",
+      "frame": null
+    },
+    {
+      "raw": "5/4",
+      "frame": null
+    },
+    {
+      "raw": " 5:4",
+      "frame": null
+    },
+    {
+      "raw": "5:4 ",
+      "frame": null
+    },
+    {
+      "raw": "5:4:3",
+      "frame": null
+    },
+    {
+      "raw": "-5:4",
+      "frame": null
+    },
+    {
+      "raw": "5.0:4",
+      "frame": null
+    },
+    {
+      "raw": "",
+      "frame": null
+    },
+    {
+      "raw": ":",
+      "frame": null
+    },
+    {
+      "raw": "1000000:1",
+      "frame": null
+    },
+    {
+      "raw": "+5:4",
+      "frame": null
+    },
+    {
+      "raw": "٥:٤",
+      "frame": null
+    }
+  ],
+  "box": [
+    {
+      "budget": [
+        738,
+        600
+      ],
+      "frame": "1:1",
+      "box": [
+        600.0,
+        600
+      ]
+    },
+    {
+      "budget": [
+        738,
+        600
+      ],
+      "frame": "5:4",
+      "box": [
+        738,
+        590.4
+      ]
+    },
+    {
+      "budget": [
+        738,
+        600
+      ],
+      "frame": "4:3",
+      "box": [
+        738,
+        553.5
+      ]
+    },
+    {
+      "budget": [
+        738,
+        600
+      ],
+      "frame": "3:2",
+      "box": [
+        738,
+        492.0
+      ]
+    },
+    {
+      "budget": [
+        738,
+        600
+      ],
+      "frame": "16:9",
+      "box": [
+        738,
+        415.125
+      ]
+    },
+    {
+      "budget": [
+        942,
+        750
+      ],
+      "frame": "1:1",
+      "box": [
+        750.0,
+        750
+      ]
+    },
+    {
+      "budget": [
+        942,
+        750
+      ],
+      "frame": "5:4",
+      "box": [
+        937.5,
+        750
+      ]
+    },
+    {
+      "budget": [
+        942,
+        750
+      ],
+      "frame": "4:3",
+      "box": [
+        942,
+        706.5
+      ]
+    },
+    {
+      "budget": [
+        942,
+        750
+      ],
+      "frame": "3:2",
+      "box": [
+        942,
+        628.0
+      ]
+    },
+    {
+      "budget": [
+        942,
+        750
+      ],
+      "frame": "16:9",
+      "box": [
+        942,
+        529.875
+      ]
+    },
+    {
+      "budget": [
+        480,
+        600
+      ],
+      "frame": "1:1",
+      "box": [
+        480,
+        480.0
+      ]
+    },
+    {
+      "budget": [
+        480,
+        600
+      ],
+      "frame": "5:4",
+      "box": [
+        480,
+        384.0
+      ]
+    },
+    {
+      "budget": [
+        480,
+        600
+      ],
+      "frame": "4:3",
+      "box": [
+        480,
+        360.0
+      ]
+    },
+    {
+      "budget": [
+        480,
+        600
+      ],
+      "frame": "3:2",
+      "box": [
+        480,
+        320.0
+      ]
+    },
+    {
+      "budget": [
+        480,
+        600
+      ],
+      "frame": "16:9",
+      "box": [
+        480,
+        270.0
+      ]
+    }
+  ],
+  "projectBox": [
+    {
+      "docScale": 1.0,
+      "frame": "1:1",
+      "box": [
+        600.0,
+        600.0
+      ]
+    },
+    {
+      "docScale": 1.0,
+      "frame": "16:9",
+      "box": [
+        738,
+        415.125
+      ]
+    },
+    {
+      "docScale": 1.0,
+      "frame": "4:3",
+      "box": [
+        738,
+        553.5
+      ]
+    },
+    {
+      "docScale": 0.65,
+      "frame": "1:1",
+      "box": [
+        390.0,
+        390.0
+      ]
+    },
+    {
+      "docScale": 0.65,
+      "frame": "16:9",
+      "box": [
+        452,
+        254.25
+      ]
+    },
+    {
+      "docScale": 0.65,
+      "frame": "4:3",
+      "box": [
+        452,
+        339.0
+      ]
+    },
+    {
+      "docScale": 1.25,
+      "frame": "1:1",
+      "box": [
+        750.0,
+        750.0
+      ]
+    },
+    {
+      "docScale": 1.25,
+      "frame": "16:9",
+      "box": [
+        942,
+        529.875
+      ]
+    },
+    {
+      "docScale": 1.25,
+      "frame": "4:3",
+      "box": [
+        942,
+        706.5
+      ]
+    },
+    {
+      "docScale": 0.9,
+      "frame": "1:1",
+      "box": [
+        540.0,
+        540.0
+      ]
+    },
+    {
+      "docScale": 0.9,
+      "frame": "16:9",
+      "box": [
+        656,
+        369.0
+      ]
+    },
+    {
+      "docScale": 0.9,
+      "frame": "4:3",
+      "box": [
+        656,
+        492.0
+      ]
+    },
+    {
+      "docScale": 0.87,
+      "frame": "1:1",
+      "box": [
+        510.0,
+        510.0
+      ]
+    },
+    {
+      "docScale": 0.87,
+      "frame": "16:9",
+      "box": [
+        616,
+        346.5
+      ]
+    },
+    {
+      "docScale": 0.87,
+      "frame": "4:3",
+      "box": [
+        616,
+        462.0
+      ]
+    },
+    {
+      "docScale": null,
+      "frame": "1:1",
+      "box": [
+        600.0,
+        600.0
+      ]
+    },
+    {
+      "docScale": null,
+      "frame": "16:9",
+      "box": [
+        738,
+        415.125
+      ]
+    },
+    {
+      "docScale": null,
+      "frame": "4:3",
+      "box": [
+        738,
+        553.5
+      ]
+    },
+    {
+      "docScale": 2.0,
+      "frame": "1:1",
+      "box": [
+        750.0,
+        750.0
+      ]
+    },
+    {
+      "docScale": 2.0,
+      "frame": "16:9",
+      "box": [
+        942,
+        529.875
+      ]
+    },
+    {
+      "docScale": 2.0,
+      "frame": "4:3",
+      "box": [
+        942,
+        706.5
+      ]
+    },
+    {
+      "docScale": 0.1,
+      "frame": "1:1",
+      "box": [
+        390.0,
+        390.0
+      ]
+    },
+    {
+      "docScale": 0.1,
+      "frame": "16:9",
+      "box": [
+        452,
+        254.25
+      ]
+    },
+    {
+      "docScale": 0.1,
+      "frame": "4:3",
+      "box": [
+        452,
+        339.0
+      ]
+    }
+  ],
+  "zoomSteps": [
+    {
+      "fillZoom": 1.6,
+      "start": 1,
+      "zoomIn": 1.6,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.6,
+      "start": 1.3,
+      "zoomIn": 1.6,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.6,
+      "start": 1.6,
+      "zoomIn": 2.0,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.6,
+      "start": 1.8,
+      "zoomIn": 2.25,
+      "zoomOut": 1.6
+    },
+    {
+      "fillZoom": 1.6,
+      "start": 2.0,
+      "zoomIn": 2.5,
+      "zoomOut": 1.6
+    },
+    {
+      "fillZoom": 1.6,
+      "start": 3.0,
+      "zoomIn": 3.75,
+      "zoomOut": 2.4
+    },
+    {
+      "fillZoom": 1.6,
+      "start": 3.5,
+      "zoomIn": 4.0,
+      "zoomOut": 2.8
+    },
+    {
+      "fillZoom": 1.6,
+      "start": 4,
+      "zoomIn": 4.0,
+      "zoomOut": 3.2
+    },
+    {
+      "fillZoom": 1.0,
+      "start": 1,
+      "zoomIn": 1.25,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.0,
+      "start": 1.1,
+      "zoomIn": 1.375,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.0,
+      "start": 1.25,
+      "zoomIn": 1.5625,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.0,
+      "start": 4,
+      "zoomIn": 4.0,
+      "zoomOut": 3.2
+    },
+    {
+      "fillZoom": 10.0,
+      "start": 1,
+      "zoomIn": 10.0,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 10.0,
+      "start": 5,
+      "zoomIn": 10.0,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 10.0,
+      "start": 10,
+      "zoomIn": 10.0,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.02,
+      "start": 1,
+      "zoomIn": 1.02,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.02,
+      "start": 1.02,
+      "zoomIn": 1.275,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.02,
+      "start": 1.25,
+      "zoomIn": 1.5625,
+      "zoomOut": 1.02
+    }
+  ],
+  "views": [
+    {
+      "name": "wide-in-square-fits",
+      "why": "Zoom 1 shows the whole wide shot, padded above and below; nothing is enlarged.",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 1,
+        "pan": null,
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 1,
+        "scale": 0.375,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          0.0,
+          0.0,
+          1600,
+          1000
+        ],
+        "display": [
+          600.0,
+          375.0
+        ],
+        "offset": [
+          0.0,
+          112.5
+        ],
+        "export": {
+          "canvas": [
+            1600,
+            1600
+          ],
+          "crop": [
+            0,
+            0,
+            1600,
+            1000
+          ],
+          "origin": [
+            0,
+            300
+          ]
+        }
+      }
+    },
+    {
+      "name": "wide-in-square-fills-at-the-click",
+      "why": "The next zoom level fills the frame, centred on a click near the right edge: clamped to the edge.",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 1.6,
+        "pan": null,
+        "click": [
+          1500,
+          500
+        ]
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 1.6,
+        "scale": 0.6,
+        "pan": [
+          1.0,
+          0.5
+        ],
+        "visible": [
+          600.0,
+          0.0,
+          1000.0,
+          1000.0
+        ],
+        "display": [
+          960.0,
+          600.0
+        ],
+        "offset": [
+          -360.0,
+          -0.0
+        ],
+        "export": {
+          "canvas": [
+            1000,
+            1000
+          ],
+          "crop": [
+            600,
+            0,
+            1000,
+            1000
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "click-at-the-left-edge",
+      "why": "A click at the left edge clamps the view to the left edge rather than centring on it.",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 1.6,
+        "pan": null,
+        "click": [
+          100,
+          500
+        ]
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 1.6,
+        "scale": 0.6,
+        "pan": [
+          0.0,
+          0.5
+        ],
+        "visible": [
+          0.0,
+          0.0,
+          1000.0,
+          1000.0
+        ],
+        "display": [
+          960.0,
+          600.0
+        ],
+        "offset": [
+          -0.0,
+          -0.0
+        ],
+        "export": {
+          "canvas": [
+            1000,
+            1000
+          ],
+          "crop": [
+            0,
+            0,
+            1000,
+            1000
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "click-in-the-middle",
+      "why": "A click in the middle centres the view on it.",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 1.6,
+        "pan": null,
+        "click": [
+          800,
+          400
+        ]
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 1.6,
+        "scale": 0.6,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          300.0,
+          0.0,
+          1000.0,
+          1000.0
+        ],
+        "display": [
+          960.0,
+          600.0
+        ],
+        "offset": [
+          -180.0,
+          -0.0
+        ],
+        "export": {
+          "canvas": [
+            1000,
+            1000
+          ],
+          "crop": [
+            300,
+            0,
+            1000,
+            1000
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "click-in-a-corner",
+      "why": "A corner click clamps on both axes.",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 2.5,
+        "pan": null,
+        "click": [
+          1590,
+          995
+        ]
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 2.5,
+        "scale": 0.9375,
+        "pan": [
+          1.0,
+          1.0
+        ],
+        "visible": [
+          960.0,
+          360.0,
+          640.0,
+          640.0
+        ],
+        "display": [
+          1500.0,
+          937.5
+        ],
+        "offset": [
+          -900.0,
+          -337.5
+        ],
+        "export": {
+          "canvas": [
+            640,
+            640
+          ],
+          "crop": [
+            960,
+            360,
+            640,
+            640
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "click-outside-the-render",
+      "why": "A click a crop removed centres the image instead.",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 1.6,
+        "pan": null,
+        "click": [
+          -10,
+          50
+        ]
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 1.6,
+        "scale": 0.6,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          300.0,
+          0.0,
+          1000.0,
+          1000.0
+        ],
+        "display": [
+          960.0,
+          600.0
+        ],
+        "offset": [
+          -180.0,
+          -0.0
+        ],
+        "export": {
+          "canvas": [
+            1000,
+            1000
+          ],
+          "crop": [
+            300,
+            0,
+            1000,
+            1000
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "no-click",
+      "why": "Imported images and one-off captures have no click: centred.",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 2.0,
+        "pan": null,
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 2.0,
+        "scale": 0.75,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          400.0,
+          100.0,
+          800.0,
+          800.0
+        ],
+        "display": [
+          1200.0,
+          750.0
+        ],
+        "offset": [
+          -300.0,
+          -75.0
+        ],
+        "export": {
+          "canvas": [
+            800,
+            800
+          ],
+          "crop": [
+            400,
+            100,
+            800,
+            800
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "tall-in-16-9-fits",
+      "why": "A tall shot in a wide frame: padded left and right at zoom 1; a click does not move a view with nothing to pan.",
+      "input": {
+        "image": [
+          800,
+          1200
+        ],
+        "frame": "16:9",
+        "box": [
+          738,
+          415.125
+        ],
+        "zoom": 1,
+        "pan": null,
+        "click": [
+          400,
+          1100
+        ]
+      },
+      "expect": {
+        "fillZoom": 2.666666667,
+        "zoom": 1,
+        "scale": 0.3459375,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          0.0,
+          0.0,
+          800,
+          1200
+        ],
+        "display": [
+          276.75,
+          415.125
+        ],
+        "offset": [
+          230.625,
+          0.0
+        ],
+        "export": {
+          "canvas": [
+            2133,
+            1200
+          ],
+          "crop": [
+            0,
+            0,
+            800,
+            1200
+          ],
+          "origin": [
+            666,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "tall-in-16-9-fills-at-the-click",
+      "why": "Filling a wide frame with a tall shot pans vertically to the click, clamped at the bottom.",
+      "input": {
+        "image": [
+          800,
+          1200
+        ],
+        "frame": "16:9",
+        "box": [
+          738,
+          415.125
+        ],
+        "zoom": 2.666666667,
+        "pan": null,
+        "click": [
+          400,
+          1100
+        ]
+      },
+      "expect": {
+        "fillZoom": 2.666666667,
+        "zoom": 2.666666667,
+        "scale": 0.9225,
+        "pan": [
+          0.5,
+          1.0
+        ],
+        "visible": [
+          0.0,
+          750.0,
+          800,
+          450.0
+        ],
+        "display": [
+          738.0,
+          1107.0
+        ],
+        "offset": [
+          0.0,
+          -691.875
+        ],
+        "export": {
+          "canvas": [
+            800,
+            450
+          ],
+          "crop": [
+            0,
+            750,
+            800,
+            450
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "small-image-is-padded-not-enlarged",
+      "why": "An image smaller than the frame stays at 100% inside a full-size frame, padded on every side.",
+      "input": {
+        "image": [
+          400,
+          300
+        ],
+        "frame": "5:4",
+        "box": [
+          738,
+          590.4
+        ],
+        "zoom": 1,
+        "pan": null,
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 1.968,
+        "zoom": 1,
+        "scale": 1.0,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          0.0,
+          0.0,
+          400,
+          300
+        ],
+        "display": [
+          400.0,
+          300.0
+        ],
+        "offset": [
+          169.0,
+          145.2
+        ],
+        "export": {
+          "canvas": [
+            738,
+            590
+          ],
+          "crop": [
+            0,
+            0,
+            400,
+            300
+          ],
+          "origin": [
+            169,
+            145
+          ]
+        }
+      }
+    },
+    {
+      "name": "same-shape-image-is-unchanged",
+      "why": "An image of the frame's shape fits exactly: the export is the render itself.",
+      "input": {
+        "image": [
+          1500,
+          1200
+        ],
+        "frame": "5:4",
+        "box": [
+          738,
+          590.4
+        ],
+        "zoom": 1,
+        "pan": null,
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 1.0,
+        "zoom": 1,
+        "scale": 0.492,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          0.0,
+          0.0,
+          1500,
+          1200
+        ],
+        "display": [
+          738.0,
+          590.4
+        ],
+        "offset": [
+          0.0,
+          0.0
+        ],
+        "export": {
+          "canvas": [
+            1500,
+            1200
+          ],
+          "crop": [
+            0,
+            0,
+            1500,
+            1200
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "padding-ignores-a-stored-pan",
+      "why": "Padding is always centred: a pan only moves an axis the image overflows, so a stored pan does not shift a fitted image.",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 1,
+        "pan": [
+          0.1,
+          0.9
+        ],
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 1,
+        "scale": 0.375,
+        "pan": [
+          0.1,
+          0.9
+        ],
+        "visible": [
+          0.0,
+          0.0,
+          1600,
+          1000
+        ],
+        "display": [
+          600.0,
+          375.0
+        ],
+        "offset": [
+          0.0,
+          112.5
+        ],
+        "export": {
+          "canvas": [
+            1600,
+            1600
+          ],
+          "crop": [
+            0,
+            0,
+            1600,
+            1000
+          ],
+          "origin": [
+            0,
+            300
+          ]
+        }
+      }
+    },
+    {
+      "name": "side-padding-ignores-a-stored-pan",
+      "why": "The same for a tall image padded at the sides: its horizontal padding stays centred whatever the stored pan.",
+      "input": {
+        "image": [
+          800,
+          1200
+        ],
+        "frame": "16:9",
+        "box": [
+          738,
+          415.125
+        ],
+        "zoom": 1,
+        "pan": [
+          0.1,
+          0.9
+        ],
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 2.666666667,
+        "zoom": 1,
+        "scale": 0.3459375,
+        "pan": [
+          0.1,
+          0.9
+        ],
+        "visible": [
+          0.0,
+          0.0,
+          800,
+          1200
+        ],
+        "display": [
+          276.75,
+          415.125
+        ],
+        "offset": [
+          230.625,
+          0.0
+        ],
+        "export": {
+          "canvas": [
+            2133,
+            1200
+          ],
+          "crop": [
+            0,
+            0,
+            800,
+            1200
+          ],
+          "origin": [
+            666,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "one-axis-padded-one-panned",
+      "why": "Between fit and fill one axis overflows and pans while the other stays centred in its padding.",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 1.3,
+        "pan": [
+          0.2,
+          0.9
+        ],
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 1.3,
+        "scale": 0.4875,
+        "pan": [
+          0.2,
+          0.9
+        ],
+        "visible": [
+          73.846153846,
+          0.0,
+          1230.769230769,
+          1000
+        ],
+        "display": [
+          780.0,
+          487.5
+        ],
+        "offset": [
+          -36.0,
+          56.25
+        ],
+        "export": {
+          "canvas": [
+            1231,
+            1231
+          ],
+          "crop": [
+            74,
+            0,
+            1231,
+            1000
+          ],
+          "origin": [
+            0,
+            115
+          ]
+        }
+      }
+    },
+    {
+      "name": "near-frame-shape-fit-already-fills",
+      "why": "A render within 1% of the frame's shape (a 1366x768 display at the 0.85 downscale in 16:9) has no separate fill step: zoom-in goes straight to x1.25.",
+      "input": {
+        "image": [
+          1161,
+          653
+        ],
+        "frame": "16:9",
+        "box": [
+          738,
+          415.125
+        ],
+        "zoom": 1,
+        "pan": null,
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 1.0,
+        "zoom": 1,
+        "scale": 0.635658915,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          0.0,
+          0.0,
+          1161,
+          653
+        ],
+        "display": [
+          738.0,
+          415.085271318
+        ],
+        "offset": [
+          0.0,
+          0.019864341
+        ],
+        "export": {
+          "canvas": [
+            1161,
+            653
+          ],
+          "crop": [
+            0,
+            0,
+            1161,
+            653
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "stored-pan-beyond-fill",
+      "why": "A stored pan is honoured beyond fill, as for an unframed step.",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 2.5,
+        "pan": [
+          0.25,
+          0.75
+        ],
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 2.5,
+        "scale": 0.9375,
+        "pan": [
+          0.25,
+          0.75
+        ],
+        "visible": [
+          240.0,
+          270.0,
+          640.0,
+          640.0
+        ],
+        "display": [
+          1500.0,
+          937.5
+        ],
+        "offset": [
+          -225.0,
+          -253.125
+        ],
+        "export": {
+          "canvas": [
+            640,
+            640
+          ],
+          "crop": [
+            240,
+            270,
+            640,
+            640
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "zoom-between-fit-and-fill",
+      "why": "A zoom between fit and fill (a value an older build stored) pads one axis and overflows the other; rounding is half up.",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 1.2,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 1.2,
+        "scale": 0.45,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          133.333333333,
+          0.0,
+          1333.333333333,
+          1000
+        ],
+        "display": [
+          720.0,
+          450.0
+        ],
+        "offset": [
+          -60.0,
+          75.0
+        ],
+        "export": {
+          "canvas": [
+            1333,
+            1333
+          ],
+          "crop": [
+            134,
+            0,
+            1333,
+            1000
+          ],
+          "origin": [
+            0,
+            166
+          ]
+        }
+      }
+    },
+    {
+      "name": "zoom-is-clamped",
+      "why": "A zoom beyond the maximum is clamped to it (4, or fill when that is further).",
+      "input": {
+        "image": [
+          1600,
+          1000
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 9,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 1.6,
+        "zoom": 4.0,
+        "scale": 1.5,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          600.0,
+          300.0,
+          400.0,
+          400.0
+        ],
+        "display": [
+          2400.0,
+          1500.0
+        ],
+        "offset": [
+          -900.0,
+          -450.0
+        ],
+        "export": {
+          "canvas": [
+            400,
+            400
+          ],
+          "crop": [
+            600,
+            300,
+            400,
+            400
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "panorama-fill-is-reachable",
+      "why": "Fill beyond 4x is still reachable; zooming in that far enlarges, as zoom does today.",
+      "input": {
+        "image": [
+          3000,
+          300
+        ],
+        "frame": "1:1",
+        "box": [
+          600.0,
+          600
+        ],
+        "zoom": 10,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 10.0,
+        "zoom": 10,
+        "scale": 2.0,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          1350.0,
+          0.0,
+          300.0,
+          300
+        ],
+        "display": [
+          6000.0,
+          600.0
+        ],
+        "offset": [
+          -2700.0,
+          0.0
+        ],
+        "export": {
+          "canvas": [
+            300,
+            300
+          ],
+          "crop": [
+            1350,
+            0,
+            300,
+            300
+          ],
+          "origin": [
+            0,
+            0
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "shot-frame-known-value",
+  "why": "A project's screenshot frame must survive a round trip on both platforms, including one that does not implement frames yet; dropping it silently resets every step's framing.",
+  "status": "agreed",
+  "issue": "Armadillon44/shotAI#160",
+  "input": {
+    "id": "p",
+    "title": "T",
+    "createdWith": "shotAI",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z",
+    "steps": [],
+    "shotFrame": "5:4"
+  },
+  "expect": {
+    "shotFrame": "5:4"
+  }
+}

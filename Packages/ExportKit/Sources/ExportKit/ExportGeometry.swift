@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+import ShotModel
 
 /// Pure geometry for reproducing the report's per-step zoom/pan as a static crop
 /// on export. Ported verbatim from export-geometry.ts. All operands are
@@ -44,6 +45,64 @@ func zoomCropPNG(path: String, zoom: Double, panX: Double, panY: Double) -> Data
         let cropped = image.cropping(to: rect)
     else { return nil }
     return encodePNG(cropped)
+}
+
+/// The most pixels a framed export image may have. A very tall image in a wide
+/// frame (or an extreme hand-edited frame) pads to a canvas many times the
+/// image's own area at render resolution; above this budget the framed image is
+/// drawn scaled down instead of allocated in full (about 150 MB at most). Sized
+/// so ordinary captures are copied pixel for pixel: a 6K display's capture
+/// (5114 px wide after the 0.85 downscale) in a 1:1 frame is 5114², inside it.
+let framedCanvasPixelBudget = 6144 * 6144
+
+/// A framed project's image for one step (Armadillon44/shotAI#160): the region
+/// of the render the report shows, on a transparent canvas of the frame's shape,
+/// at the step's zoom and pan (`FrameGeometry.pan(for:)`, the click-centred
+/// default where no pan is saved).
+///
+/// Returns nil when the render already IS the framed image (it has the frame's
+/// shape at fit) OR on any failure. nil means "use the full render", and that
+/// render is the redaction-baked sendable one, so like `zoomCropPNG` this never
+/// falls open to raw pixels: it only ever crops or pads baked pixels.
+func framedPNG(path: String, step: ProjectStep, box: FrameGeometry.Size) -> Data? {
+    guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+          let image = CGImageSourceCreateImageAtIndex(src, 0, nil)
+    else { return nil }
+    let w = image.width, h = image.height
+    let pan = FrameGeometry.pan(for: step, imageWidth: Double(w), imageHeight: Double(h), box: box)
+    guard let layout = FrameGeometry.exportLayout(imageWidth: w, imageHeight: h, box: box,
+                                                  zoom: step.reportZoom ?? 1, panX: pan.x, panY: pan.y),
+          !layout.isIdentity
+    else { return nil }
+    return composeFramed(image, layout: layout)
+}
+
+/// Draw `layout`'s crop of `image` onto its transparent canvas, scaled down as a
+/// whole when the canvas is over `framedCanvasPixelBudget`. At full size the
+/// crop is copied pixel for pixel.
+func composeFramed(_ image: CGImage, layout: FrameGeometry.ExportLayout,
+                   pixelBudget: Int = framedCanvasPixelBudget) -> Data? {
+    guard let crop = image.cropping(to: CGRect(x: layout.cropX, y: layout.cropY,
+                                               width: layout.cropWidth, height: layout.cropHeight))
+    else { return nil }
+    let cw = Double(layout.canvasWidth), ch = Double(layout.canvasHeight)
+    let k = min(1, (Double(pixelBudget) / (cw * ch)).squareRoot())
+    let outW = max(1, Int((cw * k).rounded())), outH = max(1, Int((ch * k).rounded()))
+    // The render's own colour space, so the copied pixels keep their values.
+    let space = image.colorSpace.flatMap { $0.model == .rgb ? $0 : nil }
+        ?? CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    guard let ctx = CGContext(
+        data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0,
+        space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { return nil }
+    ctx.clear(CGRect(x: 0, y: 0, width: outW, height: outH))   // the padding: transparent
+    ctx.interpolationQuality = .high
+    let dw = Double(layout.cropWidth) * k, dh = Double(layout.cropHeight) * k
+    // CoreGraphics' origin is bottom-left; the layout's is top-left.
+    ctx.draw(crop, in: CGRect(x: Double(layout.originX) * k,
+                              y: Double(outH) - Double(layout.originY) * k - dh,
+                              width: dw, height: dh))
+    return ctx.makeImage().flatMap(encodePNG)
 }
 
 /// Resample PNG/JPEG `data` down so its width is at most `maxWidth`, re-encoding

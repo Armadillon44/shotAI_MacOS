@@ -60,6 +60,27 @@ private func isPngOrJpeg(_ b: Data) -> Bool {
 
 // MARK: - Export
 
+/// A framed step with no saved pan is positioned on its click
+/// (`FrameGeometry.defaultPan`), and a safe package drops the click below, since
+/// its ring is baked into the image that travels. Write the pan the click gives
+/// instead, so the recipient sees the step framed as the sender did: the pan
+/// `FrameGeometry.pan(for:)` gives at the step's zoom, the one the sender's own
+/// exports use, or for a step at fit at the fill zoom, where the recipient's
+/// first zoom-in lands. Only for a framed project, only where no pan is saved.
+func keepClickCentredPan(_ step: inout ProjectStep, render: Data, frame: ShotFrame?, docScale: Double?) {
+    guard let frame, step.reportPanX == nil || step.reportPanY == nil,
+          step.clickInRender != nil,
+          let box = FrameGeometry.projectBox(frame: frame, docScale: docScale),
+          let (w, h) = imagePixelDimensions(render),
+          let view = FrameGeometry.view(imageWidth: Double(w), imageHeight: Double(h), box: box,
+                                        zoom: step.reportZoom ?? 1, panX: 0.5, panY: 0.5)
+    else { return }
+    let pan = FrameGeometry.pan(for: step, imageWidth: Double(w), imageHeight: Double(h), box: box,
+                                zoom: view.zoom > 1 ? view.zoom : view.fillZoom)
+    step.reportPanX = pan.x
+    step.reportPanY = pan.y
+}
+
 /// Assemble a shareable package for the project at `dir`. The caller is expected
 /// to have flattened all shot steps first (so every shot has a current redaction-
 /// and marker-baked render), same as the other exports. Returns the written path.
@@ -89,6 +110,7 @@ public func exportPackage(dir: String, manifest: ProjectManifest, includeOrigina
             }
             let name = "shots/step-\(String(format: "%04d", n)).\(render.ext)"
             entries.append((name, bytes))
+            keepClickCentredPan(&out.steps[i], render: bytes, frame: out.frame, docScale: out.displayScale)
             out.steps[i].screenshot = name
             out.steps[i].annotations = []
             out.steps[i].crop = nil
