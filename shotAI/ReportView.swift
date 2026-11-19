@@ -180,6 +180,7 @@ struct ReportView: View {
         // uses the whole width (and its zoom controls stay inside), at any window.
         .environment(\.reportFigureFitWidth, max(160, reportColumnWidth - stepFigureGutter))
         .environment(\.reportDocScale, model.docScale)
+        .environment(\.reportShotFrame, opened.manifest.frame)
         .confirmationDialog(
             "Delete this step?",
             isPresented: Binding(get: { deleteStepTarget != nil }, set: { if !$0 { deleteStepTarget = nil } }),
@@ -541,6 +542,11 @@ private struct ReportFigureFitWidthKey: EnvironmentKey {
 private struct ReportDocScaleKey: EnvironmentKey {
     static let defaultValue: Double = 1.0
 }
+/// The project's screenshot frame (nil = none, or a value this build cannot
+/// parse), pushed down the same way so every figure frames itself.
+private struct ReportShotFrameKey: EnvironmentKey {
+    static let defaultValue: ShotFrame? = nil
+}
 extension EnvironmentValues {
     var reportFigureFitWidth: CGFloat {
         get { self[ReportFigureFitWidthKey.self] }
@@ -549,6 +555,10 @@ extension EnvironmentValues {
     var reportDocScale: Double {
         get { self[ReportDocScaleKey.self] }
         set { self[ReportDocScaleKey.self] = newValue }
+    }
+    var reportShotFrame: ShotFrame? {
+        get { self[ReportShotFrameKey.self] }
+        set { self[ReportShotFrameKey.self] = newValue }
     }
 }
 
@@ -801,8 +811,9 @@ private struct StepRow: View {
             // place instead of showing the cached image until reopen.
             StepFigure(
                 step: step, projectDir: projectDir, relPath: rel,
-                onZoom: { z in Task { await model.setReportZoom(stepId: step.id, z) } },
-                onReframe: { px, py in Task { await model.setReportPan(stepId: step.id, panX: px, panY: py) } }
+                onZoom: { z, maxZoom in Task { await model.setReportZoom(stepId: step.id, z, maxZoom: maxZoom) } },
+                onReframe: { px, py in Task { await model.setReportPan(stepId: step.id, panX: px, panY: py) } },
+                onReset: { clearPan in Task { await model.resetReportView(stepId: step.id, clearPan: clearPan) } }
             )
             .id("\(step.id)#\(step.renderRev ?? 0)#\(rel)")
         }
@@ -1106,51 +1117,82 @@ private struct NumberBadge: View {
     }
 }
 
-/// The step image inside its report viewport: fitted to 820x600 at zoom 1,
-/// magnified + panned per the persisted reportZoom/reportPan*, with the CSS
-/// click-marker overlay when the ring isn't already baked into the pixels.
+/// The step image inside its report viewport: fitted to the column at zoom 1
+/// (or, in a framed project, inside the project's frame box), magnified and
+/// panned per the persisted reportZoom/reportPan*, with the click-marker
+/// overlay when the ring isn't already baked into the pixels. The geometry and
+/// the zoom/drag rules are `ReportPresentation.figureLayout`; this draws it.
 private struct StepFigure: View {
     @Environment(\.palette) private var palette
     let step: ProjectStep
     let projectDir: String
     let relPath: String
-    /// Set an absolute report zoom (AppModel clamps to 1…max).
-    var onZoom: (Double) -> Void = { _ in }
-    /// Persist the pan as fractions (0…1) of the scrollable range.
-    var onReframe: (Double, Double) -> Void = { _, _ in }
+    /// Set an absolute report zoom, with the figure's maximum (AppModel clamps).
+    var onZoom: (Double, Double) -> Void = { _, _ in }
+    /// Persist the pan as fractions (0…1) of the scrollable range, on the axes
+    /// given; a nil axis is left alone.
+    var onReframe: (Double?, Double?) -> Void = { _, _ in }
+    /// Reset to fit; `true` also clears the saved pan (framed projects).
+    var onReset: (Bool) -> Void = { _ in }
     /// Cap the at-zoom-1 fit width to the live report column so the figure (and
     /// its floating zoom controls) never overflow the step card. Resolved by
     /// ReportView from the measured column width.
     @Environment(\.reportFigureFitWidth) private var fitWidth
     @Environment(\.reportDocScale) private var docScale
+    @Environment(\.reportShotFrame) private var shotFrame
 
     @State private var loaded: (image: NSImage, pixelSize: (width: Double, height: Double))?
     @State private var failed = false
-    /// Live image offset while dragging (and until the persisted pan catches up),
-    /// so the pan doesn't flash back to the old value during the async save.
-    @State private var liveOffset: CGSize?
-    /// The shown offset captured at drag start, so a drag composes against what's
-    /// on screen (even if a prior drag's save is still in flight) and stays stable
-    /// mid-drag. Nil except during a drag.
-    @State private var dragStart: CGSize?
+    /// Live pan while dragging (and until the persisted pan catches up), as
+    /// fractions so a resize mid-save cannot leave a stale point offset. nil
+    /// on an axis the drag does not move.
+    @State private var livePan: (x: Double?, y: Double?)?
+    /// What was shown when the drag began: the offset, so a drag composes
+    /// against what is on screen (even if a prior drag's save is still in
+    /// flight) and stays stable mid-drag, and the live pan, restored by a drag
+    /// that ends where it began. Nil except during a drag.
+    @State private var dragStart: DragAnchor?
+    private struct DragAnchor {
+        let offset: CGSize
+        let livePan: (x: Double?, y: Double?)?
+    }
     /// Optimistic zoom applied instantly on a control tap (the persisted value
     /// lags behind an async save+reload); cleared once the save round-trips. Lets
     /// rapid clicks compound off the pending value instead of coalescing.
     @State private var pendingZoom: Double?
+    /// A Reset that clears the saved pan, until the save round-trips.
+    @State private var pendingPanClear = false
 
-    /// Effective zoom (optimistic pending, else persisted; never below fit).
-    private var zoom: Double { pendingZoom ?? max(1, step.reportZoom ?? 1) }
+    /// The step as it should look now: the persisted values with any change not
+    /// yet saved applied on top, so nothing jumps when the save lands.
+    private var shownStep: ProjectStep {
+        var s = step
+        if pendingPanClear { s.reportPanX = nil; s.reportPanY = nil }
+        if let z = pendingZoom { s.reportZoom = z }
+        if let p = livePan {
+            if let x = p.x { s.reportPanX = x }
+            if let y = p.y { s.reportPanY = y }
+        }
+        return s
+    }
+
     /// Key that changes when the persisted framing does — clears the live
-    /// overrides once the save round-trips so they can't drift.
-    private var frameKey: String { "\(step.reportZoom ?? 1)|\(step.reportPanX ?? 0.5)|\(step.reportPanY ?? 0.5)" }
+    /// overrides once the save round-trips so they can't drift. An unset pan is
+    /// its own value: clearing a pan of exactly 0.5 must still register.
+    private var frameKey: String {
+        func f(_ v: Double?) -> String { v.map { "\($0)" } ?? "-" }
+        return "\(f(step.reportZoom))|\(f(step.reportPanX))|\(f(step.reportPanY))"
+    }
 
     var body: some View {
         Group {
-            if let loaded, let viewport = ReportPresentation.viewport(for: step, imagePixelSize: loaded.pixelSize, zoomOverride: pendingZoom, fitWidth: Double(fitWidth), docScale: docScale) {
+            if let loaded, let layout = ReportPresentation.figureLayout(
+                for: shownStep, imagePixelSize: loaded.pixelSize, frame: shotFrame,
+                docScale: docScale, fitWidth: Double(fitWidth)) {
                 // Center a capture narrower than the column so it gets equal L/R
                 // padding instead of hugging the left edge (#59). A full-width
                 // capture fills the column, so centering is a no-op for it.
-                figure(loaded.image, loaded.pixelSize, viewport)
+                figure(loaded.image, loaded.pixelSize, layout)
                     .frame(maxWidth: .infinity, alignment: .center)
             } else if failed {
                 Label("Image missing: \(relPath)", systemImage: "photo.badge.exclamationmark")
@@ -1168,56 +1210,63 @@ private struct StepFigure: View {
         // revision must be part of the reload key or the old image stays cached.
         .task(id: "\(relPath)#\(step.renderRev ?? 0)") { load() }
         // Once the persisted framing round-trips, drop the live overrides so the
-        // viewport geometry is the single source of truth again. Keep pendingZoom
-        // until the persisted zoom actually matches it (so a slower save doesn't
-        // flicker the zoom back mid-click-burst).
+        // layout is the single source of truth again. Keep pendingZoom until the
+        // persisted zoom actually matches it (so a slower save doesn't flicker
+        // the zoom back mid-click-burst).
         .onChange(of: frameKey) {
-            liveOffset = nil
+            livePan = nil
+            pendingPanClear = false
             if let p = pendingZoom, abs((step.reportZoom ?? 1) - p) < 0.0001 { pendingZoom = nil }
         }
+        // A new frame (or none) changes what every offset means: drop a drag's
+        // live pan rather than carry it into a different box.
+        .onChange(of: shotFrame) { livePan = nil; dragStart = nil }
     }
 
-    private func figure(_ image: NSImage, _ pixelSize: (width: Double, height: Double), _ v: ReportPresentation.Viewport) -> some View {
-        let rangeX = v.imageWidth - v.boxWidth
-        let rangeY = v.imageHeight - v.boxHeight
-        let canPan = rangeX > 0.5 || rangeY > 0.5
-        let base = CGSize(width: v.offsetX, height: v.offsetY)
-        let shown = liveOffset ?? base
-        return ZStack(alignment: .topTrailing) {
-            // The clipped, pannable image box.
+    private func figure(_ image: NSImage, _ pixelSize: (width: Double, height: Double),
+                        _ l: ReportPresentation.FigureLayout) -> some View {
+        ZStack(alignment: .topTrailing) {
+            // The clipped, pannable image box. Framed, a padded axis shows the
+            // card behind it, inside the same hairline every frame has.
             ZStack(alignment: .topLeading) {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: v.imageWidth, height: v.imageHeight)
+                    .frame(width: l.imageWidth, height: l.imageHeight)
                 if let f = ReportPresentation.markerFraction(for: step, displayedImageSize: pixelSize) {
                     MarkerRing(colorHex: ReportPresentation.markerColorHex(for: step))
-                        .position(x: f.x * v.imageWidth, y: f.y * v.imageHeight)
+                        .position(x: f.x * l.imageWidth, y: f.y * l.imageHeight)
                 }
             }
-            .frame(width: v.imageWidth, height: v.imageHeight, alignment: .topLeading)
-            .offset(x: shown.width, y: shown.height)
-            .frame(width: v.boxWidth, height: v.boxHeight, alignment: .topLeading)
+            .frame(width: l.imageWidth, height: l.imageHeight, alignment: .topLeading)
+            .offset(x: l.offsetX, y: l.offsetY)
+            .frame(width: l.boxWidth, height: l.boxHeight, alignment: .topLeading)
             .clipShape(RoundedRectangle(cornerRadius: palette.figure))
             .overlay(RoundedRectangle(cornerRadius: palette.figure).stroke(palette.hair))
             .contentShape(Rectangle())
-            .gesture(canPan ? panGesture(shown: shown, rangeX: rangeX, rangeY: rangeY) : nil)
+            .gesture(l.canPan ? panGesture(l) : nil)
 
             // Floating zoom controls (top-right, outside the clipped box so they
             // don't pan). Always full-strength — fading the glass layer with
             // .opacity mutes the Liquid Glass material; the individual buttons
             // still light up on hover.
-            zoomControls
+            zoomControls(l)
                 .padding(6)
         }
-        .frame(width: v.boxWidth, height: v.boxHeight, alignment: .topLeading)
+        .frame(width: l.boxWidth, height: l.boxHeight, alignment: .topLeading)
     }
 
-    private var zoomControls: some View {
+    private func zoomControls(_ l: ReportPresentation.FigureLayout) -> some View {
         VStack(spacing: 3) {
-            CtlButton(icon: "plus.magnifyingglass", help: "Zoom in", disabled: zoom >= ReportPresentation.zoomMax) { applyZoom(zoom * 1.25) }
-            CtlButton(icon: "minus.magnifyingglass", help: "Zoom out", disabled: zoom <= 1) { applyZoom(zoom / 1.25) }
-            CtlButton(icon: "arrow.counterclockwise", help: "Reset zoom", disabled: zoom == 1) { applyZoom(1) }
+            CtlButton(icon: "plus.magnifyingglass", help: "Zoom in", disabled: l.zoomInTarget == nil) {
+                if let z = l.zoomInTarget { applyZoom(z, max: l.maxZoom) }
+            }
+            CtlButton(icon: "minus.magnifyingglass", help: "Zoom out", disabled: l.zoomOutTarget == nil) {
+                if let z = l.zoomOutTarget { applyZoom(z, max: l.maxZoom) }
+            }
+            CtlButton(icon: "arrow.counterclockwise",
+                      help: l.resetClearsPan ? "Reset zoom and position" : "Reset zoom",
+                      disabled: !l.canReset) { reset(clearPan: l.resetClearsPan) }
         }
         .padding(4)
         .zoomControlBackground(hair: palette.hair)
@@ -1226,39 +1275,49 @@ private struct StepFigure: View {
     /// Apply a zoom optimistically (instant feedback + rapid clicks compound off
     /// the pending value), then persist. A zoom change re-frames the pan, so drop
     /// the live pan override.
-    private func applyZoom(_ target: Double) {
-        let z = min(max(target, 1), ReportPresentation.zoomMax)
-        pendingZoom = z
-        liveOffset = nil
-        onZoom(z)
+    private func applyZoom(_ target: Double, max: Double) {
+        pendingZoom = target
+        livePan = nil
+        onZoom(target, max)
     }
 
+    private func reset(clearPan: Bool) {
+        pendingZoom = 1
+        livePan = nil
+        if clearPan { pendingPanClear = true }
+        onReset(clearPan)
+    }
 
-    private func panGesture(shown: CGSize, rangeX: Double, rangeY: Double) -> some Gesture {
+    private func panGesture(_ l: ReportPresentation.FigureLayout) -> some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
                 // Anchor to the offset shown when the drag began (captured once),
                 // so consecutive drags compose against what's on screen — not a
                 // still-persisting base — and the anchor stays stable mid-drag.
-                if dragStart == nil { dragStart = shown }
-                let start = dragStart ?? shown
-                liveOffset = clampedOffset(base: start, translation: value.translation, rangeX: rangeX, rangeY: rangeY)
+                if dragStart == nil {
+                    dragStart = DragAnchor(offset: CGSize(width: l.offsetX, height: l.offsetY), livePan: livePan)
+                }
+                livePan = dragPan(l, value.translation)
             }
             .onEnded { value in
-                let start = dragStart ?? shown
-                let off = clampedOffset(base: start, translation: value.translation, rangeX: rangeX, rangeY: rangeY)
-                liveOffset = off
+                let anchor = dragStart ?? DragAnchor(offset: CGSize(width: l.offsetX, height: l.offsetY), livePan: livePan)
+                let pan = dragPan(l, value.translation)
                 dragStart = nil
-                onReframe(rangeX > 0 ? -off.width / rangeX : 0.5,
-                          rangeY > 0 ? -off.height / rangeY : 0.5)
+                // Back where it began: write nothing, so a drag that goes
+                // nowhere cannot re-date the project. Compared with what was
+                // SHOWN at the start, not the saved pan, which lags while an
+                // earlier drag's save is in flight; that save still lands.
+                let start = l.pan(forOffsetX: anchor.offset.width, offsetY: anchor.offset.height)
+                if pan.x == start.x && pan.y == start.y { livePan = anchor.livePan; return }
+                livePan = pan
+                onReframe(pan.x, pan.y)
             }
     }
 
-    /// Offset is ≤ 0 and ≥ -range on each axis (0 = flush left/top, -range = flush
-    /// right/bottom), so the image can't be dragged past its edges.
-    private func clampedOffset(base: CGSize, translation: CGSize, rangeX: Double, rangeY: Double) -> CGSize {
-        CGSize(width: min(0, max(-rangeX, base.width + translation.width)),
-               height: min(0, max(-rangeY, base.height + translation.height)))
+    private func dragPan(_ l: ReportPresentation.FigureLayout, _ t: CGSize) -> (x: Double?, y: Double?) {
+        let start = dragStart?.offset ?? CGSize(width: l.offsetX, height: l.offsetY)
+        let o = l.draggedOffset(fromX: start.width, fromY: start.height, dx: t.width, dy: t.height)
+        return l.pan(forOffsetX: o.x, offsetY: o.y)
     }
 
     private func load() {
