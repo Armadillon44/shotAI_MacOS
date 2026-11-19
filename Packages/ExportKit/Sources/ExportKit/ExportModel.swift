@@ -79,6 +79,10 @@ struct ExportImage {
     var mediaType: String // "image/png" | "image/jpeg"
     var ext: String       // ".png" | ".jpg" | …
     var croppedBytes: Data?
+    /// In a framed project, the frame's display width (the project box): every
+    /// framed image is shown at this size whatever its pixel count, so a
+    /// zoomed-in small image is not drawn smaller than the others. nil unframed.
+    var frameDisplayWidth: Double? = nil
 }
 
 /// One collected export unit — mirrors the Windows ExportItem union produced by
