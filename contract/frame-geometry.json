@@ -1,6 +1,7 @@
 {
   "about": "Shared geometry for the per-project screenshot frame. Both platforms test their implementation against these numbers, so the report, the exports and the two apps cannot drift. Spec: Armadillon44/shotAI#160. Expected values were computed by an independent implementation of the spec, not by either app.",
   "units": "image/crop/canvas in render pixels; box, display and offset in display units; pan and zoom unitless. Compare floats to 1e-6.",
+  "rules": "projectBox: s = displayScale normalised as both apps already do (non-finite or absent -> 1; percent rounded half up, clamped to 65..125, rounded to a multiple of 5); budget = (round(816 s) - 78, 600 s). fillZoom = (max(Bw/w, Bh/h) / fit), or 1 when that is within 1% of 1. Zoom snapping compares with a relative tolerance of 1e-9. Export: cropW = round(visibleW) clamped to [1, w]; cropX = round((w - cropW) * panX) clamped; canvas = max(crop, round(B / scale)); origin = floor((canvas - crop) / 2). round = half up.",
   "parse": [
     {
       "raw": "5:4",
@@ -254,6 +255,200 @@
       ]
     }
   ],
+  "projectBox": [
+    {
+      "docScale": 1.0,
+      "frame": "1:1",
+      "box": [
+        600.0,
+        600.0
+      ]
+    },
+    {
+      "docScale": 1.0,
+      "frame": "16:9",
+      "box": [
+        738,
+        415.125
+      ]
+    },
+    {
+      "docScale": 1.0,
+      "frame": "4:3",
+      "box": [
+        738,
+        553.5
+      ]
+    },
+    {
+      "docScale": 0.65,
+      "frame": "1:1",
+      "box": [
+        390.0,
+        390.0
+      ]
+    },
+    {
+      "docScale": 0.65,
+      "frame": "16:9",
+      "box": [
+        452,
+        254.25
+      ]
+    },
+    {
+      "docScale": 0.65,
+      "frame": "4:3",
+      "box": [
+        452,
+        339.0
+      ]
+    },
+    {
+      "docScale": 1.25,
+      "frame": "1:1",
+      "box": [
+        750.0,
+        750.0
+      ]
+    },
+    {
+      "docScale": 1.25,
+      "frame": "16:9",
+      "box": [
+        942,
+        529.875
+      ]
+    },
+    {
+      "docScale": 1.25,
+      "frame": "4:3",
+      "box": [
+        942,
+        706.5
+      ]
+    },
+    {
+      "docScale": 0.9,
+      "frame": "1:1",
+      "box": [
+        540.0,
+        540.0
+      ]
+    },
+    {
+      "docScale": 0.9,
+      "frame": "16:9",
+      "box": [
+        656,
+        369.0
+      ]
+    },
+    {
+      "docScale": 0.9,
+      "frame": "4:3",
+      "box": [
+        656,
+        492.0
+      ]
+    },
+    {
+      "docScale": 0.87,
+      "frame": "1:1",
+      "box": [
+        510.0,
+        510.0
+      ]
+    },
+    {
+      "docScale": 0.87,
+      "frame": "16:9",
+      "box": [
+        616,
+        346.5
+      ]
+    },
+    {
+      "docScale": 0.87,
+      "frame": "4:3",
+      "box": [
+        616,
+        462.0
+      ]
+    },
+    {
+      "docScale": null,
+      "frame": "1:1",
+      "box": [
+        600.0,
+        600.0
+      ]
+    },
+    {
+      "docScale": null,
+      "frame": "16:9",
+      "box": [
+        738,
+        415.125
+      ]
+    },
+    {
+      "docScale": null,
+      "frame": "4:3",
+      "box": [
+        738,
+        553.5
+      ]
+    },
+    {
+      "docScale": 2.0,
+      "frame": "1:1",
+      "box": [
+        750.0,
+        750.0
+      ]
+    },
+    {
+      "docScale": 2.0,
+      "frame": "16:9",
+      "box": [
+        942,
+        529.875
+      ]
+    },
+    {
+      "docScale": 2.0,
+      "frame": "4:3",
+      "box": [
+        942,
+        706.5
+      ]
+    },
+    {
+      "docScale": 0.1,
+      "frame": "1:1",
+      "box": [
+        390.0,
+        390.0
+      ]
+    },
+    {
+      "docScale": 0.1,
+      "frame": "16:9",
+      "box": [
+        452,
+        254.25
+      ]
+    },
+    {
+      "docScale": 0.1,
+      "frame": "4:3",
+      "box": [
+        452,
+        339.0
+      ]
+    }
+  ],
   "zoomSteps": [
     {
       "fillZoom": 1.6,
@@ -344,6 +539,24 @@
       "start": 10,
       "zoomIn": 10.0,
       "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.02,
+      "start": 1,
+      "zoomIn": 1.02,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.02,
+      "start": 1.02,
+      "zoomIn": 1.275,
+      "zoomOut": 1.0
+    },
+    {
+      "fillZoom": 1.02,
+      "start": 1.25,
+      "zoomIn": 1.5625,
+      "zoomOut": 1.02
     }
   ],
   "views": [
@@ -1171,6 +1384,63 @@
           "origin": [
             0,
             115
+          ]
+        }
+      }
+    },
+    {
+      "name": "near-frame-shape-fit-already-fills",
+      "why": "A render within 1% of the frame's shape (a 1366x768 display at the 0.85 downscale in 16:9) has no separate fill step: zoom-in goes straight to x1.25.",
+      "input": {
+        "image": [
+          1161,
+          653
+        ],
+        "frame": "16:9",
+        "box": [
+          738,
+          415.125
+        ],
+        "zoom": 1,
+        "pan": null,
+        "click": null
+      },
+      "expect": {
+        "fillZoom": 1.0,
+        "zoom": 1,
+        "scale": 0.635658915,
+        "pan": [
+          0.5,
+          0.5
+        ],
+        "visible": [
+          0.0,
+          0.0,
+          1161,
+          653
+        ],
+        "display": [
+          738.0,
+          415.085271318
+        ],
+        "offset": [
+          0.0,
+          0.019864341
+        ],
+        "export": {
+          "canvas": [
+            1161,
+            653
+          ],
+          "crop": [
+            0,
+            0,
+            1161,
+            653
+          ],
+          "origin": [
+            0,
+            0
           ]
         }
       }

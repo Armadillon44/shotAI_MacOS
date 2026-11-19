@@ -11,6 +11,7 @@ import Testing
     struct Table: Decodable {
         struct Parse: Decodable { let raw: String; let frame: String? }
         struct Box: Decodable { let budget: [Double]; let frame: String; let box: [Double] }
+        struct ProjectBox: Decodable { let docScale: Double?; let frame: String; let box: [Double] }
         struct Zoom: Decodable { let fillZoom: Double; let start: Double; let zoomIn: Double; let zoomOut: Double }
         struct View: Decodable {
             struct Input: Decodable {
@@ -24,7 +25,7 @@ import Testing
             }
             let name: String; let why: String; let input: Input; let expect: Expect
         }
-        let parse: [Parse]; let box: [Box]; let zoomSteps: [Zoom]; let views: [View]
+        let parse: [Parse]; let box: [Box]; let projectBox: [ProjectBox]; let zoomSteps: [Zoom]; let views: [View]
     }
 
     /// Found from this file, not the working directory, like the conformance
@@ -57,6 +58,17 @@ import Testing
             let frame = try #require(ShotFrame(rawValue: c.frame))
             let b = try #require(FrameGeometry.box(budgetWidth: c.budget[0], budgetHeight: c.budget[1], frame: frame))
             #expect(near([b.width, b.height], c.box), "\(c.frame) in \(c.budget)")
+        }
+    }
+
+    /// The box every step is framed in, from the frame and the document scale
+    /// only: never the window.
+    @Test func projectBoxes() throws {
+        #expect(Self.table.projectBox.count >= 12)
+        for c in Self.table.projectBox {
+            let frame = try #require(ShotFrame(rawValue: c.frame))
+            let b = try #require(FrameGeometry.projectBox(frame: frame, docScale: c.docScale))
+            #expect(near([b.width, b.height], c.box), "\(c.frame) at \(String(describing: c.docScale))")
         }
     }
 
@@ -114,6 +126,18 @@ import Testing
             #expect(abs(Double(x.cropY) - v.visibleY) <= 1)
             // The canvas has the frame's shape (to a pixel of rounding).
             #expect(abs(Double(x.canvasWidth) / Double(x.canvasHeight) - 1) < 0.002)
+        }
+    }
+
+    /// The verification finding: a crop that starts at the top-left corner (a
+    /// click-centred view clamped there) was reported as the unchanged render, so
+    /// an export skipping identity layouts would have shipped the whole image.
+    @Test func aCropAtTheTopLeftIsNotTheWholeImage() throws {
+        for (zoom, panX, panY) in [(1.6, 0.0, 0.5), (2.5, 0.0, 0.0), (4.0, 0.0, 0.0)] {
+            let x = try #require(FrameGeometry.exportLayout(imageWidth: 1600, imageHeight: 1000, box: box,
+                                                            zoom: zoom, panX: panX, panY: panY))
+            #expect(x.cropX == 0 && x.cropY == 0)
+            #expect(!x.isIdentity, "zoom \(zoom): \(x.cropWidth)x\(x.cropHeight) of 1600x1000")
         }
     }
 
