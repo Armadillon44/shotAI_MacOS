@@ -1,6 +1,7 @@
 import AppKit
 import CaptureKit
 import ExportKit
+import SOPKit
 import ShotModel
 import SwiftUI
 
@@ -12,6 +13,7 @@ struct ShotAIApp: App {
 
     init() {
         Log.bootstrap() // banner + uncaught-exception handler, as early as possible
+        Self.removeOldHTTPDiskCache()
         // Don't persist/restore window state across quit. We size and route the
         // window ourselves and always open to Home, so restoration adds nothing —
         // and after an unclean exit (crash/force-quit) macOS would otherwise paint
@@ -153,6 +155,19 @@ struct ShotAIApp: App {
     private var brandMenuSelection: Binding<AppModel.BrandMenuSelection> {
         Binding(get: { model.brandMenuSelection },
                 set: { sel in Task { await model.applyBrandMenuSelection(sel) } })
+    }
+
+    /// Earlier builds sent Claude requests through `URLSession.shared`, which keeps
+    /// an HTTP disk cache in Caches/<bundle id>. Requests now use a session with no
+    /// disk cache, so remove what earlier builds left there. Nothing else in the app
+    /// uses that cache, so this runs every launch and is a no-op once it is gone.
+    private static func removeOldHTTPDiskCache() {
+        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
+              let id = Bundle.main.bundleIdentifier, !id.isEmpty else { return }
+        let removed = URLSessionTransport.removeLegacyDiskCache(in: caches.appendingPathComponent(id))
+        if !removed.isEmpty {
+            Log.app.notice("Removed the old HTTP disk cache (\(removed.joined(separator: ", "), privacy: .public))")
+        }
     }
 
     /// One-time purge of window/split-view autosave records left by EARLIER app
