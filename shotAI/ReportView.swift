@@ -166,8 +166,9 @@ struct ReportView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Every caption and description, the title and the overview go back to how they were "
-                     + "before AI generation. Changes you made to that text since will be lost. Screenshots, "
-                     + "annotations, crops and step order are kept.")
+                     + "before AI generation, and changes you made to them since will be lost. Every text "
+                     + "block and callout goes back to your own wording, including edits you made after "
+                     + "generating. Screenshots, annotations, crops and step order are kept.")
             }
             // Resolve the backing NSScrollView so a step drag near the top/bottom
             // edge can auto-scroll (driven per-row via autoScroller.noteHover).

@@ -100,20 +100,8 @@ final class UndoRevertTests: XCTestCase {
         XCTAssertEqual(step.flattened, "export/.render/\(step.id).png", "and so does the render it was baked into")
     }
 
-    /// Generation never writes author text blocks, so Revert must not touch them.
-    /// A first version restored their body and kept their heading, producing a
-    /// callout whose heading and body never existed together.
-    func testRevertLeavesAuthorTextBlocksAlone() async throws {
-        let (store, path, _) = try await makeProject(shots: 1)
-        _ = try await store.addTextStep(at: path, atIndex: 0, heading: "Old heading", body: "Old body", callout: .warning)
-        _ = try await apply(store, path, plan(["unused", "AI caption"]))
-        let warning = try await store.openProject(at: path).manifest.steps.first { $0.kind == .text && $0.aiInserted != true }!
-        _ = try await store.editStepText(at: path, stepId: warning.id, heading: "New heading", body: "New body")
-        try await revertSop(store: store, projectPath: path)
-        let after = try await store.openProject(at: path).manifest.steps.first { $0.id == warning.id }
-        XCTAssertEqual(after?.heading, "New heading")
-        XCTAssertEqual(after?.body, "New body", "the author's later edit to their own block stands")
-    }
+    // Revert on author blocks is covered in HolisticTests, where it restores the
+    // AUTHOR's words per field rather than a pre-generation snapshot.
 
     func testMatchesReportsWhetherUndoWouldSucceed() async throws {
         let (store, path, _) = try await makeProject(shots: 1)

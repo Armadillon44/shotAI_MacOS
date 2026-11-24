@@ -23,8 +23,12 @@ final class SopValidationTests: XCTestCase {
 
     private func ok(_ steps: [(Int, String, String)], title: String = "A Real Title",
                     intro: (String, String)? = nil) -> ([String], ResponseHead) {
+        // Every entry declares itself a screenshot, as a model writing screenshot
+        // text would. That is what makes the renumbering fixtures below meaningful:
+        // their numbers are all valid now, and only the kind gives them away.
         let s: [[String: Any]] = steps.map {
-            ["stepNumber": $0.0, "caption": $0.1, "body": $0.2, "sectionHeading": NSNull(), "sectionBody": NSNull()]
+            ["stepNumber": $0.0, "kind": "screenshot", "caption": $0.1, "body": $0.2,
+             "sectionHeading": NSNull(), "sectionBody": NSNull()]
         }
         let i: Any = intro.map { ["heading": $0.0, "body": $0.1] } ?? NSNull()
         let d = try! JSONSerialization.data(withJSONObject: ["title": title, "intro": i, "steps": s])
@@ -103,6 +107,23 @@ final class SopValidationTests: XCTestCase {
         XCTAssertEqual(steps[4].caption, before[4])
         XCTAssertEqual(Set(r.plan.incompleteStepIds), [r.before.steps[1].id, r.before.steps[4].id],
                        "both steps are reported incomplete, not one of them as done")
+    }
+
+    /// Every repair target is a screenshot, so a repair entry declaring any other kind
+    /// misread which block it was writing for, and is discarded with the rest of the
+    /// repair — author-block text must not land on a screenshot.
+    func testARepairEntryDeclaringAnAuthorKindIsDiscarded() async throws {
+        let bad: [[String: Any]] = [["stepNumber": 2, "kind": "note", "caption": "Heads up", "body": "Watch out.",
+                                     "sectionHeading": NSNull(), "sectionBody": NSNull()]]
+        let d = try JSONSerialization.data(withJSONObject: ["title": "A Real Title", "intro": NSNull(), "steps": bad])
+        let script = Script([
+            ok([(1, "Open Settings", "Click the gear."), (2, "Placeholder", "TBD")]),
+            (sseLines(json: String(decoding: d, as: UTF8.self)), ResponseHead(status: 200)),
+        ])
+        let r = try await run(2, script)
+        let steps = try await applied(r)
+        XCTAssertNotEqual(steps[1].caption, "Heads up")
+        XCTAssertEqual(r.plan.incompleteStepIds, [r.before.steps[1].id])
     }
 
     // MARK: Apply what passed

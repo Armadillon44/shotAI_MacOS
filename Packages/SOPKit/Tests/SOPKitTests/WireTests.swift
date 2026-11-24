@@ -37,7 +37,7 @@ final class SettingsAndPromptTests: XCTestCase {
     }
 
     func testSchemaSerializesAndRawDecodes() throws {
-        XCTAssertTrue(JSONSerialization.isValidJSONObject(plainJSON(sopEditJSONSchema())))
+        XCTAssertTrue(JSONSerialization.isValidJSONObject(plainJSON(sopEditJSONSchema(blockCount: 3))))
         let json = #"{"title":"T","intro":{"heading":"H","body":"B"},"steps":[{"stepNumber":1,"caption":"C","body":"Bd","sectionHeading":"S","sectionBody":"SB"}]}"#
         let raw = try JSONDecoder().decode(SopEditRaw.self, from: Data(json.utf8))
         XCTAssertEqual(raw.title, "T")
