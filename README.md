@@ -12,13 +12,20 @@ check against GitHub that you can turn off. This is a native Swift/SwiftUI port 
 the [Windows app](https://github.com/Armadillon44/shotAI); `project.json` is
 byte-compatible, so projects **round-trip between platforms**.
 
-> **Status:** **1.4.1.** Capture engine, native SwiftUI
+> **Status:** **1.5.0.** Capture engine, native SwiftUI
 > annotation editor, manual redaction (blur or solid box, baked into a flattened copy), Claude SOP
-> generation with review-before-send + one-click revert, element-at-point captions (native
-> Accessibility), export to HTML / PDF / Markdown / "HTML for Word" + a shareable
-> round-trip `.zip` package, project archiving, a first-run tour, light/dark appearance and
-> selectable brand themes are all implemented.
-> **Fixed in 1.4.1:** SOP generation could fail outright, or come back with only an
+> generation with review-before-send, undo and one-click revert, element-at-point captions (native
+> Accessibility), per-project screenshot frames, export to HTML / PDF / Markdown / "HTML for
+> Word" + a shareable round-trip `.zip` package, project archiving, a first-run tour, light/dark
+> appearance and selectable brand themes are all implemented.
+> **New in 1.5.0:** **screenshot frames**. A project can show every step's screenshot in a frame
+> of one shape (1:1, 5:4, 4:3, 3:2 or 16:9) and one size, placed by zoom and drag and centred on
+> the click, in the report and every export; the screenshots themselves are never changed. And
+> **SOP generation, rebuilt**: Claude writes the whole guide, your text blocks and callouts
+> included; every generation is checked before it lands and repaired where it fell short; the
+> last one can be undone; transient failures are retried; it runs on Claude Sonnet 5.5 and offers
+> a newer Sonnet when one appears; and each SOP remembers its own wording and instructions.
+> **In 1.4.1:** SOP generation could fail outright, or come back with only an
 > Overview and no step instructions; both are fixed, along with two data-safety bugs — a
 > redaction that failed to parse no longer lets the un-redacted screenshot be sent or
 > exported, and one malformed step no longer discards a project's revert history.
