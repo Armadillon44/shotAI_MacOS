@@ -27,6 +27,16 @@ public struct SopService: Sendable {
 
     /// Bring-your-own-key construction. Kept so the API-key path (and every
     /// existing test) works unchanged when federation is not configured.
+    /// Backoff before each retry of a transient failure. Two retries, as the official
+    /// SDKs do by default; Windows gets them for free from its SDK, and this client
+    /// had none, so a momentary overload failed the whole generation.
+    var retryDelays: [TimeInterval] = [2, 5]
+    /// Injected so tests do not actually wait.
+    var sleep: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
+    /// A rate limit asking for longer than this is surfaced instead of waited out:
+    /// the user is better told "try again in about 40s" than left watching a spinner.
+    static let maxRetryAfterWait: TimeInterval = 20
+
     public init(client: ClaudeClient = ClaudeClient(), keyStore: ApiKeyStore = KeychainApiKeyStore()) {
         self.init(client: client, credentials: StoredKeyCredentialProvider(keyStore: keyStore))
     }
@@ -77,8 +87,9 @@ public struct SopService: Sendable {
     ) async throws -> SopEditPlan {
         guard settings.enabled else { throw ClaudeError.disabled }
         // Resolved BEFORE the (slow) request assembly so an expired session
-        // fails fast, instead of after flattening every screenshot.
-        let cred = try await credential()
+        // fails fast, instead of after flattening every screenshot. Each request
+        // resolves it again (see streamWithRetry); the provider caches it.
+        _ = try await credential()
         onProgress(.preparing)
         let assembled = try assembleRequest(dir: dir, manifest: manifest, settings: settings)
         let p = params(settings.model)
@@ -100,7 +111,7 @@ public struct SopService: Sendable {
         // Review before anything lands, then recover: at most one full retry for
         // a numbering fault and one repair turn for content faults, so a run is
         // never more than three requests. See SopValidation.swift.
-        var plan = Self.plan(from: try await client.streamEditPlan(credential: cred, body: body, onProgress: onProgress))
+        var plan = Self.plan(from: try await streamWithRetry(body, onProgress))
         var review = reviewPlan(plan, against: manifest)
         var retried = false, repaired = false
 
@@ -112,7 +123,7 @@ public struct SopService: Sendable {
                 duplicate \(review.duplicateNumbers, privacy: .public), expected \(review.shotNumbers, privacy: .public); retrying
                 """)
             onProgress(.retrying)
-            plan = Self.plan(from: try await client.streamEditPlan(credential: cred, body: body, onProgress: onProgress))
+            plan = Self.plan(from: try await streamWithRetry(body, onProgress))
             review = reviewPlan(plan, against: manifest)
             retried = true
             if review.misnumbered {
@@ -130,9 +141,7 @@ public struct SopService: Sendable {
         if !needRepair.isEmpty {
             onProgress(.repairing(steps: needRepair.count))
             do {
-                let fixed = Self.plan(from: try await client.streamEditPlan(
-                    credential: cred, body: Self.repairBody(body, previous: plan, steps: needRepair),
-                    onProgress: onProgress))
+                let fixed = Self.plan(from: try await streamWithRetry(Self.repairBody(body, previous: plan, steps: needRepair), onProgress))
                 // The repair's numbering is checked the way the first answer's is.
                 // A repair that renumbered — answering [1, 2] for "steps 2 and 5"
                 // — would put step 5's text on step 2 and report step 2 complete.
@@ -219,5 +228,44 @@ public struct SopService: Sendable {
         let intro: Any = p.intro.map { OrderedObject(["heading": $0.heading, "body": $0.body]) } ?? NSNull()
         let obj = OrderedObject(["title": p.title as Any? ?? "", "intro": intro, "steps": steps])
         return (try? RequestJSON.data(obj)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+    }
+
+    /// One generation request, retried on transient failure. A cancel is never
+    /// retried: URLSession reports a cancelled task as a URLError, which arrives
+    /// here as `.connection`, so the check has to be on the task, not the error.
+    ///
+    /// The credential is resolved for EACH attempt, not once per generation. A run
+    /// can now span three requests plus backoff, and a federated token resolved at
+    /// the start could expire before the last of them. The provider caches and
+    /// coalesces, so this costs nothing while the token is still fresh.
+    func streamWithRetry(
+        _ body: [String: Any], _ onProgress: @Sendable (SopProgress) -> Void
+    ) async throws -> SopEditRaw {
+        var attempt = 0
+        while true {
+            do {
+                let cred = try await credential()
+                return try await client.streamEditPlan(credential: cred, body: body, onProgress: onProgress)
+            } catch let e as ClaudeError {
+                guard !Task.isCancelled, attempt < retryDelays.count,
+                      let wait = Self.retryWait(e, backoff: retryDelays[attempt]) else { throw e }
+                attempt += 1
+                Log.sop.notice("transient \(String(describing: e.kind), privacy: .public); retry \(attempt, privacy: .public) in \(wait, privacy: .public)s")
+                onProgress(.waiting(seconds: Int(wait.rounded(.up))))
+                try await sleep(wait)
+            }
+        }
+    }
+
+    /// How long to wait before retrying `e`, or nil if it is not worth retrying.
+    static func retryWait(_ e: ClaudeError, backoff: TimeInterval) -> TimeInterval? {
+        switch e {
+        case .overloaded, .connection: return backoff
+        case .rateLimited(let f):
+            guard let after = f.retryAfter else { return backoff }
+            return after <= maxRetryAfterWait ? max(after, backoff) : nil
+        case .api(let status, let f) where status >= 500 && f.shouldRetry != false: return backoff
+        default: return nil
+        }
     }
 }
