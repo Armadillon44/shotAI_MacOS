@@ -187,6 +187,35 @@ import Testing
         #expect(FrameGeometry.view(imageWidth: 1600, imageHeight: 1000, box: box, zoom: .nan, panX: 0.5, panY: 0.5)?.zoom == 1)
     }
 
+    /// The pan the report and exports share: saved where saved, the click
+    /// default on any axis that is not.
+    @Test func thePanIsSavedOrTheClicksPerAxis() {
+        var step = ProjectStep(id: "s", order: 1, kind: .shot, screenshot: "shots/1.png", trigger: .hotkey)
+        step.reportZoom = 1.6
+        step.click = StepClick(global: Point(x: 0, y: 0), image: Point(x: 1500, y: 500), button: .left)
+        let box = FrameGeometry.Size(width: 600, height: 600)
+        func pan() -> [Double] { let p = FrameGeometry.pan(for: step, imageWidth: 1600, imageHeight: 1000, box: box); return [p.x, p.y] }
+        #expect(pan() == [1, 0.5], "no saved pan: the click's, clamped at the right edge")
+        step.reportPanX = 0.25
+        #expect(pan() == [0.25, 0.5], "a saved axis wins; the other is the click's")
+        step.reportPanY = 0.1
+        #expect(pan() == [0.25, 0.1])
+    }
+
+    /// A zoom chosen but not yet saved frames the click-default view as it will
+    /// look once saved, so the report does not jump when the save lands.
+    @Test func aZoomOverrideMatchesTheSavedZoom() {
+        var step = ProjectStep(id: "s", order: 1, kind: .shot, screenshot: "shots/1.png", trigger: .hotkey)
+        step.click = StepClick(global: Point(x: 0, y: 0), image: Point(x: 1500, y: 500), button: .left)
+        let box = FrameGeometry.Size(width: 600, height: 600)
+        let pending = FrameGeometry.pan(for: step, imageWidth: 1600, imageHeight: 1000, box: box, zoom: 1.6)
+        var saved = step
+        saved.reportZoom = 1.6
+        let after = FrameGeometry.pan(for: saved, imageWidth: 1600, imageHeight: 1000, box: box)
+        #expect([pending.x, pending.y] == [after.x, after.y])
+        #expect(pending.x == 1, "and it is the clamped click, not the centre")
+    }
+
     @Test func theClickIsMeasuredInTheRender() {
         var step = ProjectStep(id: "s", order: 1, kind: .shot, screenshot: "shots/1.png", trigger: .hotkey)
         #expect(step.clickInRender == nil)

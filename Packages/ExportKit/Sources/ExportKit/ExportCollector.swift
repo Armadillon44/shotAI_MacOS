@@ -5,12 +5,16 @@ import ShotModel
 /// export format consumes (ported from export.ts collectSteps). For each shot it
 /// routes through `resolveSendableRender` (never reads a raw shot for a step with
 /// unbaked redaction/crop), verifies the render exists on disk, and bakes the
-/// report's per-step zoom/pan into a static PNG crop. Numbering matches the
+/// report's per-step zoom/pan into a static PNG crop, or in a framed project
+/// into the framed image (`framedPNG`). Numbering matches the
 /// report: shots + non-empty text steps share a 1…N counter; callouts are
 /// unnumbered; empty text steps are skipped (no number consumed).
 func collectSteps(dir: String, manifest: ProjectManifest) throws -> [ExportItem] {
     var items: [ExportItem] = []
     var stepNo = 0
+    // One box for the whole project, from the frame and the document scale only,
+    // the same box the report frames in (FrameGeometry.projectBox).
+    let frameBox = manifest.frame.flatMap { FrameGeometry.projectBox(frame: $0, docScale: manifest.displayScale) }
 
     for step in manifest.steps {
         if ReportPresentation.isCalloutStep(step), let kind = step.callout {
@@ -42,17 +46,23 @@ func collectSteps(dir: String, manifest: ProjectManifest) throws -> [ExportItem]
                 throw ExportError.renderMissing(
                     step: label, rel: step.flattened?.isEmpty == false ? step.flattened! : step.screenshot)
             }
-            // Bake the report zoom/pan as a static crop (nil = full render).
-            let cropped = zoomCropPNG(
-                path: render.abs,
-                zoom: step.reportZoom ?? 1,
-                panX: step.reportPanX ?? 0.5,
-                panY: step.reportPanY ?? 0.5)
+            // Bake the report's framing as a static image (nil = the full render):
+            // the frame in a framed project, else the zoom/pan crop. The zoom is
+            // capped at the report's maximum, so a stored value above it (one kept
+            // after a frame is removed, or written by another build) exports what
+            // the report shows.
+            let cropped = frameBox.map { framedPNG(path: render.abs, step: step, box: $0) }
+                ?? zoomCropPNG(
+                    path: render.abs,
+                    zoom: min(step.reportZoom ?? 1, ReportPresentation.zoomMax),
+                    panX: step.reportPanX ?? 0.5,
+                    panY: step.reportPanY ?? 0.5)
             let image = ExportImage(
                 abs: render.abs,
                 mediaType: cropped != nil ? "image/png" : render.mediaType.rawValue,
                 ext: cropped != nil ? ".png" : ".\(render.ext)",
-                croppedBytes: cropped)
+                croppedBytes: cropped,
+                frameDisplayWidth: frameBox?.width)
             items.append(.shot(
                 n: stepNo,
                 caption: (step.caption).trimmingCharacters(in: .whitespacesAndNewlines),

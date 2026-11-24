@@ -217,3 +217,20 @@ extension ProjectStep {
         return (c.image.x - (crop?.x ?? 0), c.image.y - (crop?.y ?? 0))
     }
 }
+
+extension FrameGeometry {
+    /// The pan a framed step is shown at: its saved pan, and on any axis without
+    /// one the click-centred default at the step's zoom. The report, every export
+    /// and a package resolve it here, so they cannot frame a step differently.
+    ///
+    /// `zoom` overrides the step's saved zoom: the report passes a zoom the user
+    /// has just chosen and that has not saved yet, so the view does not jump when
+    /// the save lands; a package passes the fill zoom for a step at fit.
+    public static func pan(for step: ProjectStep, imageWidth w: Double, imageHeight h: Double,
+                           box: Size, zoom: Double? = nil) -> (x: Double, y: Double) {
+        if let x = step.reportPanX, let y = step.reportPanY { return (x, y) }
+        let d = defaultPan(click: step.clickInRender, imageWidth: w, imageHeight: h, box: box,
+                           zoom: zoom ?? step.reportZoom ?? 1)
+        return (step.reportPanX ?? d.x, step.reportPanY ?? d.y)
+    }
+}

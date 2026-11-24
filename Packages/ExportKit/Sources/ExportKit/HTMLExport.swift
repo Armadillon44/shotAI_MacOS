@@ -87,11 +87,23 @@ private func htmlImageBytes(
 /// In a browser the CSS still wins for shrinking (`max-width:100%;height:auto`), so
 /// the export stays responsive on a narrow window; the attributes only set the
 /// intrinsic size, which also avoids layout shift while the data URI decodes.
-private func htmlImageSizeAttributes(_ bytes: Data, maxWidth: Int) -> String {
+///
+/// A framed image (`frameWidth` set) is shown at the frame's width exactly, up or
+/// down, so every frame in the document is the same size: a zoomed-in small
+/// image has fewer pixels than the frame and the browser scales it, as the report
+/// does.
+private func htmlImageSizeAttributes(_ bytes: Data, maxWidth: Int, frameWidth: Double? = nil) -> String {
     guard let px = imagePixelDimensions(bytes) else { return "" }
-    let scale = min(1.0, Double(maxWidth) / Double(px.w))
+    let scale = frameWidth.map { min($0, Double(maxWidth)) / Double(px.w) }
+        ?? min(1.0, Double(maxWidth) / Double(px.w))
     return " width=\"\(Int((Double(px.w) * scale).rounded()))\""
         + " height=\"\(Int((Double(px.h) * scale).rounded()))\""
+}
+
+/// The width an inlined image is resampled to: the column's image width, or a
+/// framed image's (narrower) frame width, which is all it is ever shown at.
+private func htmlImageTarget(_ image: ExportImage, _ imgMax: Int) -> Int {
+    image.frameDisplayWidth.map { min(imgMax, max(1, Int($0.rounded()))) } ?? imgMax
 }
 
 /// The image's pixel dimensions, read from its metadata without decoding pixels.
@@ -220,7 +232,7 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
                 + "</section>")
 
         case .shot(let n, let caption, let body, let note, _, let image):
-            let (bytes, mediaType) = try htmlImageBytes(image, codec: .avif, maxWidth: imgMax)
+            let (bytes, mediaType) = try htmlImageBytes(image, codec: .avif, maxWidth: htmlImageTarget(image, imgMax))
             let dataUri = "data:\(mediaType);base64,\(bytes.base64EncodedString())"
             let title = escapeHTML(caption.isEmpty ? "Step \(n)" : caption)
             let instr = body.isEmpty ? "" : "<p class=\"step__instr\">\(escapeHTML(body))</p>"
@@ -230,7 +242,8 @@ func buildHtmlDoc(manifest: ProjectManifest, items: [ExportItem], createdLine: S
                 + "<div class=\"step__num\">\(n)</div>"
                 + "<div class=\"step__main\">"
                 + "<h2 class=\"step__title\">\(title)</h2>"
-                + "<img class=\"step__img\" src=\"\(dataUri)\"\(htmlImageSizeAttributes(bytes, maxWidth: imgMax))"
+                + "<img class=\"step__img\" src=\"\(dataUri)\""
+                + "\(htmlImageSizeAttributes(bytes, maxWidth: imgMax, frameWidth: image.frameDisplayWidth))"
                 + " alt=\"Screenshot for step \(n)\">"
                 + "\(instr)\(noteHtml)"
                 + "</div>"
@@ -333,10 +346,11 @@ func buildPlainHtmlDoc(manifest: ProjectManifest, items: [ExportItem],
             }
 
         case .shot(let n, let caption, let body, let note, _, let image):
-            let (bytes, mediaType) = try htmlImageBytes(image, codec: .png, maxWidth: imgMax)
+            let (bytes, mediaType) = try htmlImageBytes(image, codec: .png, maxWidth: htmlImageTarget(image, imgMax))
             let dataUri = "data:\(mediaType);base64,\(bytes.base64EncodedString())"
             parts.append("<h2>\(n). \(escapeHTML(caption.isEmpty ? "Step \(n)" : caption))</h2>")
-            parts.append("<p><img src=\"\(dataUri)\"\(htmlImageSizeAttributes(bytes, maxWidth: imgMax))"
+            parts.append("<p><img src=\"\(dataUri)\""
+                + "\(htmlImageSizeAttributes(bytes, maxWidth: imgMax, frameWidth: image.frameDisplayWidth))"
                 + " alt=\"Screenshot for step \(n)\"></p>")
             if !body.isEmpty { parts.append("<p>\(br(body))</p>") }
             if !note.isEmpty { parts.append("<p><em>\(br(note))</em></p>") }
