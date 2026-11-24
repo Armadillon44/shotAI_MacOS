@@ -35,7 +35,7 @@ final class HolisticTests: XCTestCase {
         return try await svc.generate(dir: dir, manifest: m, settings: SopSettings(), onProgress: { _ in })
     }
     private func apply(_ store: ProjectStore, _ path: String, _ plan: SopEditPlan) async throws {
-        try await applySopEdits(store: store, projectPath: path, plan: plan, model: .sonnet5, tone: .professional)
+        try await applySopEdits(store: store, projectPath: path, plan: plan, model: .sonnet55, tone: .professional)
     }
     private func rewrite(_ store: ProjectStore, _ path: String, _ n: Int, _ heading: String, _ body: String) async throws {
         try await apply(store, path, SopEditPlan(title: "T", intro: nil, steps: [

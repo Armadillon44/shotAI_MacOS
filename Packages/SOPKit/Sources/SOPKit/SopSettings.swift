@@ -9,9 +9,10 @@ import ShotModel
 // live in app preferences, not the manifest.
 
 /// Models offered for SOP generation — a curated allowlist so a bad id can't reach
-/// the API. Parity with the Windows app: Sonnet 5 only.
+/// the API. The Windows app (v1.3.0) still offers Sonnet 5 only; this is a
+/// deliberate divergence until it is updated.
 public enum SopModelId: String, Codable, Sendable, CaseIterable {
-    case sonnet5 = "claude-sonnet-5"
+    case sonnet55 = "claude-sonnet-5-5"
 }
 
 public struct SopModelOption: Sendable {
@@ -22,12 +23,12 @@ public struct SopModelOption: Sendable {
 
 public let SOP_MODELS: [SopModelOption] = [
     SopModelOption(
-        id: .sonnet5,
-        label: "Sonnet 5 — latest (recommended)",
+        id: .sonnet55,
+        label: "Sonnet 5.5 — latest (recommended)",
         blurb: "Anthropic’s latest Sonnet: capable, fast, and cost-effective."),
 ]
 
-public let DEFAULT_SOP_MODEL: SopModelId = .sonnet5
+public let DEFAULT_SOP_MODEL: SopModelId = .sonnet55
 
 /// Generation effort — maps to `output_config.effort`. Higher = more deliberation,
 /// slower, pricier.
@@ -91,6 +92,28 @@ public struct SopSettings: Codable, Equatable, Sendable {
         self.tone = tone
         self.effort = effort
         self.customInstructions = customInstructions
+    }
+
+    /// Tolerant, field by field: a value this build does not recognise falls back to
+    /// its default and every other setting is kept.
+    ///
+    /// The synthesized decoder failed the WHOLE struct on one unknown value, and the
+    /// app treated that as "no saved settings" — so retiring a model reset every
+    /// user's tone, effort, enabled switch and custom instructions to defaults. With
+    /// Sonnet 5 replaced by Sonnet 5.5, every saved settings file names a model this
+    /// build no longer has; this is what moves those users to the new default
+    /// without losing anything else. Same rules as `coerceSopSettings` (and the
+    /// Windows coercion it mirrors), including the length cap.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = SopSettings()
+        enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? d.enabled
+        model = (try? c.decode(String.self, forKey: .model)).flatMap(SopModelId.init(rawValue:)) ?? d.model
+        tone = (try? c.decode(String.self, forKey: .tone)).flatMap(SopTone.init(rawValue:)) ?? d.tone
+        effort = (try? c.decode(String.self, forKey: .effort)).flatMap(SopEffort.init(rawValue:)) ?? d.effort
+        customInstructions = String(
+            ((try? c.decode(String.self, forKey: .customInstructions)) ?? d.customInstructions)
+                .prefix(SOP_CUSTOM_INSTRUCTIONS_MAX))
     }
 }
 

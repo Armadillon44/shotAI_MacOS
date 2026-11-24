@@ -15,18 +15,31 @@ public struct ModelParams: Sendable {
     public let outputPerMTok: Double
     /// Output cap for the (streamed) generation request (thinking draws from it too).
     public let maxTokens: Int
+    /// Ask the API to rerun a policy-declined request on the model's fallback
+    /// (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`).
+    public let serverSideFallback: Bool
 }
 
 public let MODEL_PARAMS: [SopModelId: ModelParams] = [
-    .sonnet5: ModelParams(
+    .sonnet55: ModelParams(
+        // Claude Sonnet 5.5 (Anthropic API reference, 2026-11): adaptive thinking,
+        // effort low…max (levels recalibrated from Sonnet 5), same tokenizer.
         adaptiveThinking: true,
         supportsEffort: true,
-        // Claude Sonnet 5 list price (Anthropic API reference, 2026-06). It was
-        // $3/$15, Sonnet 4.6's price, which overstated every estimate by half.
+        // Same list price as Sonnet 5; only cache reads are cheaper ($0.10), and
+        // the estimate does not model caching.
         inputPerMTok: 2,
         outputPerMTok: 10,
-        // Generous cap (streamed) so long SOPs don't truncate.
-        maxTokens: 32000),
+        // Thinking counts against this as well as the plan. 64K is the migration
+        // guide's starting point for Sonnet 5.5 (up from 32K); streamed, and only
+        // what is actually generated is billed.
+        maxTokens: 64000,
+        // A `cyber` or `frontier_llm` decline is rerun on Sonnet 5 on the same
+        // stream. IT procedures — firewalls, MFA resets, admin consoles — are exactly
+        // the benign work that can trip the cyber classifier. `bio`,
+        // `reasoning_extraction` and `general_harms` declines are not rerun and
+        // still surface as a refusal.
+        serverSideFallback: true),
 ]
 
 /// System-prompt modifier per tone (appended to the base SOP instructions).

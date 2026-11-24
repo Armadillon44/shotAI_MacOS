@@ -174,7 +174,7 @@ final class UnderproductionTests: XCTestCase {
         XCTAssertEqual(effectiveEdits(plan)[1]?.caption, "Click Save")
         XCTAssertTrue(plan.incompleteStepIds.isEmpty)
 
-        try await applySopEdits(store: store, projectPath: path, plan: plan, model: .sonnet5, tone: .professional)
+        try await applySopEdits(store: store, projectPath: path, plan: plan, model: .sonnet55, tone: .professional)
         let landed = try await store.openProject(at: path).manifest.steps.first?.caption
         XCTAssertEqual(landed, "Click Save")
     }

@@ -52,7 +52,7 @@ final class SopValidationTests: XCTestCase {
     private func applied(_ r: (store: ProjectStore, path: String, before: ProjectManifest, plan: SopEditPlan))
         async throws -> [ProjectStep]
     {
-        try await applySopEdits(store: r.store, projectPath: r.path, plan: r.plan, model: .sonnet5, tone: .professional)
+        try await applySopEdits(store: r.store, projectPath: r.path, plan: r.plan, model: .sonnet55, tone: .professional)
         return try await r.store.openProject(at: r.path).manifest.steps.filter { $0.kind != .text }
     }
 
@@ -216,7 +216,7 @@ final class SopValidationTests: XCTestCase {
         let d = try JSONSerialization.data(withJSONObject: ["title": "A Real Title", "intro": NSNull(), "steps": raw])
         let script = Script([(sseLines(json: String(decoding: d, as: UTF8.self)), ResponseHead(status: 200))])
         let r = try await run(1, script)
-        try await applySopEdits(store: r.store, projectPath: r.path, plan: r.plan, model: .sonnet5, tone: .professional)
+        try await applySopEdits(store: r.store, projectPath: r.path, plan: r.plan, model: .sonnet55, tone: .professional)
         let section = try await r.store.openProject(at: r.path).manifest.steps.first { $0.aiInserted == true }
         XCTAssertEqual(section?.heading, "Configure the account", "a good heading still lands")
         XCTAssertEqual(section?.body ?? "", "", "its filler body does not")
@@ -227,7 +227,7 @@ final class SopValidationTests: XCTestCase {
     func testAFillerTitleKeepsTheCurrentName() async throws {
         let script = Script([ok([(1, "Open Settings", "Click the gear.")], title: "Untitled")])
         let r = try await run(1, script)
-        try await applySopEdits(store: r.store, projectPath: r.path, plan: r.plan, model: .sonnet5, tone: .professional)
+        try await applySopEdits(store: r.store, projectPath: r.path, plan: r.plan, model: .sonnet55, tone: .professional)
         let title = try await r.store.openProject(at: r.path).manifest.title
         XCTAssertEqual(title, r.before.title)
     }
@@ -244,7 +244,7 @@ final class SopValidationTests: XCTestCase {
         svc.sleep = { _ in }
         let plan = try await svc.generate(dir: dir, manifest: manifest, settings: SopSettings(), onProgress: { _ in })
         XCTAssertNil(plan.intro)
-        try await applySopEdits(store: store, projectPath: path, plan: plan, model: .sonnet5, tone: .professional)
+        try await applySopEdits(store: store, projectPath: path, plan: plan, model: .sonnet55, tone: .professional)
         let intro = try await store.openProject(at: path).manifest.intro
         XCTAssertEqual(intro?.body, "Only for the Finance team.")
     }
