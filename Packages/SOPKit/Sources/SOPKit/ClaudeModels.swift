@@ -10,9 +10,11 @@ public struct ModelParams: Sendable {
     public let adaptiveThinking: Bool
     /// Whether this model accepts `output_config.effort` (level comes from settings).
     public let supportsEffort: Bool
-    /// USD per 1M input/output tokens — feeds the pre-send cost estimate.
-    public let inputPerMTok: Double
-    public let outputPerMTok: Double
+    /// USD per 1M input/output tokens — feeds the pre-send cost estimate. nil for a
+    /// model found by discovery: the Models API publishes no prices, so its
+    /// estimate shows tokens only rather than a figure shotAI would be guessing.
+    public let inputPerMTok: Double?
+    public let outputPerMTok: Double?
     /// Output cap for the (streamed) generation request (thinking draws from it too).
     public let maxTokens: Int
     /// Ask the API to rerun a policy-declined request on the model's fallback
@@ -33,7 +35,7 @@ public let MODEL_PARAMS: [SopModelId: ModelParams] = [
         // Thinking counts against this as well as the plan. 64K is the migration
         // guide's starting point for Sonnet 5.5 (up from 32K); streamed, and only
         // what is actually generated is billed.
-        maxTokens: 64000,
+        maxTokens: SOP_GENERATION_MAX_TOKENS,
         // A `cyber` or `frontier_llm` decline is rerun on Sonnet 5 on the same
         // stream. IT procedures — firewalls, MFA resets, admin consoles — are exactly
         // the benign work that can trip the cyber classifier. `bio`,
@@ -41,6 +43,23 @@ public let MODEL_PARAMS: [SopModelId: ModelParams] = [
         // still surface as a refusal.
         serverSideFallback: true),
 ]
+
+extension SopModelProfile {
+    /// The request shape for a discovered model. Adaptive thinking, effort,
+    /// structured output and image input are not stored: a model is only offered
+    /// when the model list says it supports all four (`ListedModel.sopGaps`).
+    public var params: ModelParams {
+        ModelParams(
+            adaptiveThinking: true,
+            supportsEffort: true,
+            inputPerMTok: nil,
+            outputPerMTok: nil,
+            maxTokens: min(SOP_GENERATION_MAX_TOKENS, maxOutputTokens),
+            // Asked for only when the list names a model to fall back to; the
+            // parameter on a model without one is a request the API may refuse.
+            serverSideFallback: !fallbackModels.isEmpty)
+    }
+}
 
 /// System-prompt modifier per tone (appended to the base SOP instructions).
 public let TONE_PROMPT: [SopTone: String] = [

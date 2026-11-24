@@ -230,7 +230,9 @@ struct ReportView: View {
             Button("Cancel", role: .cancel) { model.dismissSopEstimate() }
         } message: {
             if let est = model.sopEstimate {
-                Text("Sends your redaction-baked screenshots + text (\(est.inputTokens) input tokens) to Anthropic. Estimated cost ≈ \(Self.usd(est.estCostUsd)). This rewrites every step's caption and instructions — you can revert.")
+                let cost = est.estCostUsd.map { "Estimated cost ≈ \(Self.usd($0))." }
+                    ?? "No cost estimate: shotAI has no price for \(model.modelName(est.model))."
+                Text("Sends your redaction-baked screenshots + text (\(est.inputTokens) input tokens) to Anthropic. \(cost) This rewrites every step's caption and instructions — you can revert.")
             }
         }
         .alert(
@@ -241,6 +243,10 @@ struct ReportView: View {
             // to Settings and back.
             if model.sopErrorOffersSignIn {
                 Button("Sign In…") { Task { await model.signInFromError() } }
+                Button("Not Now", role: .cancel) {}
+            } else if let sw = model.sopErrorModelSwitch {
+                // The model was the problem; offer one that should work.
+                Button { model.applyErrorModelSwitch() } label: { Text(verbatim: "Use \(model.modelName(sw.to.id))") }
                 Button("Not Now", role: .cancel) {}
             } else {
                 Button("OK", role: .cancel) {}
@@ -306,6 +312,11 @@ struct ReportView: View {
                     Text(reason)
                         .font(palette.font(11)).foregroundStyle(palette.ink3)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                // A newer model, or the one in use retiring. Hidden while a
+                // generation runs: switching mid-run would not affect it.
+                if let offer = model.panelModelOffer, !model.sopBusy {
+                    ModelOfferNotice(offer: offer, inPanel: true)
                 }
                 // A partial success. Not an alert: most of the run landed, and
                 // this names what did not so the user can check those steps.

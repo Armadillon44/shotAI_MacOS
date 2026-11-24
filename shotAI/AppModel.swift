@@ -370,7 +370,17 @@ final class AppModel {
 
     /// Persisted generation settings (bound by Settings ▸ AI). Call
     /// `saveSopSettings()` after mutating.
-    var sopSettings: SopSettings
+    var sopSettings: SopSettings {
+        didSet {
+            guard oldValue.enabled != sopSettings.enabled else { return }
+            // Off: a model-list check already past its guard is cancelled and
+            // sends no further page; an SSO token mint it already started still
+            // completes (the provider shares one mint between callers). On: the
+            // first moment the list can be read; the daily throttle keeps that to
+            // one call.
+            if sopSettings.enabled { Task { await checkModelsIfDue() } } else { modelCheckTask?.cancel() }
+        }
+    }
     /// Observable mirror of the Keychain key status (so UI re-renders on change).
     private(set) var apiKeyPresent = false
     private(set) var apiKeySource: ApiKeySource = .none
@@ -406,6 +416,25 @@ final class AppModel {
     /// honestly and offer the action that would actually fix it. "SOP generation
     /// failed" is the wrong sentence when the user simply isn't signed in yet.
     private(set) var sopErrorKind: ClaudeError.Kind?
+    /// A model to offer in the failure alert when the failure was the model's —
+    /// unavailable, refused, or a request it would not accept. Set only when there
+    /// is somewhere better to go.
+    private(set) var sopErrorModelSwitch: ErrorModelSwitch?
+
+    // MARK: Model discovery
+
+    /// Anthropic's model list as last read, and the daily throttle. Persisted so an
+    /// offer survives a relaunch inside the day.
+    private(set) var modelDiscovery: ModelDiscoveryState = AppModel.loadModelDiscovery()
+    /// The running model-list check. Held so turning AI off or changing the
+    /// credential can stop it, and run unstructured so a caller going away (the
+    /// Settings tab closing) cannot cancel it into a recorded failure.
+    @ObservationIgnored private var modelCheckTask: Task<Void, Never>?
+    @ObservationIgnored private var modelCheckGeneration = 0
+    /// Models that failed in a way another model might avoid, this session. Never
+    /// offered again until one succeeds, so neither the alert nor the panel can send
+    /// the user back to a model that just failed.
+    private(set) var failedModels: Set<String> = []
 
     // MARK: Document scale (#83)
 
@@ -637,6 +666,177 @@ final class AppModel {
         }
     }
 
+    // MARK: - Model discovery
+
+    private static let modelDiscoveryKey = "sopModelDiscovery.v1"
+
+    static func loadModelDiscovery() -> ModelDiscoveryState {
+        guard let data = UserDefaults.standard.data(forKey: modelDiscoveryKey),
+              let s = try? JSONDecoder().decode(ModelDiscoveryState.self, from: data) else { return ModelDiscoveryState() }
+        return s
+    }
+
+    private func saveModelDiscovery() {
+        if let data = try? JSONEncoder().encode(modelDiscovery) {
+            UserDefaults.standard.set(data, forKey: Self.modelDiscoveryKey)
+        }
+    }
+
+    /// What Settings ▸ AI shows about the model in use: a newer Sonnet, or a
+    /// warning that this one is retiring or gone. Decided from the cached list. A
+    /// model that failed this session is never the candidate.
+    var modelOffer: ModelOffer? {
+        guard sopSettings.enabled else { return nil }
+        return SOPKit.modelOffer(listed: modelDiscovery.listed, complete: modelDiscovery.complete,
+                                 current: sopSettings.model, excluding: failedModels)
+    }
+
+    /// The same, minus what "Not now" hid — for the AI SOP panel, which should not
+    /// nag. Settings keeps showing it; that is where the choice is managed.
+    var panelModelOffer: ModelOffer? {
+        guard let o = modelOffer, !modelDiscovery.isDismissed(o) else { return nil }
+        return o
+    }
+
+    /// The Settings model picker. See `modelPickerChoices`.
+    var modelChoices: [ModelChoice] {
+        modelPickerChoices(inUse: sopSettings.discoveredModel, offered: modelOffer?.candidate,
+                           chosen: modelDiscovery.chosen, listed: modelDiscovery.listed, now: Date())
+    }
+
+    /// Display name for any model shotAI might mention.
+    func modelName(_ id: SopModelId) -> String {
+        if let o = SOP_MODELS.first(where: { $0.id == id }) { return o.name }
+        if let d = sopSettings.discoveredModel, d.id == id.rawValue { return d.displayName }
+        if let l = modelDiscovery.listed.first(where: { $0.id == id.rawValue }) { return l.displayName }
+        return id.rawValue
+    }
+
+    /// Switch models — from the picker, an offer, or the failure alert. Takes effect
+    /// for the next generation; nothing already generated changes. A model from the
+    /// list is remembered, so switching away from it does not lose it.
+    func chooseModel(_ choice: ModelChoice) {
+        switch choice {
+        case .builtIn(let id): sopSettings.selectModel(id)
+        case .discovered(let p):
+            sopSettings.selectModel(p)
+            modelDiscovery.noteChosen(p.id)
+            saveModelDiscovery()
+        }
+        saveSopSettings()
+    }
+
+    func chooseModel(id: SopModelId) {
+        guard let c = modelChoices.first(where: { $0.id == id }) else { return }
+        chooseModel(c)
+    }
+
+    /// "Not now" in the AI SOP panel.
+    func dismissModelOffer() {
+        guard let o = panelModelOffer else { return }
+        modelDiscovery.dismiss(o)
+        saveModelDiscovery()
+    }
+
+    /// The failure alert's "Use …" button. Any panel offer of the model that failed
+    /// (newer, or the replacement for a retiring one) is put away, so switching away
+    /// from it is not undone by a banner offering it back after a relaunch, when
+    /// `failedModels` has been forgotten.
+    func applyErrorModelSwitch() {
+        guard let sw = sopErrorModelSwitch else { return }
+        chooseModel(sw.to)
+        if sw.putsAwayItsOffer,
+           let o = SOPKit.modelOffer(listed: modelDiscovery.listed, complete: modelDiscovery.complete,
+                                     current: sopSettings.model),
+           o.candidate?.id == sw.from.rawValue {
+            modelDiscovery.dismiss(o)
+        }
+        saveModelDiscovery()
+        sopError = nil; sopErrorKind = nil; sopErrorModelSwitch = nil
+    }
+
+    /// Read Anthropic's model list when a day has passed since the last read.
+    /// Silent: only when AI is on and a credential is already available — it never
+    /// starts a sign-in — and a failure is retried in a few hours, not reported.
+    /// The call is free; it uses no tokens.
+    func checkModelsIfDue(busy: Bool = false) async {
+        guard sopSettings.enabled, hasCredential, !busy, modelCheckTask == nil,
+              modelDiscovery.isDue(at: Date()) else { return }
+        modelCheckGeneration += 1
+        let generation = modelCheckGeneration
+        let task = Task {
+            await runModelCheck()
+            // A check that was superseded must not clear the reference to the one
+            // that replaced it.
+            if modelCheckGeneration == generation { modelCheckTask = nil }
+        }
+        modelCheckTask = task
+        await task.value
+    }
+
+    private func runModelCheck() async {
+        do {
+            let result = try await sopService.listModels(settings: sopSettings)
+            // Cancelled (AI turned off, or the credential changed) or switched off
+            // while the request ran: this answer is not one to keep.
+            guard !Task.isCancelled, sopSettings.enabled else { return }
+            modelDiscovery.recordSuccess(result.models, complete: result.complete, at: Date())
+            Log.sop.notice("""
+                model list — \(result.models.count, privacy: .public) models, complete \(result.complete, privacy: .public), \
+                offer \(String(describing: self.modelOffer?.reason), privacy: .public)
+                """)
+        } catch let e as ClaudeError where Self.noRequestWasMade(e) {
+            // Nothing went over the network (signed out, no key, AI off, a broken
+            // sign-in configuration), so there is no failure to back off from; the
+            // next trigger tries again. An expired session or a missing app role
+            // is NOT here: finding that out costs an Entra round trip, and with a
+            // check on every app activation it must back off like any failure.
+            // Signing in again clears the backoff (`credentialChanged`).
+            return
+        } catch {
+            // A check stopped on purpose is not a failure: stay due. URLSession
+            // reports the cancel as a URLError, which arrives as `.connection`.
+            if Task.isCancelled || error is CancellationError { return }
+            modelDiscovery.recordFailure(at: Date())
+            Log.sop.notice("model list failed [\(String(describing: (error as? ClaudeError)?.kind), privacy: .public)]")
+        }
+        saveModelDiscovery()
+    }
+
+    /// The credential in use changed (a key added or cleared, a sign-in or
+    /// sign-out). Another account can see other models, so the cached list is
+    /// dropped and read again for this one, and a model that failed for the last
+    /// account may work for this one. The check is started, not awaited: the
+    /// caller (a sign-in from the error alert) clears its message at once rather
+    /// than after a network round trip, which could wipe a newer error.
+    private func credentialChanged() {
+        modelCheckTask?.cancel()
+        modelCheckTask = nil
+        failedModels = []
+        modelDiscovery.forgetListing()
+        saveModelDiscovery()
+        Task { await checkModelsIfDue() }
+    }
+
+    private static func noRequestWasMade(_ e: ClaudeError) -> Bool {
+        switch e.kind {
+        case .disabled, .noKey, .notSignedIn, .configInvalid: true
+        default: false
+        }
+    }
+
+    /// Where the failure alert should offer to go after `failed` failed. Judged
+    /// against the model the request USED — the setting may have changed while it
+    /// ran. A model fault also puts `failed` on this session's do-not-offer list.
+    private func modelSwitch(after error: Error, failed: SopModelId) -> ErrorModelSwitch? {
+        guard let e = error as? ClaudeError, e.isModelFault(builtInModel: failed.isBuiltIn) else { return nil }
+        failedModels.insert(failed.rawValue)
+        let projectsDoing: Bool = { if case .api(400, _) = e { true } else { false } }()
+        return errorSwitchTarget(failed: failed, listed: modelDiscovery.listed, complete: modelDiscovery.complete,
+                                 excluding: failedModels, now: Date())
+            .map { ErrorModelSwitch(to: $0, from: failed, putsAwayItsOffer: !projectsDoing) }
+    }
+
     // MARK: - App preferences (theme / byline / capture)
 
     /// Persisted app preferences (bound by Settings ▸ Appearance/Capture). Call
@@ -741,21 +941,53 @@ final class AppModel {
     /// Sign in from wherever the user hit the wall, then clear the message so they
     /// can retry without a detour through Settings.
     func signInFromError() async {
-        await auth.signIn()
+        await signIn()
+        if auth.isSignedIn { sopError = nil; sopErrorKind = nil; sopErrorModelSwitch = nil }
+    }
+
+    /// Sign in or out (Settings ▸ AI, and the sign-in offered where the user hit
+    /// the wall). Either can change which account's credential requests use.
+    func signIn(forceLogin: Bool = false) async {
+        let before = credentialStatus
+        await auth.signIn(forceLogin: forceLogin)
         await refreshAuthStatus()
-        if auth.isSignedIn { sopError = nil; sopErrorKind = nil }
+        // The status carries the account (and whether it has access), so signing
+        // in as someone else, or after IT granted access, counts. A cancelled
+        // sign-in or the same account again changes nothing, but is still a
+        // moment a due check can run.
+        if credentialStatus != before { credentialChanged() } else { Task { await checkModelsIfDue() } }
+    }
+
+    func signOut() async {
+        await auth.signOut()
+        await refreshAuthStatus()
+        credentialChanged()
     }
 
     /// Store the key (Keychain). Returns an error message, or nil on success. The
     /// key value never returns to the caller.
     @discardableResult func setApiKey(_ key: String) -> String? {
-        defer { refreshApiKeyStatus(); Task { await refreshAuthStatus() } }
-        do { try apiKeyStore.set(key); return nil } catch { return error.localizedDescription }
+        do {
+            try apiKeyStore.set(key)
+            refreshApiKeyStatus()
+            Task { await refreshAuthStatus(); credentialChanged() }
+            return nil
+        } catch {
+            refreshApiKeyStatus(); Task { await refreshAuthStatus() }
+            return error.localizedDescription
+        }
     }
 
     @discardableResult func clearApiKey() -> String? {
-        defer { refreshApiKeyStatus(); Task { await refreshAuthStatus() } }
-        do { try apiKeyStore.clear(); return nil } catch { return error.localizedDescription }
+        do {
+            try apiKeyStore.clear()
+            refreshApiKeyStatus()
+            Task { await refreshAuthStatus(); credentialChanged() }
+            return nil
+        } catch {
+            refreshApiKeyStatus(); Task { await refreshAuthStatus() }
+            return error.localizedDescription
+        }
     }
 
     /// Validate the key/model with a cheap call; returns a user-facing status line.
@@ -823,6 +1055,7 @@ final class AppModel {
         guard let current = opened, !sopBusy else { return }
         if let blocked = sopBlockedError {
             sopErrorKind = blocked.kind
+            sopErrorModelSwitch = nil
             sopError = blocked.errorDescription
             return
         }
@@ -841,7 +1074,8 @@ final class AppModel {
                 self.sopEstimate = est   // triggers the confirm dialog
             } catch {
                 self.finishSop(error: Task.isCancelled ? nil : error.localizedDescription,
-                               kind: (error as? ClaudeError)?.kind)
+                               kind: (error as? ClaudeError)?.kind,
+                               modelSwitch: self.modelSwitch(after: error, failed: SopService.requestModel(settings)))
             }
         }
     }
@@ -849,8 +1083,12 @@ final class AppModel {
     /// After the user confirms the estimate: stream the generation and apply it
     /// inline (snapshotting for revert). Cancelable via `cancelSop()`.
     func confirmGenerateSop() {
-        guard let current = opened, sopEstimate != nil, !sopBusy else { return }
+        guard let current = opened, let estimate = sopEstimate, !sopBusy else { return }
         sopEstimate = nil
+        // The tokens and price just approved were for `estimate.model`. Settings is
+        // a separate window, usable while the dialog is up; if the model changed
+        // there, estimate again so what runs is what was approved.
+        if SopService.requestModel(sopSettings) != estimate.model { prepareSop(); return }
         lastSopRun = nil
         sopBusy = true; generationInFlight = true; sopError = nil; sopIncompleteIds = []; sopProgress = "Preparing…"
         let dir = current.dir
@@ -874,6 +1112,7 @@ final class AppModel {
                 await self.refresh()
                 self.finishSop(error: nil)
                 self.sopIncompleteIds = plan.incompleteStepIds
+                self.failedModels.remove(SopService.requestModel(settings).rawValue)
                 Log.store.notice("""
                     SOP applied (\(plan.steps.count, privacy: .public) step edits, \
                     \(plan.incompleteStepIds.count, privacy: .public) incomplete)
@@ -881,17 +1120,18 @@ final class AppModel {
             } catch {
                 // A user cancel surfaces as a transport error; treat it as silent.
                 self.finishSop(error: Task.isCancelled ? nil : error.localizedDescription,
-                               kind: (error as? ClaudeError)?.kind)
+                               kind: (error as? ClaudeError)?.kind,
+                               modelSwitch: self.modelSwitch(after: error, failed: SopService.requestModel(settings)))
             }
         }
     }
 
-    private func finishSop(error: String?, kind: ClaudeError.Kind? = nil) {
+    private func finishSop(error: String?, kind: ClaudeError.Kind? = nil, modelSwitch: ErrorModelSwitch? = nil) {
         sopBusy = false
         generationInFlight = false
         sopProgress = nil
         sopTask = nil
-        if let error { sopError = error; sopErrorKind = kind }
+        if let error { sopError = error; sopErrorKind = kind; sopErrorModelSwitch = modelSwitch }
     }
 
     /// Cancel an in-flight generation.
@@ -910,6 +1150,7 @@ final class AppModel {
         sopProgress = nil
         sopEstimate = nil
         sopError = nil
+        sopErrorModelSwitch = nil
         sopIncompleteIds = []
     }
 
@@ -927,6 +1168,7 @@ final class AppModel {
             // The kind is cleared: a stale one from an earlier generation failure
             // titled this alert "Sign in to generate an SOP" and offered Sign In.
             sopErrorKind = nil
+            sopErrorModelSwitch = nil
             sopError = error.localizedDescription
         }
     }
@@ -945,6 +1187,7 @@ final class AppModel {
             await refresh()
         } catch {
             sopErrorKind = nil
+            sopErrorModelSwitch = nil
             sopError = error.localizedDescription
         }
     }

@@ -8,24 +8,50 @@ import ShotModel
 // from ShotModel (they're part of the project.json contract); the settings here
 // live in app preferences, not the manifest.
 
-/// Models offered for SOP generation — a curated allowlist so a bad id can't reach
+/// A Claude model id. Built-in models are constants here; a model found by
+/// discovery (ModelDiscovery.swift) is whatever id Anthropic's model list named.
+///
+/// An open type, no longer an enum, so a newer model can be chosen without a code
+/// change. The allowlist moved rather than went away: `SopSettings` only holds an
+/// id that is either built in (`MODEL_PARAMS`) or the discovered model the user
+/// chose, with the profile that shapes its request, so a bad id still can't reach
 /// the API. The Windows app (v1.3.0) still offers Sonnet 5 only; this is a
 /// deliberate divergence until it is updated.
-public enum SopModelId: String, Codable, Sendable, CaseIterable {
-    case sonnet55 = "claude-sonnet-5-5"
+public struct SopModelId: RawRepresentable, Hashable, Codable, Sendable {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+
+    public static let sonnet55 = SopModelId(rawValue: "claude-sonnet-5-5")
+
+    /// Known in code, with its price and request shape in `MODEL_PARAMS`.
+    public var isBuiltIn: Bool { MODEL_PARAMS[self] != nil }
+
+    public init(from decoder: Decoder) throws {
+        rawValue = try decoder.singleValueContainer().decode(String.self)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(rawValue)
+    }
 }
 
 public struct SopModelOption: Sendable {
     public let id: SopModelId
+    /// Short name for sentences ("newer than Sonnet 5.5").
+    public let name: String
     public let label: String
     public let blurb: String
 }
 
+/// Built-in models. Labels make no "latest" claim: with discovery, a newer model
+/// can appear in the list without this build changing.
 public let SOP_MODELS: [SopModelOption] = [
     SopModelOption(
         id: .sonnet55,
-        label: "Sonnet 5.5 — latest (recommended)",
-        blurb: "Anthropic’s latest Sonnet: capable, fast, and cost-effective."),
+        name: "Sonnet 5.5",
+        label: "Sonnet 5.5 — default",
+        blurb: "The model this version of shotAI was built and tested with: capable, fast, and cost-effective."),
 ]
 
 public let DEFAULT_SOP_MODEL: SopModelId = .sonnet55
@@ -74,7 +100,13 @@ public let SOP_CUSTOM_INSTRUCTIONS_MAX = 2000
 public struct SopSettings: Codable, Equatable, Sendable {
     /// Master switch for all Claude SOP features. Off ⇒ no Claude UI, no network.
     public var enabled: Bool
-    public var model: SopModelId
+    /// The model requests are made with. Changed only through `selectModel`, which
+    /// keeps it and `discoveredModel` consistent.
+    public private(set) var model: SopModelId
+    /// How to shape a request for `model` when it is not built in: captured from
+    /// Anthropic's model list when the user chose it. nil whenever `model` is
+    /// built in, so the two can never disagree.
+    public private(set) var discoveredModel: SopModelProfile?
     public var tone: SopTone
     public var effort: SopEffort
     /// Optional extra system-prompt guidance, appended verbatim (length-capped).
@@ -83,15 +115,37 @@ public struct SopSettings: Codable, Equatable, Sendable {
     public init(
         enabled: Bool = true,
         model: SopModelId = DEFAULT_SOP_MODEL,
+        discoveredModel: SopModelProfile? = nil,
         tone: SopTone = DEFAULT_SOP_TONE,
         effort: SopEffort = DEFAULT_SOP_EFFORT,
         customInstructions: String = ""
     ) {
         self.enabled = enabled
-        self.model = model
+        (self.model, self.discoveredModel) = Self.resolve(model: model, profile: discoveredModel)
         self.tone = tone
         self.effort = effort
         self.customInstructions = customInstructions
+    }
+
+    /// Switch to a built-in model.
+    public mutating func selectModel(_ id: SopModelId) {
+        (model, discoveredModel) = Self.resolve(model: id, profile: nil)
+    }
+
+    /// Switch to a model from Anthropic's list. A model this build has since learned
+    /// in code is taken as built in, so its known price and shape win.
+    public mutating func selectModel(_ profile: SopModelProfile) {
+        (model, discoveredModel) = Self.resolve(model: SopModelId(rawValue: profile.id), profile: profile)
+    }
+
+    /// The single rule for which model a settings value may hold: a built-in id, or
+    /// the id of a usable discovered profile. Anything else is the default — which
+    /// is how an id from an old settings file, a retired model, or a profile that
+    /// no longer validates can never reach a request.
+    static func resolve(model: SopModelId, profile: SopModelProfile?) -> (SopModelId, SopModelProfile?) {
+        if model.isBuiltIn { return (model, nil) }
+        if let profile, profile.id == model.rawValue, profile.isUsable { return (model, profile) }
+        return (DEFAULT_SOP_MODEL, nil)
     }
 
     /// Tolerant, field by field: a value this build does not recognise falls back to
@@ -108,7 +162,9 @@ public struct SopSettings: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = SopSettings()
         enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? d.enabled
-        model = (try? c.decode(String.self, forKey: .model)).flatMap(SopModelId.init(rawValue:)) ?? d.model
+        (model, discoveredModel) = Self.resolve(
+            model: (try? c.decode(String.self, forKey: .model)).map(SopModelId.init(rawValue:)) ?? d.model,
+            profile: (try? c.decodeIfPresent(SopModelProfile.self, forKey: .discoveredModel)) ?? nil)
         tone = (try? c.decode(String.self, forKey: .tone)).flatMap(SopTone.init(rawValue:)) ?? d.tone
         effort = (try? c.decode(String.self, forKey: .effort)).flatMap(SopEffort.init(rawValue:)) ?? d.effort
         customInstructions = String(
@@ -126,7 +182,9 @@ public func coerceSopSettings(_ raw: [String: Any]?, base: SopSettings = DEFAULT
     let r = raw ?? [:]
     var out = base
     if let v = r["enabled"] as? Bool { out.enabled = v }
-    if let s = r["model"] as? String, let m = SopModelId(rawValue: s) { out.model = m }
+    // Built-in models only: this mirrors the Windows coercion, which has no
+    // discovered models. Discovered ones round-trip through the Codable path.
+    if let s = r["model"] as? String, SopModelId(rawValue: s).isBuiltIn { out.selectModel(SopModelId(rawValue: s)) }
     if let s = r["tone"] as? String, let t = SopTone(rawValue: s) { out.tone = t }
     if let s = r["effort"] as? String, let e = SopEffort(rawValue: s) { out.effort = e }
     if let s = r["customInstructions"] as? String { out.customInstructions = String(s.prefix(SOP_CUSTOM_INSTRUCTIONS_MAX)) }

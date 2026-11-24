@@ -218,6 +218,28 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         }
     }
 
+    /// True when the model itself could be why this failed, so another model might
+    /// work: it is not available to this account (404), or, for a model shotAI was
+    /// not built with, the account may not use it (403) or it would not accept the
+    /// request (400).
+    ///
+    /// For a built-in model a 400 points at the project, since the request shape is
+    /// known good, and a 403 at the account: Anthropic documents a model an account
+    /// cannot use as 404, and 403 as an organization, workspace or region denial
+    /// that another model would not fix. The rare model-level 403 (an access grant
+    /// the account lacks) is most likely on a newly listed model, where going back
+    /// to the built-in default is safe. A refused SSO token exchange is
+    /// `.federationRefused`, never `.api`, so it cannot land here: no request had
+    /// named a model yet.
+    public func isModelFault(builtInModel: Bool) -> Bool {
+        switch self {
+        case .modelUnavailable: true
+        case .permissionDenied: !builtInModel
+        case .api(let status, _): status == 400 && !builtInModel
+        default: false
+        }
+    }
+
     /// True when retrying the same request could plausibly succeed.
     public var isRetryable: Bool {
         switch self {

@@ -68,10 +68,13 @@ extension ClaudeClient {
                                  retryAfter: head.retryAfter, shouldRetry: head.shouldRetry)
         guard head.status == 200 else {
             switch head.status {
-            case 401, 403: throw ClaudeError.federationRefused(failure)
             case 429: throw ClaudeError.rateLimited(failure)
             case 500...: throw ClaudeError.overloaded
-            default: throw ClaudeError.api(status: head.status, failure: failure)
+            // Every other refusal (401/403 by design, and a 400 for a malformed
+            // organization, workspace or service-account id) is a sign-in
+            // configuration problem for IT. Not `.api`: a 400 there would read as a
+            // model fault, and no request naming a model has been sent.
+            default: throw ClaudeError.federationRefused(failure)
             }
         }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
