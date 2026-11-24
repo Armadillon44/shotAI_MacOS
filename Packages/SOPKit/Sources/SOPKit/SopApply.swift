@@ -84,15 +84,31 @@ public func applySopEdits(
             manifest.intro = nil
         }
 
-        // Rebuild from the non-AI base (drop a prior run's inserts), matching the
-        // numbering the assembler showed Claude.
+        // Rebuild from the non-AI base (drop a prior run's inserts).
         let base = manifest.steps.filter { $0.aiInserted != true }
         let editByNum = effectiveEdits(plan)
+
+        // Look edits up by the step each number meant WHEN THE REQUEST WAS BUILT,
+        // not by where that step sits now. See `SopEditPlan.boundStepIds`.
+        let editFor: (Int, ProjectStep) -> SopStepEdit?
+        if let bound = plan.boundStepIds {
+            var byId: [String: SopStepEdit] = [:]
+            for (num, e) in editByNum { if let id = bound[num] { byId[id] = e } }
+            editFor = { _, step in byId[step.id] }
+            let then = bound.sorted { $0.key < $1.key }.map(\.value)
+            if then != base.map(\.id) {
+                // Not an error: binding by id is exactly what makes this safe.
+                // Recorded because it is the case that used to misplace text.
+                Log.sop.notice("apply: steps changed while generating; edits matched by step id")
+            }
+        } else {
+            editFor = { i, _ in editByNum[i + 1] }
+        }
 
         var next: [ProjectStep] = []
         for (i, step) in base.enumerated() {
             if step.kind == .text { next.append(step); continue }  // author text passes through
-            guard let e = editByNum[i + 1] else { next.append(step); continue }
+            guard let e = editFor(i, step) else { next.append(step); continue }
             if let sh = e.sectionHeading, !sh.isEmpty {
                 next.append(makeAISectionStep(heading: sh, body: e.sectionBody ?? ""))
             }
@@ -174,4 +190,29 @@ func effectiveEdits(_ plan: SopEditPlan) -> [Int: SopStepEdit] {
     var out: [Int: SopStepEdit] = [:]
     for e in plan.steps { out[e.stepNumber] = e }
     return out
+}
+
+/// The steps the request assembler shows Claude, with the number each is shown
+/// under: a prior run's AI inserts dropped, and author text blocks COUNTED, so the
+/// only screenshot in a [text, shot] project is number 2.
+///
+/// The guard, the binding and position-matched apply all number through this so
+/// they cannot disagree with one another. `RequestAssembler` numbers the same way
+/// inline; `testTheBindingMatchesTheNumbersTheAssemblerShows` pins the two together.
+func numberedBase(_ manifest: ProjectManifest) -> [(number: Int, step: ProjectStep)] {
+    manifest.steps.filter { $0.aiInserted != true }.enumerated().map { ($0.offset + 1, $0.element) }
+}
+
+/// `stepNumber` → step id for the manifest a request is being built from, or nil
+/// when the ids are not unique and so cannot each name one step. A hand-edited or
+/// foreign `project.json` can carry duplicates; matching by id there would write
+/// one edit onto several steps, so it falls back to position, the old behaviour.
+func stepNumberBinding(_ manifest: ProjectManifest) -> [Int: String]? {
+    let numbered = numberedBase(manifest)
+    let ids = numbered.map(\.step.id)
+    guard Set(ids).count == ids.count else {
+        Log.sop.error("binding: duplicate step ids in manifest; edits will be matched by position")
+        return nil
+    }
+    return Dictionary(uniqueKeysWithValues: numbered.map { ($0.number, $0.step.id) })
 }
