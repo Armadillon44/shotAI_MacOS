@@ -96,6 +96,15 @@ private struct AISettings: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 3) {
+                    Picker("Wording", selection: $model.sopSettings.wording) {
+                        ForEach(SOP_WORDINGS, id: \.id) { Text($0.label).tag($0.id) }
+                    }
+                    Text((SOP_WORDINGS.first { $0.id == model.sopSettings.wording }?.blurb ?? "")
+                         + " The Generate dialog starts here; each project then remembers its own choice.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                VStack(alignment: .leading, spacing: 3) {
                     Picker("Effort", selection: $model.sopSettings.effort) {
                         ForEach(SOP_EFFORTS, id: \.id) { Text($0.label).tag($0.id) }
                     }
@@ -173,11 +182,12 @@ private struct AISettings: View {
             .disabled(!model.sopSettings.enabled)
         }
         .formStyle(.grouped)
-        .onChange(of: model.sopSettings) {
-            // Cap custom instructions, then persist any change.
-            if model.sopSettings.customInstructions.count > SOP_CUSTOM_INSTRUCTIONS_MAX {
-                model.sopSettings.customInstructions = String(model.sopSettings.customInstructions.prefix(SOP_CUSTOM_INSTRUCTIONS_MAX))
-            }
+        .onChange(of: model.sopSettings) { old, new in
+            // Cap custom instructions at the edit, not the end of the text, then
+            // persist any change.
+            let capped = capTextEdit(old: old.customInstructions, new: new.customInstructions,
+                                     limit: SOP_CUSTOM_INSTRUCTIONS_MAX)
+            if capped != new.customInstructions { model.sopSettings.customInstructions = capped; NSSound.beep() }
             model.saveSopSettings()
         }
         .onAppear { model.refreshApiKeyStatus() }
