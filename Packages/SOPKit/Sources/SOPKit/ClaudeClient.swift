@@ -6,6 +6,10 @@ public enum SopProgress: Sendable, Equatable {
     case preparing
     case thinking
     case writing(chars: Int)
+    /// The numbering could not be trusted; the whole request is running again.
+    case retrying
+    /// Asking again for just these steps.
+    case repairing(steps: Int)
     case done
 }
 

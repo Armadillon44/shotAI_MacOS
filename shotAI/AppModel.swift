@@ -391,6 +391,17 @@ final class AppModel {
     var sopEstimate: SopEstimate?
     /// Surfaced by the report's alert.
     var sopError: String?
+    /// Steps the last generation could not fully write. Held as IDS, and the notice
+    /// is built from the live step order: numbers frozen at generation time pointed
+    /// at the wrong steps after a reorder, delete or insert. Any edit clears it.
+    var sopIncompleteIds: [String] = []
+    /// A generation that succeeded only in part, named by the numbers the REPORT
+    /// shows. Not an error — shown in the SOP panel, not as an alert.
+    var sopNotice: String? {
+        guard let steps = opened?.manifest.steps else { return nil }
+        let present = Set(steps.map(\.id))
+        return incompleteNotice(sopIncompleteIds.filter(present.contains), in: steps)
+    }
     /// Which kind of failure `sopError` describes, so the alert can title itself
     /// honestly and offer the action that would actually fix it. "SOP generation
     /// failed" is the wrong sentence when the user simply isn't signed in yet.
@@ -814,7 +825,7 @@ final class AppModel {
             sopError = blocked.errorDescription
             return
         }
-        sopBusy = true; sopError = nil; sopProgress = "Preparing…"
+        sopBusy = true; sopError = nil; sopIncompleteIds = []; sopProgress = "Preparing…"
         let dir = current.dir
         let manifest = current.manifest
         let settings = sopSettings
@@ -839,7 +850,7 @@ final class AppModel {
     func confirmGenerateSop() {
         guard let current = opened, sopEstimate != nil, !sopBusy else { return }
         sopEstimate = nil
-        sopBusy = true; generationInFlight = true; sopError = nil; sopProgress = "Preparing…"
+        sopBusy = true; generationInFlight = true; sopError = nil; sopIncompleteIds = []; sopProgress = "Preparing…"
         let dir = current.dir
         let path = selectedPath ?? current.dir
         let manifest = current.manifest
@@ -859,7 +870,11 @@ final class AppModel {
                 await self.reloadOpened()
                 await self.refresh()
                 self.finishSop(error: nil)
-                Log.store.notice("SOP generated (\(plan.steps.count, privacy: .public) step edits)")
+                self.sopIncompleteIds = plan.incompleteStepIds
+                Log.store.notice("""
+                    SOP applied (\(plan.steps.count, privacy: .public) step edits, \
+                    \(plan.incompleteStepIds.count, privacy: .public) incomplete)
+                    """)
             } catch {
                 // A user cancel surfaces as a transport error; treat it as silent.
                 self.finishSop(error: Task.isCancelled ? nil : error.localizedDescription,
@@ -892,6 +907,7 @@ final class AppModel {
         sopProgress = nil
         sopEstimate = nil
         sopError = nil
+        sopIncompleteIds = []
     }
 
     /// Restore the pre-AI snapshot (Revert AI edits).
@@ -914,6 +930,8 @@ final class AppModel {
         case .preparing: "Preparing…"
         case .thinking: "Claude is thinking…"
         case .writing(let chars): "Writing the SOP… (\(chars) characters)"
+        case .retrying: "Checking the step numbering again…"
+        case .repairing(let n): n == 1 ? "Filling in 1 step…" : "Filling in \(n) steps…"
         case .done: "Finishing…"
         }
     }
@@ -1236,6 +1254,7 @@ final class AppModel {
 
     private func afterEdit() async {
         lastMerge = nil       // any normal edit invalidates a pending merge-undo
+        sopIncompleteIds = [] // …and a partial-generation notice, which may no longer be true
         await reloadOnly()
     }
 
