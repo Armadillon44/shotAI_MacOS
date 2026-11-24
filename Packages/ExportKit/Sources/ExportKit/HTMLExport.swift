@@ -95,7 +95,7 @@ private func htmlImageSizeAttributes(_ bytes: Data, maxWidth: Int) -> String {
 }
 
 /// The image's pixel dimensions, read from its metadata without decoding pixels.
-private func imagePixelDimensions(_ data: Data) -> (w: Int, h: Int)? {
+func imagePixelDimensions(_ data: Data) -> (w: Int, h: Int)? {
     guard let src = CGImageSourceCreateWithData(data as CFData, nil),
           let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
           let w = props[kCGImagePropertyPixelWidth] as? Int,

@@ -541,6 +541,20 @@ public actor ProjectStore {
         return try mutate(at: projectPath) { $0.theme = next }
     }
 
+    /// Set the project's screenshot frame, or nil for none (which removes the
+    /// key). Guarded like `setTheme`: a write re-dates the project, so an
+    /// unchanged value writes nothing. Compares the raw stored string, so
+    /// replacing a value this build cannot parse with a real frame is a change.
+    ///
+    /// Returns nil when nothing was written.
+    public func setShotFrame(at projectPath: String, _ frame: ShotFrame?) throws -> ProjectManifest? {
+        let next = frame?.rawValue
+        let current = try openProject(at: projectPath).manifest.shotFrame
+        guard next != current else { return nil }
+        Log.store.info("setShotFrame -> \(next ?? "none", privacy: .public)")
+        return try mutate(at: projectPath) { $0.shotFrame = next }
+    }
+
     /// Convert a text step between plain text and a callout by setting (a kind) or
     /// clearing (nil) its `callout`. Unlike `editStepText`, nil here CLEARS the
     /// callout (→ plain text). Only text steps qualify — a shot step is left
