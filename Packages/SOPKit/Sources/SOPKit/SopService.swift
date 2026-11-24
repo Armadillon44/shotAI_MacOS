@@ -89,10 +89,11 @@ public struct SopService: Sendable {
     }
 
     /// Estimate input tokens + cost for generating this project's SOP.
-    public func estimate(dir: String, manifest: ProjectManifest, settings: SopSettings) async throws -> SopEstimate {
+    public func estimate(dir: String, manifest: ProjectManifest, settings: SopSettings,
+                         run: SopRun? = nil) async throws -> SopEstimate {
         guard settings.enabled else { throw ClaudeError.disabled }
         let cred = try await credential()
-        let assembled = try assembleRequest(dir: dir, manifest: manifest, settings: settings)
+        let assembled = try assembleRequest(dir: dir, manifest: manifest, settings: settings, run: run)
         let (model, p) = Self.resolvedModel(settings)
         let inputTokens = try await client.countTokens(
             credential: cred, model: model, system: assembled.system, messages: assembled.messages)
@@ -107,7 +108,7 @@ public struct SopService: Sendable {
     /// validated inline edit plan (the caller applies it via the store). Progress
     /// arrives via `onProgress`.
     public func generate(
-        dir: String, manifest: ProjectManifest, settings: SopSettings,
+        dir: String, manifest: ProjectManifest, settings: SopSettings, run: SopRun? = nil,
         onProgress: @Sendable (SopProgress) -> Void = { _ in }
     ) async throws -> SopEditPlan {
         guard settings.enabled else { throw ClaudeError.disabled }
@@ -116,7 +117,7 @@ public struct SopService: Sendable {
         // resolves it again (see streamWithRetry); the provider caches it.
         _ = try await credential()
         onProgress(.preparing)
-        let assembled = try assembleRequest(dir: dir, manifest: manifest, settings: settings)
+        let assembled = try assembleRequest(dir: dir, manifest: manifest, settings: settings, run: run)
         let (model, p) = Self.resolvedModel(settings)
 
         var outputConfig: [String: Any] = [

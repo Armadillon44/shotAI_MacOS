@@ -92,6 +92,57 @@ public let SOP_TONES: [SopToneOption] = [
 
 public let DEFAULT_SOP_TONE: SopTone = .professional
 
+/// UI copy for the wording picker (the `SopWording` enum itself lives in ShotModel,
+/// because the Generate dialog's last choice is stored in project.json).
+public struct SopWordingOption: Sendable {
+    public let id: SopWording
+    public let label: String
+    public let blurb: String
+}
+
+public let SOP_WORDINGS: [SopWordingOption] = [
+    SopWordingOption(id: .specific, label: "Specific",
+                     blurb: "Names the apps, buttons and values shown in the screenshots."),
+    SopWordingOption(id: .general, label: "General",
+                     blurb: "Describes each action in general terms, like \u{201C}open the app\u{201D} or \u{201C}choose the appropriate setting\u{201D}. Text and callouts you wrote keep their specifics."),
+]
+
+public let DEFAULT_SOP_WORDING: SopWording = .specific
+
+/// The Generate dialog's choices for one run: the wording, and instructions for this
+/// SOP only. Remembered per project as `SopRunOptions` (project.json).
+public struct SopRun: Sendable, Equatable {
+    public var wording: SopWording
+    public var instructions: String
+
+    public init(wording: SopWording = DEFAULT_SOP_WORDING, instructions: String = "") {
+        self.wording = wording
+        self.instructions = String(instructions.prefix(SOP_RUN_INSTRUCTIONS_MAX))
+    }
+
+    /// No dialog choices: the Settings wording, no instructions.
+    public init(settings: SopSettings) {
+        self.init(wording: settings.wording)
+    }
+
+    /// Where the Generate dialog starts for a project: its remembered choices, with
+    /// Settings filling in a wording that was never chosen (or that this build does
+    /// not know).
+    public init(remembered: SopRunOptions?, settings: SopSettings) {
+        self.init(wording: remembered?.wordingChoice ?? settings.wording,
+                  instructions: remembered?.instructions ?? "")
+    }
+
+    /// What to remember: the explicit wording (the default included) and the
+    /// instructions, keeping any fields a newer build stored alongside them.
+    public func remembered(over existing: SopRunOptions?) -> SopRunOptions {
+        var o = existing ?? SopRunOptions()
+        o.wording = wording.rawValue
+        o.instructions = String(instructions.prefix(SOP_RUN_INSTRUCTIONS_MAX))
+        return o
+    }
+}
+
 /// Cap on the optional free-text custom instructions appended to the system prompt.
 public let SOP_CUSTOM_INSTRUCTIONS_MAX = 2000
 
@@ -109,6 +160,9 @@ public struct SopSettings: Codable, Equatable, Sendable {
     public private(set) var discoveredModel: SopModelProfile?
     public var tone: SopTone
     public var effort: SopEffort
+    /// The wording the Generate dialog starts from for a project that has no
+    /// remembered choice of its own.
+    public var wording: SopWording
     /// Optional extra system-prompt guidance, appended verbatim (length-capped).
     public var customInstructions: String
 
@@ -118,12 +172,14 @@ public struct SopSettings: Codable, Equatable, Sendable {
         discoveredModel: SopModelProfile? = nil,
         tone: SopTone = DEFAULT_SOP_TONE,
         effort: SopEffort = DEFAULT_SOP_EFFORT,
+        wording: SopWording = DEFAULT_SOP_WORDING,
         customInstructions: String = ""
     ) {
         self.enabled = enabled
         (self.model, self.discoveredModel) = Self.resolve(model: model, profile: discoveredModel)
         self.tone = tone
         self.effort = effort
+        self.wording = wording
         self.customInstructions = customInstructions
     }
 
@@ -167,6 +223,7 @@ public struct SopSettings: Codable, Equatable, Sendable {
             profile: (try? c.decodeIfPresent(SopModelProfile.self, forKey: .discoveredModel)) ?? nil)
         tone = (try? c.decode(String.self, forKey: .tone)).flatMap(SopTone.init(rawValue:)) ?? d.tone
         effort = (try? c.decode(String.self, forKey: .effort)).flatMap(SopEffort.init(rawValue:)) ?? d.effort
+        wording = (try? c.decode(String.self, forKey: .wording)).flatMap(SopWording.init(rawValue:)) ?? d.wording
         customInstructions = String(
             ((try? c.decode(String.self, forKey: .customInstructions)) ?? d.customInstructions)
                 .prefix(SOP_CUSTOM_INSTRUCTIONS_MAX))

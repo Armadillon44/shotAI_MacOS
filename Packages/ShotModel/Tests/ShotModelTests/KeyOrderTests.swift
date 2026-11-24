@@ -49,6 +49,9 @@ struct KeyOrderTests {
         m.displayScale = 0.8
         m.introEditedByUser = true
         m.intro = SopIntro(heading: "H", body: "B")
+        m.sopRunOptions = SopRunOptions(wording: .general, instructions: "I",
+                                        extra: ["zz": .string("z"), "aa": .string("a")])
+        m.sopTitleRewrite = "T"
         m.extra = ["zzFutureKey": .string("v"), "aaFutureKey": .string("w")]
         m.steps = [ProjectStep(id: "s1", order: 1, kind: .shot,
                                screenshot: "shots/1.png", trigger: .hotkey)]
