@@ -147,6 +147,9 @@ private func applyPlan(_ plan: SopEditPlan, to manifest: inout ProjectManifest, 
         manifest.intro = nil
     }
 
+    // Records made stale by an edit on any build (Windows never prunes) are
+    // dropped first; see pruneStaleSopRewrite.
+    for i in manifest.steps.indices { manifest.steps[i].pruneStaleSopRewrite() }
     // Rebuild from the non-AI base (drop a prior run's inserts).
     let base = manifest.steps.filter { $0.aiInserted != true }
     let editByNum = effectiveEdits(plan)
@@ -170,8 +173,43 @@ private func applyPlan(_ plan: SopEditPlan, to manifest: inout ProjectManifest, 
 
     var next: [ProjectStep] = []
     for (i, step) in base.enumerated() {
-        if step.kind == .text { next.append(step); continue }  // author text passes through
         guard let e = editFor(i, step) else { next.append(step); continue }
+        if step.kind == .text {
+            // The whole SOP is written, author blocks included (Dylan, 2026-09-23).
+            // Only heading and body change: the callout KIND (note, caution,
+            // warning, section) is the author's decision and is never touched. An
+            // empty field means "leave that part as written", so a callout with no
+            // heading stays without one. Filler has already been withheld by
+            // sanitize, so what reaches here is real text or nothing.
+            //
+            // A field is rewritten only where the AUTHOR wrote something in it: an
+            // author block is reworded, never added to. A callout with no heading
+            // keeps none, and an empty body stays empty.
+            //
+            // What was written, and the author's words it was written from, are
+            // recorded field by field in `sopRewrite`. That record — not a flag — is
+            // what lets the next run be fed the author's words rather than this
+            // rewrite, and lets Revert give them back.
+            let srcH = step.authorHeading, srcB = step.authorBody
+            let h = e.caption.trimmingCharacters(in: .whitespacesAndNewlines)
+            let b = e.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Trimmed: a heading that is only a space (a click into the field and out
+            // again commits one) is empty, not something the author wrote.
+            let blank = { (s: String?) in (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            let writeH = !h.isEmpty && !blank(srcH)
+            let writeB = !b.isEmpty && !blank(srcB)
+            if let sh = e.sectionHeading, !sh.isEmpty, step.callout != .section {
+                next.append(makeAISectionStep(heading: sh, body: e.sectionBody ?? ""))
+            }
+            guard writeH || writeB else { next.append(step); continue }
+            var edited = step
+            if writeH { edited.heading = h }
+            if writeB { edited.body = b }
+            edited.sopRewrite = SopTextRewrite(
+                heading: edited.heading, body: edited.body, sourceHeading: srcH, sourceBody: srcB)
+            next.append(edited)
+            continue
+        }
         if let sh = e.sectionHeading, !sh.isEmpty {
             next.append(makeAISectionStep(heading: sh, body: e.sectionBody ?? ""))
         }
@@ -217,7 +255,17 @@ public func revertSop(store: ProjectStore, projectPath: String) async throws -> 
         var next: [ProjectStep] = []
         for step in manifest.steps {
             if step.aiInserted == true { continue }                 // drop AI-inserted intro/sections
-            if step.kind != .text, let original = originalById[step.id] {
+            if step.kind == .text {
+                // An author block goes back to the AUTHOR's words: whatever they last
+                // wrote in each field, not a snapshot from before the first
+                // generation. That covers a block added after that snapshot (which is
+                // in no backup), and never discards an edit the author made since.
+                var restored = step
+                restored.heading = step.authorHeading
+                restored.body = step.authorBody
+                restored.sopRewrite = nil
+                next.append(restored)
+            } else if let original = originalById[step.id] {
                 // Restore only what generation writes, on the only steps it writes to:
                 // screenshots. Author text blocks pass through generation untouched,
                 // so reverting their body while keeping their heading (as a first
@@ -292,4 +340,19 @@ func stepNumberBinding(_ manifest: ProjectManifest) -> [Int: String]? {
         return nil
     }
     return Dictionary(uniqueKeysWithValues: numbered.map { ($0.number, $0.step.id) })
+}
+
+extension ProjectStep {
+    /// The author's own heading for this block: where it still shows exactly what
+    /// generation last wrote, the words that was written from; otherwise what it shows
+    /// now, because someone — on any build — changed it. See `sopRewrite`.
+    var authorHeading: String? {
+        guard let r = sopRewrite, let wrote = r.heading, (heading ?? "") == wrote else { return heading }
+        return r.sourceHeading
+    }
+    /// The same for the body.
+    var authorBody: String? {
+        guard let r = sopRewrite, let wrote = r.body, (body ?? "") == wrote else { return body }
+        return r.sourceBody
+    }
 }

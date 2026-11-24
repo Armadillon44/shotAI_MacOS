@@ -124,6 +124,11 @@ public struct SopStepEdit: Sendable, Equatable {
     /// If set, insert a section-heading text step immediately BEFORE this step.
     public let sectionHeading: String?
     public let sectionBody: String?
+    /// The kind of block the model declared it was writing for: "screenshot" or
+    /// "text". Checked against the block's real kind, which is what keeps
+    /// renumbering detectable now that every block's number is writable. For a text
+    /// block, `caption` carries the block's heading.
+    public var kind: String? = nil
     // NOTE: no `note` field — the SOP generator no longer writes the step's
     // legacy `note` (it has no editor in the report, so AI-written notes were
     // uneditable). The existing `note` is preserved as-is on apply.
