@@ -6,28 +6,33 @@ import Foundation
 // constraints; every object closed with additionalProperties:false and lists all
 // keys in `required`; nullables via anyOf). Mirrors SopEditSchema in claude-service.ts.
 
-private func nullable(_ inner: [String: Any]) -> [String: Any] {
-    ["anyOf": [inner, ["type": "null"]]]
+private func nullable(_ inner: Any) -> OrderedObject {
+    OrderedObject(["anyOf": [inner, OrderedObject(["type": "null"])]])
 }
 
 /// The `output_config.format.schema` for the inline SOP edit plan. A function
 /// (not a global `let`) so it builds a fresh value — no shared mutable global.
-func sopEditJSONSchema() -> [String: Any] { [
+///
+/// Built from `OrderedObject`, not a dictionary: Claude writes properties in the
+/// order declared here, so the order is part of the instruction. `stepNumber` comes
+/// FIRST in each step, so the model commits to which screenshot it is writing for
+/// before it writes the text; `title`, then `intro`, then `steps` at the root.
+func sopEditJSONSchema() -> OrderedObject { OrderedObject([
     "type": "object",
     "additionalProperties": false,
     "required": ["title", "intro", "steps"],
-    "properties": [
-        "title": ["type": "string"],
-        "intro": nullable([
+    "properties": OrderedObject([
+        "title": OrderedObject(["type": "string"]),
+        "intro": nullable(OrderedObject([
             "type": "object",
             "additionalProperties": false,
             "required": ["heading", "body"],
-            "properties": [
-                "heading": ["type": "string"],
-                "body": ["type": "string"],
-            ],
-        ]),
-        "steps": [
+            "properties": OrderedObject([
+                "heading": OrderedObject(["type": "string"]),
+                "body": OrderedObject(["type": "string"]),
+            ]),
+        ])),
+        "steps": OrderedObject([
             "type": "array",
             // Constrained decoding cannot emit an empty array, so "the model
             // returned no steps" — by far the most common generation failure —
@@ -39,21 +44,21 @@ func sopEditJSONSchema() -> [String: Any] { [
             // an unsupported keyword: one would 400 every request. Do not add
             // range or length constraints to this schema.
             "minItems": 1,
-            "items": [
+            "items": OrderedObject([
                 "type": "object",
                 "additionalProperties": false,
                 "required": ["stepNumber", "caption", "body", "sectionHeading", "sectionBody"],
-                "properties": [
-                    "stepNumber": ["type": "integer"],
-                    "caption": ["type": "string"],
-                    "body": ["type": "string"],
-                    "sectionHeading": nullable(["type": "string"]),
-                    "sectionBody": nullable(["type": "string"]),
-                ],
-            ],
-        ],
-    ],
-] }
+                "properties": OrderedObject([
+                    "stepNumber": OrderedObject(["type": "integer"]),
+                    "caption": OrderedObject(["type": "string"]),
+                    "body": OrderedObject(["type": "string"]),
+                    "sectionHeading": nullable(OrderedObject(["type": "string"])),
+                    "sectionBody": nullable(OrderedObject(["type": "string"])),
+                ]),
+            ]),
+        ]),
+    ]),
+]) }
 
 /// Decoded structured output. Mapped to `SopEditPlan` after validation.
 struct SopEditRaw: Decodable {

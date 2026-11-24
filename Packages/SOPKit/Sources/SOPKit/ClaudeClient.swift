@@ -126,7 +126,7 @@ public struct ClaudeClient: Sendable {
         req.setValue(Self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         if let jsonBody {
-            req.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
+            req.httpBody = try RequestJSON.data(jsonBody)  // deterministic; see OrderedObject
         }
         return req
     }

@@ -16,13 +16,15 @@ final class UnderproductionTests: XCTestCase {
     /// the fact by `SopService`'s `wroteAnyStep` guard. Constrained decoding
     /// cannot emit an empty array with this set.
     func testStepsCannotBeEmpty() {
-        let schema = sopEditJSONSchema()
+        let schema = plainJSON(sopEditJSONSchema()) as! [String: Any]
         let steps = schema["properties"].flatMap { ($0 as? [String: Any])?["steps"] as? [String: Any] }
         XCTAssertEqual(steps?["minItems"] as? Int, 1, "steps must declare minItems: 1")
     }
 
     /// The API accepts ONLY 0 and 1 for `minItems`, and rejects `minLength`,
-    /// `maxItems`, `minimum`/`maximum` and `pattern` outright. shotAI speaks to
+    /// `maxItems` and `minimum`/`maximum` outright. `pattern` is documented as
+    /// SUPPORTED (simple regex) and stays banned here only until a live request
+    /// confirms it compiles, since an unsupported keyword would 400 every request. shotAI speaks to
     /// the API directly with no SDK, so there is no client-side transform to
     /// strip an unsupported keyword — one would 400 every request rather than
     /// being quietly dropped. This walks the whole schema rather than the one
@@ -44,7 +46,7 @@ final class UnderproductionTests: XCTestCase {
             }
             for (k, v) in dict { walk(v, path: "\(path).\(k)") }
         }
-        walk(sopEditJSONSchema(), path: "root")
+        walk(plainJSON(sopEditJSONSchema()), path: "root")
         XCTAssertTrue(found.isEmpty, "unsupported schema keywords would 400 the request: \(found)")
     }
 
