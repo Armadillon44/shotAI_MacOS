@@ -368,6 +368,7 @@ struct ContentView: View {
                     .help("Back to all projects")
             }
             ToolbarItem(placement: .primaryAction) { DocScaleControl() }
+            ToolbarItem(placement: .primaryAction) { FrameMenu() }
             ToolbarItem(placement: .primaryAction) { reportExportMenu }
         } else {
             // Home (project list): open a project, import a package, refresh.
