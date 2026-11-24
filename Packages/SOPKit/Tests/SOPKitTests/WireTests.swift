@@ -345,7 +345,7 @@ final class SopServiceTests: XCTestCase {
         let est = try await svc.estimate(dir: dir, manifest: m, settings: SopSettings())
         XCTAssertEqual(est.inputTokens, 1_000_000)
         // Sonnet 5.5 list price (same as Sonnet 5): 1M input @ $2/MTok = $2.00; + 2500 output @ $10/MTok = $0.025.
-        XCTAssertEqual(est.estCostUsd, 2.0 + 2500.0 / 1e6 * 10, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(est.estCostUsd), 2.0 + 2500.0 / 1e6 * 10, accuracy: 0.0001)
     }
 
     func testGenerateRejectsUnderProducedPlan() async throws {
@@ -478,6 +478,26 @@ final class FederatedAuthTests: XCTestCase {
         } catch {
             XCTAssertEqual((error as? ClaudeError)?.kind, .federationRefused)
             XCTAssertTrue(error.localizedDescription.contains("req_zz"))
+        }
+    }
+
+    /// Any refusal of the exchange, a 400 for a malformed organization or workspace
+    /// id included, is a sign-in problem for IT. It used to surface as `.api(400)`,
+    /// which on a model from the list read as the model's fault and offered a
+    /// switch that could not help: no request had named a model yet.
+    func testEveryRefusedExchangeIsASignInProblem() async {
+        for status in [400, 401, 403, 404, 409, 422] {
+            let c = ClaudeClient(transport: MockTransport(dataHandler: { _ in
+                (Data(#"{"error":{"message":"invalid_request"}}"#.utf8), ResponseHead(status: status))
+            }))
+            do {
+                _ = try await c.exchangeFederatedToken(assertion: "jwt", ids: ids)
+                XCTFail("expected throw for \(status)")
+            } catch {
+                let e = error as? ClaudeError
+                XCTAssertEqual(e?.kind, .federationRefused, "\(status)")
+                XCTAssertEqual(e?.isModelFault(builtInModel: false), false, "\(status)")
+            }
         }
     }
 
