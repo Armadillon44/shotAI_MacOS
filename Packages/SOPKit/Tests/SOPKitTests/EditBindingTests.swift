@@ -51,7 +51,7 @@ final class EditBindingTests: XCTestCase {
     }
 
     private func apply(_ store: ProjectStore, _ path: String, _ plan: SopEditPlan) async throws {
-        try await applySopEdits(store: store, projectPath: path, plan: plan, model: .sonnet5, tone: .professional)
+        try await applySopEdits(store: store, projectPath: path, plan: plan, model: .sonnet55, tone: .professional)
     }
 
     func testDraggingAStepWhileGeneratingKeepsEveryCaptionOnItsStep() async throws {

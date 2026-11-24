@@ -261,7 +261,10 @@ It sits under **Advanced** because sign-in is the normal route where it exists, 
 the key path is deprecated. It stays available precisely so it can be used when sign-in
 itself is what's broken. If you have both, the signed-in session wins.
 
-shotAI uses **Claude Sonnet 5** (`claude-sonnet-5`) by default. The **tone**
+shotAI uses **Claude Sonnet 5.5** (`claude-sonnet-5-5`) by default. Settings saved by an
+earlier version that named Sonnet 5 move to Sonnet 5.5 on their own; nothing else in them
+changes. If Sonnet 5.5's safety screening declines a request as cybersecurity-related, which
+can happen with legitimate IT procedures, it is rerun on Sonnet 5 automatically. The **tone**
 (Professional / Friendly / Concise / Detailed — Professional by default) and **effort**
 (Low / Medium / High — Medium by default) are configurable, plus optional free-text custom
 instructions. With no key, capture, editing, redaction, and export all still work — only

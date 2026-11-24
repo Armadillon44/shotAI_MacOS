@@ -13,7 +13,7 @@ final class UndoRevertTests: XCTestCase {
         })
     }
     private func apply(_ s: ProjectStore, _ p: String, _ pl: SopEditPlan) async throws -> SopRunUndo {
-        try await applySopEditsUndoable(store: s, projectPath: p, plan: pl, model: .sonnet5, tone: .professional).undo
+        try await applySopEditsUndoable(store: s, projectPath: p, plan: pl, model: .sonnet55, tone: .professional).undo
     }
     private func captions(_ s: ProjectStore, _ p: String) async throws -> [String] {
         try await s.openProject(at: p).manifest.steps.map(\.caption)
