@@ -282,7 +282,7 @@ public enum ClaudeError: Error, LocalizedError, Equatable {
         case .incomplete(let wroteNothing):
             wroteNothing
                 ? "Claude returned an incomplete SOP — no step instructions were written. Try again, and consider raising Effort (Settings ▸ AI) — low effort sometimes under-produces."
-                : "Claude wrote instructions, but numbered them for steps this guide doesn't have, so none could be applied. Try again — raising Effort won't help with this one."
+                : "Claude wrote instructions but numbered the steps inconsistently, twice, so nothing was applied rather than risk putting text on the wrong steps. Try again — raising Effort won't help with this one."
         case .api(let status, let f): (f.message ?? "API error (\(status)).") + f.idSuffix
         }
     }
