@@ -83,6 +83,12 @@ byte-compatible, so projects **round-trip between platforms**.
    the whole guide — drag the slider, type a percentage, or nudge it with ↑/↓ — so dense
    screenshots get more room and short ones read tighter. It's stored in the project, so it
    travels with a `.zip` package and round-trips with the Windows app.
+   A per-project **screenshot frame** (Original, 1:1, 5:4, 4:3, 3:2 or 16:9, also in the
+   report toolbar) shows every step's image in a frame of that shape and the same size: zoom 1
+   shows the whole image, the next zoom fills the frame, and each image starts centred on its
+   click. Zoom and drag place an image in its frame; the screenshot itself is never changed,
+   and Claude still reads the full image. The Windows app has not adopted the frame yet and
+   shows those projects unframed.
 
 3. **Generate the SOP (optional).** With **your own** Anthropic API key — or, where your
    organization has configured it, a **single sign-on** with your work account and no key at
@@ -97,8 +103,9 @@ byte-compatible, so projects **round-trip between platforms**.
    every step as its own card — the same visual step separation you see in the report.
    Markdown lands as a self-contained **`<name>/` folder** (the `.md` plus its `images/`).
    Or export a shareable **`.zip` package** that another shotAI user (macOS or Windows) can
-   **import** and keep editing. The report and every export render at the **same width**, so
-   what you see is what you send.
+   **import** and keep editing. The report and every export render at the **same width**, and
+   a framed project exports each step framed as the report shows it, so what you see is what
+   you send.
 
 5. **Manage.** The Home screen lists projects with **search**, sort, and **date grouping**,
    a **Draft / SOP-ready** status chip, and **multi-select** for bulk **archive / export /
